@@ -1,6 +1,6 @@
 ---
 name: codex-like-app-design
-description: Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. Use for workbench shells, home launchers, thread/task views, composers, command/search interactions, settings, side or bottom panels, component systems, responsive desktop behavior, keyboard and focus contracts, persistent long-running work, or source-accurate reproduction of covered Codex UI patterns.
+description: Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. Use for workbench shells, home launchers, thread/task views, intermediate progress timelines, task summaries, composers, command/search interactions, settings, side or bottom panels, component systems, responsive desktop behavior, keyboard and focus contracts, persistent long-running work, or source-accurate reproduction of covered Codex UI patterns.
 ---
 
 # Codex-like App Design
@@ -15,6 +15,7 @@ Treat continuity as the through-line. A Codex-style workbench succeeds when user
 2. What is active, queued, blocked, or waiting for approval?
 3. What context will travel with the next action?
 4. How can I stop, redirect, resume, or recover without losing state?
+5. What changed, what was verified, and what remains unresolved?
 
 Serve four human needs:
 
@@ -43,7 +44,7 @@ For exact reproduction, load `references/source-map.md` and verify the observed 
 
 ### 1. Start From Work Objects
 
-Identify the real objects before choosing layout: project, thread, task, artifact, file, browser tab, terminal, review, connector, setting, account, or environment.
+Identify the real objects before choosing layout: project, thread, task, step, result, evidence, summary, artifact, file, browser tab, terminal, review, connector, setting, account, or environment.
 
 Give each object only the state its behavior requires:
 
@@ -89,7 +90,7 @@ Choose one path before loading references:
 
 ## Surface Router
 
-- **Primary workbench** — use sidebar, main work, and composer. Add right or bottom panels only when their work objects exist.
+- **Primary workbench** — use sidebar, progress/result timeline, main work, and composer. Add right or bottom panels only when their work objects exist.
 - **Home/start** — center the composer as the launch action; show project/host context and compact suggestions.
 - **Settings** — use grouped navigation, search, optional host scope, focused forms, inline validation, and a reliable return route.
 - **Utility** — keep only the command, picker, confirmation, import, or setup flow required for the decision.
@@ -108,7 +109,7 @@ Add zones by capability trigger:
 2. **Name the work objects** — define identity, status, actions, ownership, loading/error boundaries, and persistence needs.
 3. **Choose the minimum zones** — map each required object to navigation, main work, composer, right panel, bottom panel, toolbar, or status area.
 4. **Reuse before creating** — reuse project primitives and installed dependencies. Add a primitive only after a real surface proves it is missing.
-5. **Define behavior before styling** — specify state, event, guard, effect, persistence, focus return, and responsive change.
+5. **Define behavior before styling** — specify state, event, guard, effect, persistence, focus return, intermediate-step updates, task-summary fields, and responsive change.
 6. **Implement the complete primary flow** — include only relevant empty, loading, disabled, running, approval, error, and recovery states.
 7. **Verify with real data** — test long paths, long titles, 0/1/10/100+ rows as relevant, remote/local hosts, narrow windows, dark mode, keyboard-only use, and reduced motion.
 
@@ -119,6 +120,7 @@ Load only the files required by the chosen path:
 - Core capability coverage and exclusions: `references/mature-capability-map.md`
 - Shell, responsive layout, sidebar, tabs, and panels: `references/shell-layout.md`
 - Composer, keyboard, search, drag/drop, menus, and long-running work: `references/interaction-patterns.md`
+- Intermediate steps, result hierarchy, streaming, and task summaries: `references/task-progress-summary.md`
 - Component contracts and exact API shapes: `references/component-system.md`
 - Density, typography, tokens, motion, and accessibility: `references/visual-tokens-density.md`
 - Portable state models, lifecycle, persistence, and focus: `references/state-models.md`
@@ -138,11 +140,13 @@ Load only the files required by the chosen path:
 | Running follow-up, `cmdIfMultiline` or `cmdAlways` | Cmd/Ctrl+Shift+Enter | Observed |
 | Popover | portal by default; `18rem` or `24rem`; zoom and viewport bounds | Observed |
 | Context menu | native Electron bridge when available; shared Radix fallback model | Observed |
+| Intermediate step | update one stable row through queued/running/waiting/terminal states; expand evidence on demand | Recommended |
+| Task summary | lead with outcome; include only relevant changes, evidence, unresolved risk, and next action | Recommended |
 | Selected vs hover | make selected unmistakable even if adapting from a source component that shares a token | Recommended |
 | Motion | preserve spatial continuity; remove large movement and bounce under reduced motion | Inferred |
 | Reduced motion | app setting `system | on | off`; `system` follows `prefers-reduced-motion` | Observed |
 
-## Output Contract
+## Skill Delivery Contract
 
 Lead with the implemented or reviewed outcome. Include only artifacts useful to the task:
 

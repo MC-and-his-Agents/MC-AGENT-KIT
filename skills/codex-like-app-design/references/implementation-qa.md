@@ -6,6 +6,7 @@ Use this before finalizing any UI built with this skill.
 
 - Build preflight and implementation order
 - State and keyboard checks
+- Progress and task-summary checks
 - Visual, native, performance, and accessibility checks
 - Source-accurate contract checks
 - Evidence format
@@ -130,6 +131,15 @@ Fail conditions:
 - Increased text size and window zoom preserve primary actions and readable metadata.
 - High-contrast and reduced-transparency modes do not erase shell or state hierarchy.
 - Streaming, approval, error, and completion changes are announced where screen-reader users need them.
+
+## Progress And Summary QA
+
+- A stable intermediate step updates in place instead of appending duplicate rows for every status event.
+- Running, waiting, failed, cancelled, and completed states remain distinguishable without color alone.
+- Raw logs and repetitive operations stay available but do not overpower meaningful milestones and results.
+- Scrolling away from the live edge stops auto-follow and exposes a new-activity action.
+- Completion, partial completion, failure, cancellation, and blocking each produce an honest terminal summary.
+- A summary leads with outcome and omits empty changes, evidence, risk, or next-action sections.
 
 ## Source-Accurate Contract Checks
 

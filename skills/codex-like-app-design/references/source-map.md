@@ -2,6 +2,15 @@
 
 Use this provenance appendix for exact reproduction, source audits, or updating Observed claims.
 
+## Contents
+
+- Baseline and evidence labels
+- Core shell
+- Composer and interaction
+- Thread progress and results
+- UI components
+- Design signals and contract distinctions
+
 Baseline:
 
 - Codex Desktop package: `openai-codex-electron` `26.623.70822`.
@@ -60,6 +69,17 @@ The remote restored source is a reverse-engineered artifact and may contain sema
 | Drag/drop/paste context actions | `composer/use-composer-context-actions.ts` |
 | Project selector | `composer/project-selector/project-selector.tsx` |
 | Attachment pills | `composer/attachment-pill.tsx`, `composer/composer-attachment-pills.tsx` |
+
+## Thread Progress And Results
+
+| Pattern | Source |
+| --- | --- |
+| Visible turn filtering, request grouping, and merged display turns | `conversations/local-conversation-thread-parts/local-conversation-visible-turn-entries.ts` |
+| Stable turn-row assembly, collapse state, generated output, and completed-goal attachment | `conversations/local-conversation-thread-parts/local-conversation-turn-list-entries.ts` |
+| Thread content, virtualization integration, and current-turn placement | `conversations/local-conversation-thread-parts/local-conversation-thread-content.tsx` |
+| Auto-follow and scroll restoration | `conversations/local-conversation-thread-parts/local-conversation-auto-follow-turn-list.tsx` |
+| Artifact and rendered output collection | `runtime/conversation-artifact-runtime.ts` |
+| Summary-panel artifacts, plans, background work, side chats, and tool sources | `conversations/local-conversation-thread-parts/local-conversation-summary-panel-model.ts` |
 
 ## UI Components
 

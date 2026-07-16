@@ -23,6 +23,8 @@ Use this as a core-workbench capability map, not a complete Codex Desktop produc
 | Context attachment | Give the agent useful local state | composer pills + mention menu | files, folders, images, selected text, appshots, prior threads, plugin context, PR checks |
 | Runtime targeting | Decide where work executes | composer footer + settings | local/cloud/remote host, cwd, project, permissions, sandbox warnings, unavailable-state reasons |
 | Long-running work | Keep tasks alive while user navigates | inline banners + background rows + panels | running state, stop, queue, steer, background thread rows, approval surfaces |
+| Progress timeline | Understand what happened and what is active | main thread/task timeline | stable step identity, meaningful status transitions, grouped evidence, collapse, auto-follow without scroll theft |
+| Task summary | Understand the outcome without rereading the timeline | terminal summary item | outcome first, relevant changes/artifacts, verification, unresolved risk, next action when needed |
 | Approval and permission | Keep risky actions explicit | composer tray / request panel | pending request cards, clear actor, approve/deny/follow-up, host/cwd context |
 | Right panel workspace | Inspect parallel objects | right side panel tabs | files, browser, review, side chat, artifact, inspector; empty state and new-tab menu |
 | Bottom output panel | Observe execution outputs | bottom panel tabs | terminal, logs, process monitor, test output, diagnostics; resize and scroll sync |
@@ -45,7 +47,7 @@ navigation, when work must be revisited:
   projects, pinned work, recent threads/tasks, running/error indicators
 
 main workspace:
-  active conversation/task timeline or primary editor
+  active task timeline with intermediate steps, results, and terminal summary; or primary editor
 
 composer:
   prompt, context attachments, project/host, permissions, runtime controls, submit/stop/queue
@@ -71,11 +73,12 @@ For the capabilities selected by the target product, respect this dependency ord
 3. Composer and submit lifecycle.
 4. Context attachment model.
 5. Running task lifecycle: idle, submitting, running, stopping, approval, error, complete.
-6. Right/bottom panels and tab state.
-7. Search/command/context menu layer.
-8. Settings governance.
-9. Plugin/connector integration.
-10. QA hardening: long text, dark mode, keyboard, empty/error, persistence.
+6. Intermediate-step and task-summary presentation.
+7. Right/bottom panels and tab state.
+8. Search/command/context menu layer.
+9. Settings governance.
+10. Plugin/connector integration.
+11. QA hardening: long text, dark mode, keyboard, empty/error, persistence.
 
 ## Product Object Model
 
