@@ -22,6 +22,7 @@
 | Skill | 描述 |
 |---|---|
 | [code-smell-decision](./skills/code-smell-decision/SKILL.md) | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
+| [codex-like-app-design](./skills/codex-like-app-design/SKILL.md) | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
 | [codex-scheduler-watcher](./skills/codex-scheduler-watcher/SKILL.md) | 创建或更新 Codex meta-scheduler watcher automation。 |
 | [codex-thread-orchestration](./skills/codex-thread-orchestration/SKILL.md) | Codex 线程编排的 scheduler 与 worker 协作协议。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal。 |

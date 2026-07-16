@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex-like App Design"
+  short_description: "Source-grounded Codex-like desktop app design."
+  default_prompt: "Use $codex-like-app-design to design or review a stateful desktop AI workbench."
