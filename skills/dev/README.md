@@ -9,7 +9,7 @@
 |---|---:|---|
 | [code-smell-decision](./code-smell-decision/SKILL.md) | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
 
-安装本主题当前全部 skills：
+从 Preview / latest source 安装本主题当前全部 skills：
 
 ```bash
 npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill code-smell-decision

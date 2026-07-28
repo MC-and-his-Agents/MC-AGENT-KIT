@@ -4,6 +4,13 @@ MC 自研 Agent Skills 和 Agent Plugins 的源码与分发仓库。每个 artif
 
 [English](./README.md)
 
+## 分发通道
+
+- **Stable（推荐）**：使用 [最新 GitHub Release](https://github.com/MC-and-his-Agents/MC-SKILLS/releases/latest) 中锁定 tag 的安装命令。Skill 或 Plugin 的版本只有进入仓库 Release 后才算正式发布。
+- **Preview / latest source**：下文所有锁定 `main` 的命令都跟随仓库开发进度，可能包含尚待正式发布的 artifact 版本。
+
+每个本地 marketplace 只选择一个通道；stable 与 preview 使用相同的 marketplace 名。
+
 ## 独立 Skills
 
 独立 skill 放在 `skills/<skill>/`，或按主题放在 `skills/<collection>/<skill>/`。Collection 只负责分类，其中每个 skill 仍可独立安装。
@@ -86,4 +93,8 @@ python3 scripts/render-plugin-directory.py
 ```bash
 python3 scripts/validate-repository.py --base-ref origin/main
 python3 scripts/validate-repository.py --self-test
+python3 scripts/repository_artifacts.py --self-test
+python3 scripts/repository_release.py --self-test
 ```
+
+`CI` 以最新正式 Release 为基线推导 pending artifacts，并将结果写入 job summary。手动触发的 `Release` workflow 先校验当前 `main` head，再用同一次 inventory 同时生成 Release Notes 与 `artifacts.json`，所有 preflight 通过后才发布。
