@@ -4,6 +4,13 @@ Source and distribution repository for Agent Skills and Agent Plugins developed 
 
 [中文版](./README.zh-CN.md)
 
+## Distribution channels
+
+- **Stable (recommended):** use the tag-pinned commands in the [latest GitHub Release](https://github.com/MC-and-his-Agents/MC-SKILLS/releases/latest). A skill or plugin version is formally published only after it appears in a repository Release.
+- **Preview/latest source:** every `main`-pinned command below follows repository development and may include artifact versions that are still pending publication.
+
+Choose one channel per local marketplace. Stable and preview use the same marketplace name.
+
 ## Standalone Skills
 
 Standalone skills live directly under `skills/<skill>/` or in a themed collection at `skills/<collection>/<skill>/`. Collections are navigation only: every skill remains independently installable.
@@ -86,4 +93,8 @@ Run the same repository contract entry point used by CI before opening a pull re
 ```bash
 python3 scripts/validate-repository.py --base-ref origin/main
 python3 scripts/validate-repository.py --self-test
+python3 scripts/repository_artifacts.py --self-test
+python3 scripts/repository_release.py --self-test
 ```
+
+`CI` derives pending artifacts from the latest official Release and writes the result to the job summary. The manually dispatched `Release` workflow validates the current `main` head, reuses one inventory to generate both the Release Notes and `artifacts.json`, and publishes only after all preflight checks pass.

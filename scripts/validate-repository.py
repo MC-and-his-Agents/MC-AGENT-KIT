@@ -5,60 +5,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 
+from repository_artifacts import (
+    SEMVER_PATTERN,
+    artifact_versions_at_ref,
+    failure,
+    git_output,
+    parse_skill_text,
+    version_bump_errors,
+)
 from repository_collections import validate_collection_readmes, validate_npx_readmes
 from repository_plugin_components import load_json, validate_component_path
 from repository_validator_selfcheck import run_self_test
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SEMVER_NUMBER = r"(?:0|[1-9]\d*)"
-SEMVER_PRERELEASE = rf"(?:{SEMVER_NUMBER}|\d*[A-Za-z-][0-9A-Za-z-]*)"
-SEMVER_PATTERN = re.compile(
-    rf"^{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}(?:-{SEMVER_PRERELEASE}(?:\.{SEMVER_PRERELEASE})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
-)
 SHARED_PLUGIN_FIELDS = (
     "name", "version", "description", "author", "license", "keywords", "skills", "mcpServers"
 )
-
-def failure(path: str | Path, rule: str, fix: str) -> str:
-    return f"{Path(path).as_posix()}: [{rule}] {fix}"
-
-def scalar(value: str) -> str | bool:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        value = value[1:-1]
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    return value
-
-def parse_skill_text(text: str, source: str) -> tuple[dict, dict, list[str]]:
-    if not text.startswith("---\n"):
-        return {}, {}, [failure(source, "skill-frontmatter", "add opening `---`")]
-    end = text.find("\n---", 4)
-    if end == -1:
-        return {}, {}, [failure(source, "skill-frontmatter", "close frontmatter with `---`")]
-
-    values: dict[str, str | bool] = {}
-    metadata: dict[str, str | bool] = {}
-    in_metadata = False
-    for raw_line in text[4:end].splitlines():
-        if not raw_line.strip() or raw_line.lstrip().startswith("#") or ":" not in raw_line:
-            continue
-        key, raw_value = raw_line.split(":", 1)
-        if raw_line[:1].isspace():
-            if in_metadata:
-                metadata[key.strip()] = scalar(raw_value)
-            continue
-        in_metadata = key.strip() == "metadata"
-        values[key.strip()] = scalar(raw_value)
-    return values, metadata, []
 
 def parse_skill(path: Path, root: Path) -> tuple[dict, dict, list[str]]:
     return parse_skill_text(path.read_text(encoding="utf-8"), path.relative_to(root).as_posix())
@@ -269,73 +236,8 @@ def validate_marketplace(
         )
     return errors
 
-def git_output(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout
-
 def base_artifacts(root: Path, base_ref: str) -> dict[str, tuple[str, str | None]]:
-    paths = git_output(root, "ls-tree", "-r", "--name-only", base_ref).splitlines()
-    artifacts: dict[str, tuple[str, str | None]] = {}
-    for path in paths:
-        parts = Path(path).parts
-        if path.endswith("/SKILL.md") and parts[0] == "skills" and len(parts) in {3, 4}:
-            text = git_output(root, "show", f"{base_ref}:{path}")
-            values, metadata, _ = parse_skill_text(text, path)
-            name = values.get("name")
-            if isinstance(name, str):
-                version = metadata.get("version")
-                artifacts[f"skill:{name}"] = (
-                    str(Path(path).parent),
-                    version if isinstance(version, str) else None,
-                )
-        if path.endswith("/.codex-plugin/plugin.json") and parts[0] == "plugins":
-            manifest = json.loads(git_output(root, "show", f"{base_ref}:{path}"))
-            name, version = manifest.get("name"), manifest.get("version")
-            if isinstance(name, str):
-                artifacts[f"plugin:{name}"] = (
-                    str(Path(path).parents[1]),
-                    version if isinstance(version, str) else None,
-                )
-    return artifacts
-
-def semver_key(version: str) -> tuple:
-    core, _, _build = version.partition("+")
-    release, separator, prerelease = core.partition("-")
-    pre = (
-        (0, tuple((0, int(item)) if item.isdigit() else (1, item) for item in prerelease.split(".")))
-        if separator
-        else (1,)
-    )
-    return (*map(int, release.split(".")), pre)
-
-def version_bump_errors(
-    current: dict[str, tuple[str, str]],
-    previous: dict[str, tuple[str, str | None]],
-    changed_paths: set[str],
-) -> list[str]:
-    errors: list[str] = []
-    for identity, (path, version) in current.items():
-        if identity not in previous:
-            continue
-        old_path, old_version = previous[identity]
-        changed = any(
-            candidate == prefix or candidate.startswith(f"{prefix}/")
-            for candidate in changed_paths
-            for prefix in {path, old_path}
-        )
-        if changed and old_version and semver_key(version) <= semver_key(old_version):
-            errors.append(
-                failure(
-                    path,
-                    "artifact-version-bump",
-                    f"bump {identity} above {old_version}; its distributable files changed",
-                )
-            )
-    return errors
+    return artifact_versions_at_ref(root, base_ref)
 
 def run_check(root: Path, command: list[str], rule: str, fix: str) -> list[str]:
     result = subprocess.run(command, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

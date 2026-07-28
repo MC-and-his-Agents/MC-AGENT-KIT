@@ -278,7 +278,7 @@ def render_collection(collection: str) -> str:
     rows.extend(
         [
             "",
-            "安装本主题当前全部 skills：",
+            "从 Preview / latest source 安装本主题当前全部 skills：",
             "",
             "```bash",
             f"{NPX_ADD_PREFIX} {skill_args}",

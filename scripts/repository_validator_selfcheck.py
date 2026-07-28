@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -14,11 +16,16 @@ from repository_collections import (
 )
 
 
-def write_skill(path: Path, name: str, description: str = "test") -> None:
-    path.mkdir(parents=True)
+def write_skill(
+    path: Path,
+    name: str,
+    description: str = "test",
+    version: str = "0.1.0",
+) -> None:
+    path.mkdir(parents=True, exist_ok=True)
     (path / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: {description}\n"
-        "metadata:\n  version: 0.1.0\n---\n",
+        f"metadata:\n  version: {version}\n---\n",
         encoding="utf-8",
     )
 
@@ -208,4 +215,72 @@ def run_self_test(validate_skills, version_bump_errors, validate_plugins) -> lis
         check_skills(root, validate_skills, version_bump_errors, failures)
         check_plugins(root, validate_plugins, failures)
         check_collections(root, failures)
+    return failures
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+
+
+def commit_all(root: Path, message: str) -> str:
+    git(root, "add", "-A")
+    git(root, "commit", "-m", message)
+    return git(root, "rev-parse", "HEAD")
+
+
+def run_artifact_self_test(compare, json_text, markdown_diff) -> list[str]:
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        git(root, "init", "-b", "main")
+        git(root, "config", "user.name", "self-check")
+        git(root, "config", "user.email", "self-check@example.invalid")
+        for name in ("unchanged", "updated", "removed"):
+            write_skill(root / "skills" / name, name)
+        commit_all(root, "base")
+        git(root, "tag", "v0.1.0")
+
+        write_skill(root / "skills" / "updated", "updated", "changed", "0.1.1")
+        write_skill(root / "skills" / "added", "added")
+        shutil.rmtree(root / "skills" / "removed")
+        target = commit_all(root, "target")
+        result = compare(root, "v0.1.0", "HEAD")
+        expected = {
+            "added": ["added"],
+            "updated": ["updated"],
+            "removed": ["removed"],
+            "unchanged": ["unchanged"],
+        }
+        actual = {
+            "added": [item["name"] for item in result["added"]],
+            "updated": [item["after"]["name"] for item in result["updated"]],
+            "removed": [item["name"] for item in result["removed"]],
+            "unchanged": [item["name"] for item in result["unchanged"]],
+        }
+        if actual != expected:
+            failures.append(f"artifact diff self-check mismatch: {actual}")
+        if json_text(result) != json_text(compare(root, "v0.1.0", target)):
+            failures.append("artifact JSON is not deterministic")
+        if markdown_diff(result) != markdown_diff(compare(root, "v0.1.0", target)):
+            failures.append("artifact Markdown is not deterministic")
+
+        (root / "README.md").write_text("docs only\n", encoding="utf-8")
+        docs_target = commit_all(root, "docs")
+        docs_diff = compare(root, target, docs_target)
+        if docs_diff["added"] or docs_diff["updated"] or docs_diff["removed"]:
+            failures.append("documentation-only change created pending artifacts")
+
+        write_skill(root / "skills" / "unchanged", "unchanged", "content drift")
+        commit_all(root, "invalid drift")
+        try:
+            compare(root, docs_target, "HEAD")
+        except ValueError:
+            pass
+        else:
+            failures.append("same-version content drift was not rejected")
     return failures
