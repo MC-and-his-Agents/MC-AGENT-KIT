@@ -1,6 +1,8 @@
 ---
 name: refactor-planner
 description: Plan a safe refactor using CodeGraph analysis.
+metadata:
+  internal: true
 ---
 
 Use this skill when the user wants to refactor a module, class, component, or subsystem. A good plan identifies public surfaces, dependencies, callers and tests before making changes.

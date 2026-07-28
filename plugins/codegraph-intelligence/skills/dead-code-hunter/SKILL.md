@@ -1,6 +1,8 @@
 ---
 name: dead-code-hunter
 description: Identify potentially unused or unreachable code using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill to find functions, classes or modules that appear to be unused so they can be candidates for deletion or refactoring.

@@ -9,6 +9,26 @@ npm install -g @colbymchenry/codegraph
 codegraph init -i
 ```
 
+## Install
+
+| Harness | Support | Native installation |
+|---|---|---|
+| Codex | Supported | `codex plugin add codegraph-intelligence@mcskills` |
+| Claude Code | Supported | `claude plugin install codegraph-intelligence@mcskills` |
+| Other harnesses | Not declared | No unverified installation command is provided. |
+
+Add this repository's marketplace before installing:
+
+```bash
+# Codex
+codex plugin marketplace add MC-and-his-Agents/MC-SKILLS --ref main
+
+# Claude Code
+claude plugin marketplace add MC-and-his-Agents/MC-SKILLS
+```
+
+The skills below are private plugin components. They are installed and versioned with the plugin and are not published as standalone `npx skills` entries.
+
 ## Included skills
 
 | Skill name | Purpose |

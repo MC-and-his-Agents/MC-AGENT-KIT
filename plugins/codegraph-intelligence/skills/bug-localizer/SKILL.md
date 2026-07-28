@@ -1,6 +1,8 @@
 ---
 name: bug-localizer
 description: Narrow down likely code locations from bug descriptions using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill when the user describes a bug (e.g. "users cannot reset password") and you need to identify where in the code the problem might reside.

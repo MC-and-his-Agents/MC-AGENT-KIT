@@ -1,6 +1,8 @@
 ---
 name: public-api-guardian
 description: Evaluate changes to public API surfaces using CodeGraph to avoid breaking consumers.
+metadata:
+  internal: true
 ---
 
 Use this skill when the user proposes renaming, removing or altering functions, classes, routes or modules that are exported publicly or consumed by other packages or services.

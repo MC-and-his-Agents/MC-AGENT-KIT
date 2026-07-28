@@ -1,6 +1,8 @@
 ---
 name: codegraph-context-bootstrap
 description: Build repository context using CodeGraph before starting tasks.
+metadata:
+  internal: true
 ---
 
 Use this skill when exploring an unfamiliar project or subsystem, onboarding to a new area, or preparing for significant or cross-module changes. Do not trigger it automatically for every new session or for simple localized tasks.

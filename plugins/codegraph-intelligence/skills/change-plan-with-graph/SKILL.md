@@ -1,6 +1,8 @@
 ---
 name: change-plan-with-graph
 description: Generate a graph-backed implementation plan before modifying repository code.
+metadata:
+  internal: true
 ---
 
 Use this skill for significant, unfamiliar, high-risk or cross-module implementation work, refactors, renames, removals or migrations. Also use it when the user explicitly asks for graph-backed planning. Do not trigger it for simple single-file edits, formatting, typos, straightforward test updates or direct command-output requests.

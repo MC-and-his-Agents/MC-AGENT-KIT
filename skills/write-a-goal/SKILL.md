@@ -1,6 +1,8 @@
 ---
 name: write-a-goal
 description: 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal。起草前先根据最新用户请求确定输出语言。为用户起草可复制的单行 /goal 命令；用户明确要求时，通过 goal 工具/API 创建自包含的 active goal objective。用户使用中文、混合语言或语言不明确时，输出中文。保留命令、路径、代码标识符、URL、issue ID、精确引用，以及 /goal、API、objective、copyable_goal_command、active_goal_api 等标识原文。
+metadata:
+  version: "0.1.0"
 ---
 
 # 编写 Codex Goal
