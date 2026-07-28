@@ -7,12 +7,37 @@ on:
       - main
 
 jobs:
-  readme-directories:
+  repository-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - name: Check README directories
-        run: python3 scripts/render-plugin-directory.py --check
+      - name: Validate repository contracts
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE_REF" && "$BASE_REF" != "0000000000000000000000000000000000000000" ]]; then
+            python3 scripts/validate-repository.py --base-ref "$BASE_REF"
+          else
+            python3 scripts/validate-repository.py
+          fi
+          python3 scripts/validate-repository.py --self-test
+      - name: Check Python and shell syntax
+        env:
+          PYTHONPYCACHEPREFIX: /tmp/mc-skills-pycache
+        run: |
+          python3 -m compileall -q scripts skills plugins
+          find scripts plugins skills -type f -name '*.sh' -exec bash -n {} +
+      - name: Check patch whitespace
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE_REF" && "$BASE_REF" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --check "$BASE_REF"...HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi

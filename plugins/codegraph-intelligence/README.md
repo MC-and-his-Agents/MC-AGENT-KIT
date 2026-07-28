@@ -125,10 +125,11 @@ Use lightweight MCP tools directly in the main session for targeted work:
 | `codegraph_callers` / `codegraph_callees` | Trace direct usage and dependencies. |
 | `codegraph_impact` | Estimate blast radius before editing. |
 | `codegraph_node` | Inspect one symbol without reading a full file. |
+| `codegraph_explore` | Build bounded task context or survey an unfamiliar area. |
 | `codegraph_files` | Inspect indexed file structure. |
 | `codegraph_status` | Check index health. |
 
-Use `codegraph_context` for focused task context. Use `codegraph_explore` only for broad or unfamiliar areas, preferably after `codegraph_search` has identified concrete symbols or files. After editing files, wait briefly before querying the graph again because the watcher syncs with a short debounce.
+Use one bounded `codegraph_explore` call for cohesive task context or an unfamiliar area. Use `codegraph_search` and `codegraph_node` for narrow symbol lookups. After editing files, wait briefly before querying the graph again because the watcher syncs with a short debounce.
 
 ## Hook
 
@@ -146,10 +147,9 @@ The project root is resolved from the hook argument, `CODEX_CWD`, `CODEX_WORKSPA
 
 ## MCP tools
 
-CodeGraph exposes these tools through the MCP server:
+The following eight tools are the plugin's required MCP capabilities. It currently declares no optional MCP capabilities:
 
 - `codegraph_search`
-- `codegraph_context`
 - `codegraph_explore`
 - `codegraph_callers`
 - `codegraph_callees`

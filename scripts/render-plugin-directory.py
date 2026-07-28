@@ -9,6 +9,8 @@ import re
 import sys
 from pathlib import Path
 
+from repository_collections import collection_readmes, discovered_collections
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "MC-and-his-Agents/MC-SKILLS"
@@ -37,12 +39,6 @@ README_CONFIGS = (
         "plugins_header": ("Plugin", "Harness", "分类", "版本", "描述"),
     },
 )
-COLLECTION_READMES = {
-    "dev": ROOT / "skills" / "dev" / "README.md",
-    "design": ROOT / "skills" / "design" / "README.md",
-}
-
-
 class RenderError(Exception):
     """Raised when README directory rendering cannot proceed."""
 
@@ -336,7 +332,16 @@ def main() -> int:
                 changed.append(path)
                 if not args.check:
                     path.write_text(rendered, encoding="utf-8")
-        for collection, path in COLLECTION_READMES.items():
+        collections = discovered_collections(ROOT)
+        readmes = collection_readmes(ROOT)
+        if set(collections) != set(readmes):
+            missing = sorted(set(collections) - set(readmes))
+            orphaned = sorted(set(readmes) - set(collections))
+            raise RenderError(
+                f"Collection README mismatch; missing={missing}, orphaned={orphaned}"
+            )
+        for collection in collections:
+            path = readmes[collection]
             rendered = replace_block(
                 path.read_text(encoding="utf-8"),
                 "COLLECTION_MEMBERS",

@@ -16,13 +16,13 @@ Shared tool policy:
 - Follow `../../reference/codegraph-tool-policy.md` for common CodeGraph tool selection, fallback and unavailable handling.
 
 Task-specific tools:
-- Prefer `codegraph_search`, `codegraph_context`, `codegraph_explore`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_impact`.
+- Prefer `codegraph_search`, `codegraph_explore`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_impact`.
 
 Workflow:
 1. Ensure a fresh graph index by calling `codegraph_status`. If missing, request the user run `codegraph init -i`; if stale, request `codegraph sync`.
 2. Read `reference/report-template.md` and use it to shape the output.
 3. Locate the target: use `codegraph_search` with the provided symbol name, route path, module or keyword. For ambiguous results, examine each candidate with `codegraph_node` and pick the most relevant; list others for transparency.
-4. If the target sits inside an unfamiliar subsystem, use `codegraph_context` or a bounded `codegraph_explore` query anchored to the target symbol before widening the analysis.
+4. If the target sits inside an unfamiliar subsystem, use a bounded `codegraph_explore` query anchored to the target symbol before widening the analysis.
 5. Inspect the selected node via `codegraph_node` to confirm its kind (function, class, method, module), file path, export status and context.
 6. Use `codegraph_callers` to find direct callers. Note entrypoints such as routes, commands, controllers and test harnesses separately.
 7. Use `codegraph_callees` to find downstream dependencies, including database calls, service calls, network calls and shared utilities.

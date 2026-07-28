@@ -16,14 +16,14 @@ Shared tool policy:
 - Follow `../../reference/codegraph-tool-policy.md` for common CodeGraph tool selection, fallback and unavailable handling.
 
 Task-specific tools:
-- Prefer `codegraph_search`, `codegraph_context`, `codegraph_explore`, `codegraph_node`, `codegraph_callers` and `codegraph_callees`.
+- Prefer `codegraph_search`, `codegraph_explore`, `codegraph_node`, `codegraph_callers` and `codegraph_callees`.
 
 Workflow:
 1. Read `reference/framework-routing.md`.
 2. **Identify the starting point**:
    - For web/API requests, search for the route path or HTTP verb using `codegraph_search` or search for framework router registrations.
    - For function calls, search for the function name.
-3. Use `codegraph_context` when the route or function is ambiguous. Use `codegraph_explore` only for broad, unfamiliar flows after search has produced concrete anchors.
+3. Use one bounded `codegraph_explore` call when the route or function is ambiguous or belongs to an unfamiliar flow, anchored to concrete symbols or files.
 4. **Confirm the start node** using `codegraph_node` and note its kind (route handler, controller, CLI command).
 5. **Walk down the call chain**:
    - Use `codegraph_callees` to retrieve direct callees for each function in the chain.

@@ -13,12 +13,12 @@ Shared tool policy:
 - Follow `../../reference/codegraph-tool-policy.md` for common CodeGraph tool selection, fallback and unavailable handling.
 
 Task-specific tools:
-- Prefer `codegraph_context`, `codegraph_explore`, `codegraph_search`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_impact`.
+- Prefer `codegraph_explore`, `codegraph_search`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_impact`.
 
 Workflow:
 1. Validate that the CodeGraph index is available and fresh using `codegraph_status`. If not, prompt to run `codegraph init -i` or `codegraph sync`.
 2. Identify the target to refactor using `codegraph_search`. Resolve ambiguities with `codegraph_node`.
-3. Use `codegraph_context` for focused target context. Use `codegraph_explore` only for a broad subsystem survey, anchored to concrete symbols or files.
+3. Use one bounded `codegraph_explore` call for target context when the subsystem is unfamiliar, anchored to concrete symbols or files.
 4. Determine the public surface: exported functions, classes, interfaces, REST endpoints, GraphQL resolvers, CLI commands. Use `codegraph_callers` to see who uses each export.
 5. Map dependencies and downstream effects using `codegraph_callees`. Include database operations, caches, file I/O and external services.
 6. Analyse impact using `codegraph_impact` to find indirectly affected modules and tests.

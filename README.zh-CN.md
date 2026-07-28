@@ -52,7 +52,7 @@ Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx ski
 
 | Plugin | Harness | 分类 | 版本 | 描述 |
 |---|---|---|---:|---|
-| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.0 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
+| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.1 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
 <!-- PLUGINS_END -->
 
 ### Codex
@@ -79,4 +79,11 @@ claude plugin list
 
 ```bash
 python3 scripts/render-plugin-directory.py
+```
+
+提交 PR 前运行与 CI 相同的仓库契约入口：
+
+```bash
+python3 scripts/validate-repository.py --base-ref origin/main
+python3 scripts/validate-repository.py --self-test
 ```
