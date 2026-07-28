@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 
-REPOSITORY = "MC-and-his-Agents/MC-SKILLS"
+SKILLS_SOURCE = (
+    "https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills"
+)
+NPX_ADD_PREFIX = f"npx skills add {SKILLS_SOURCE} --full-depth"
 
 
 def discovered_collections(root: Path) -> list[str]:
@@ -68,9 +71,30 @@ def validate_collection_readmes(root: Path) -> list[str]:
                     error(source, "collection-members", f"regenerate the `{member}` member row")
                 )
         skill_args = " ".join(f"--skill {member}" for member in members)
-        command = f"npx skills add {REPOSITORY} {skill_args}"
+        command = f"{NPX_ADD_PREFIX} {skill_args}"
         if command not in text:
             errors.append(
                 error(source, "collection-command", "regenerate the batch install command")
             )
+    return errors
+
+
+def validate_npx_readmes(root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative in (Path("README.md"), Path("README.zh-CN.md")):
+        path = root / relative
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            valid_source = line == NPX_ADD_PREFIX or line.startswith(
+                f"{NPX_ADD_PREFIX} "
+            )
+            if line.startswith("npx skills add ") and not valid_source:
+                errors.append(
+                    error(
+                        relative,
+                        "npx-source-boundary",
+                        "use the skills/ source with --full-depth so plugin skills stay private",
+                    )
+                )
     return errors

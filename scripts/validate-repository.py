@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from repository_collections import validate_collection_readmes
+from repository_collections import validate_collection_readmes, validate_npx_readmes
 from repository_plugin_components import load_json, validate_component_path
 from repository_validator_selfcheck import run_self_test
 
@@ -365,6 +365,7 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
     )
     errors.extend(plugin_errors)
     errors.extend(validate_collection_readmes(root))
+    errors.extend(validate_npx_readmes(root))
     plugin_names = {identity.removeprefix("plugin:") for identity in plugin_artifacts}
     errors.extend(
         validate_marketplace(root, ".agents/plugins/marketplace.json", "Codex", plugin_names)

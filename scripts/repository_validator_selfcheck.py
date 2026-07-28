@@ -6,7 +6,12 @@ import json
 import tempfile
 from pathlib import Path
 
-from repository_collections import validate_collection_readmes
+from repository_collections import (
+    NPX_ADD_PREFIX,
+    SKILLS_SOURCE,
+    validate_collection_readmes,
+    validate_npx_readmes,
+)
 
 
 def write_skill(path: Path, name: str, description: str = "test") -> None:
@@ -75,7 +80,11 @@ def write_collection_readme(
 ) -> None:
     path = root / "skills" / name / "README.md"
     member_row = f"[{member}](./{member}/SKILL.md)\n" if include_member else ""
-    repository = "MC-and-his-Agents/MC-SKILLS" if correct_command else "wrong/repository"
+    repository = (
+        f"{SKILLS_SOURCE} --full-depth"
+        if correct_command
+        else "wrong/repository"
+    )
     path.write_text(
         "<!-- COLLECTION_MEMBERS_START -->\n"
         f"{member_row}"
@@ -170,6 +179,26 @@ def check_collections(root, failures) -> None:
     expect(errors, "skills/one/README.md", "[collection-members]", failures)
     expect(errors, "skills/two/README.md", "[collection-command]", failures)
     expect(errors, "skills/orphan/README.md", "[collection-orphan]", failures)
+    (root / "README.md").write_text(
+        "npx skills add MC-and-his-Agents/MC-SKILLS --skill same\n",
+        encoding="utf-8",
+    )
+    expect(
+        validate_npx_readmes(root),
+        "README.md",
+        "[npx-source-boundary]",
+        failures,
+    )
+    (root / "README.md").write_text(
+        f"{NPX_ADD_PREFIX}-wrong --list\n",
+        encoding="utf-8",
+    )
+    expect(
+        validate_npx_readmes(root),
+        "README.md",
+        "[npx-source-boundary]",
+        failures,
+    )
 
 
 def run_self_test(validate_skills, version_bump_errors, validate_plugins) -> list[str]:
