@@ -6,6 +6,40 @@ import json
 from pathlib import Path
 
 
+HOOK_EVENTS = {
+    "ConfigChange",
+    "CwdChanged",
+    "Elicitation",
+    "ElicitationResult",
+    "FileChanged",
+    "InstructionsLoaded",
+    "MessageDisplay",
+    "Notification",
+    "PermissionDenied",
+    "PermissionRequest",
+    "PostCompact",
+    "PostToolBatch",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "PreCompact",
+    "PreToolUse",
+    "SessionEnd",
+    "SessionStart",
+    "Setup",
+    "Stop",
+    "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
+    "TaskCompleted",
+    "TaskCreated",
+    "TeammateIdle",
+    "UserPromptExpansion",
+    "UserPromptSubmit",
+    "WorktreeCreate",
+    "WorktreeRemove",
+}
+
+
 def failure(path: str | Path, rule: str, fix: str) -> str:
     return f"{Path(path).as_posix()}: [{rule}] {fix}"
 
@@ -37,12 +71,17 @@ def valid_mcp(document: dict) -> bool:
 def valid_hook_matcher(matcher: object) -> bool:
     if not isinstance(matcher, dict):
         return False
+    pattern = matcher.get("matcher")
     hooks = matcher.get("hooks")
-    return isinstance(hooks, list) and bool(hooks) and all(
+    return (pattern is None or isinstance(pattern, str)) and isinstance(
+        hooks, list
+    ) and bool(hooks) and all(
         isinstance(hook, dict)
         and hook.get("type") == "command"
         and isinstance(hook.get("command"), str)
         and bool(hook["command"].strip())
+        and isinstance(hook.get("args", []), list)
+        and all(isinstance(arg, str) for arg in hook.get("args", []))
         for hook in hooks
     )
 
@@ -50,10 +89,11 @@ def valid_hook_matcher(matcher: object) -> bool:
 def valid_hooks(document: dict) -> bool:
     events = document.get("hooks")
     return isinstance(events, dict) and bool(events) and all(
-        isinstance(matchers, list)
+        event in HOOK_EVENTS
+        and isinstance(matchers, list)
         and bool(matchers)
         and all(valid_hook_matcher(matcher) for matcher in matchers)
-        for matchers in events.values()
+        for event, matchers in events.items()
     )
 
 

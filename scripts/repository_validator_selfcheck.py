@@ -65,12 +65,21 @@ def write_plugin(
         manifest.write_text(json.dumps(document), encoding="utf-8")
 
 
-def write_collection_readme(root: Path, name: str, member: str) -> None:
+def write_collection_readme(
+    root: Path,
+    name: str,
+    member: str,
+    *,
+    include_member: bool = True,
+    correct_command: bool = False,
+) -> None:
     path = root / "skills" / name / "README.md"
+    member_row = f"[{member}](./{member}/SKILL.md)\n" if include_member else ""
+    repository = "MC-and-his-Agents/MC-SKILLS" if correct_command else "wrong/repository"
     path.write_text(
         "<!-- COLLECTION_MEMBERS_START -->\n"
-        f"[{member}](./{member}/SKILL.md)\n"
-        "npx skills add wrong/repository\n"
+        f"{member_row}"
+        f"npx skills add {repository} --skill {member}\n"
         "<!-- COLLECTION_MEMBERS_END -->\n",
         encoding="utf-8",
     )
@@ -81,64 +90,93 @@ def expect(errors: list[str], source: str, rule: str, failures: list[str]) -> No
         failures.append(f"{source} {rule} self-check did not fail")
 
 
+def check_skills(root, validate_skills, version_bump_errors, failures) -> None:
+    for collection in ("one", "two"):
+        write_skill(root / "skills" / collection / "same", "same")
+    _, skill_errors = validate_skills(root)
+    expect(skill_errors, "skills/two/same", "[skill-unique-id]", failures)
+    missing = root / "skills" / "missing"
+    missing.mkdir()
+    (missing / "SKILL.md").write_text(
+        "---\nname: missing\ndescription: test\n---\n", encoding="utf-8"
+    )
+    invalid_description = root / "skills" / "invalid-description"
+    invalid_description.mkdir()
+    (invalid_description / "SKILL.md").write_text(
+        "---\nname: invalid-description\ndescription: true\n"
+        "metadata:\n  version: 0.1.0\n---\n",
+        encoding="utf-8",
+    )
+    _, skill_errors = validate_skills(root)
+    expect(skill_errors, "skills/missing", "[skill-version]", failures)
+    expect(skill_errors, "skills/invalid-description", "[skill-description]", failures)
+    current = {"skill:same": ("skills/one/same", "0.1.0")}
+    previous = {"skill:same": ("skills/one/same", "0.1.0")}
+    unchanged = version_bump_errors(current, previous, {"skills/one/same/SKILL.md"})
+    expect(unchanged, "skills/one/same", "[artifact-version-bump]", failures)
+
+
+def check_plugins(root, validate_plugins, failures) -> None:
+    write_plugin(root, "bad-type", skills=123)
+    write_plugin(root, "bad-path", skills="../outside")
+    write_plugin(root, "bad-mcp", mcp={"server": {"command": ""}})
+    write_plugin(
+        root,
+        "bad-mcp-args",
+        mcp={"server": {"command": "codegraph", "args": "not-a-list"}},
+    )
+    write_plugin(root, "bad-hooks", hooks={"hooks": {"SessionStart": "not-a-list"}})
+    valid_hook = [{"hooks": [{"type": "command", "command": "true"}]}]
+    write_plugin(root, "bad-hook-event", hooks={"hooks": {"NotARealEvent": valid_hook}})
+    write_plugin(
+        root,
+        "bad-hook-matcher",
+        hooks={
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": 123,
+                        "hooks": [{"type": "command", "command": "true"}],
+                    }
+                ]
+            }
+        },
+    )
+    write_plugin(root, "bad-private", private_description=None)
+    _, plugin_errors = validate_plugins(root, set())
+    expected = (
+        ("plugins/bad-type", "[plugin-component-type]"),
+        ("plugins/bad-path", "[plugin-component-path]"),
+        ("plugins/bad-mcp/.mcp.json", "[plugin-component-content]"),
+        ("plugins/bad-mcp-args/.mcp.json", "[plugin-component-content]"),
+        ("plugins/bad-hooks/hooks.json", "[plugin-component-content]"),
+        ("plugins/bad-hook-event/hooks.json", "[plugin-component-content]"),
+        ("plugins/bad-hook-matcher/hooks.json", "[plugin-component-content]"),
+        ("plugins/bad-private", "[plugin-skill-description]"),
+    )
+    for source, rule in expected:
+        expect(plugin_errors, source, rule, failures)
+
+
+def check_collections(root, failures) -> None:
+    errors = validate_collection_readmes(root)
+    expect(errors, "skills/one/README.md", "[collection-readme]", failures)
+    write_collection_readme(root, "one", "same", include_member=False, correct_command=True)
+    write_collection_readme(root, "two", "same")
+    orphan = root / "skills" / "orphan"
+    orphan.mkdir()
+    (orphan / "README.md").write_text("# orphan\n", encoding="utf-8")
+    errors = validate_collection_readmes(root)
+    expect(errors, "skills/one/README.md", "[collection-members]", failures)
+    expect(errors, "skills/two/README.md", "[collection-command]", failures)
+    expect(errors, "skills/orphan/README.md", "[collection-orphan]", failures)
+
+
 def run_self_test(validate_skills, version_bump_errors, validate_plugins) -> list[str]:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        for collection in ("one", "two"):
-            write_skill(root / "skills" / collection / "same", "same")
-        _, skill_errors = validate_skills(root)
-        expect(skill_errors, "skills/two/same", "[skill-unique-id]", failures)
-
-        missing = root / "skills" / "missing"
-        missing.mkdir()
-        (missing / "SKILL.md").write_text(
-            "---\nname: missing\ndescription: test\n---\n", encoding="utf-8"
-        )
-        invalid_description = root / "skills" / "invalid-description"
-        invalid_description.mkdir()
-        (invalid_description / "SKILL.md").write_text(
-            "---\nname: invalid-description\ndescription: true\n"
-            "metadata:\n  version: 0.1.0\n---\n",
-            encoding="utf-8",
-        )
-        _, skill_errors = validate_skills(root)
-        expect(skill_errors, "skills/missing", "[skill-version]", failures)
-        expect(skill_errors, "skills/invalid-description", "[skill-description]", failures)
-
-        current = {"skill:same": ("skills/one/same", "0.1.0")}
-        previous = {"skill:same": ("skills/one/same", "0.1.0")}
-        unchanged = version_bump_errors(current, previous, {"skills/one/same/SKILL.md"})
-        expect(unchanged, "skills/one/same", "[artifact-version-bump]", failures)
-
-        write_plugin(root, "bad-type", skills=123)
-        write_plugin(root, "bad-path", skills="../outside")
-        write_plugin(root, "bad-mcp", mcp={"server": {"command": ""}})
-        write_plugin(
-            root,
-            "bad-hooks",
-            hooks={"hooks": {"SessionStart": "not-a-list"}},
-        )
-        write_plugin(root, "bad-private", private_description=None)
-        _, plugin_errors = validate_plugins(root, set())
-        expected = (
-            ("plugins/bad-type", "[plugin-component-type]"),
-            ("plugins/bad-path", "[plugin-component-path]"),
-            ("plugins/bad-mcp/.mcp.json", "[plugin-component-content]"),
-            ("plugins/bad-hooks/hooks.json", "[plugin-component-content]"),
-            ("plugins/bad-private", "[plugin-skill-description]"),
-        )
-        for source, rule in expected:
-            expect(plugin_errors, source, rule, failures)
-
-        collection_errors = validate_collection_readmes(root)
-        expect(collection_errors, "skills/one/README.md", "[collection-readme]", failures)
-        for collection in ("one", "two"):
-            write_collection_readme(root, collection, "same")
-        orphan = root / "skills" / "orphan"
-        orphan.mkdir()
-        (orphan / "README.md").write_text("# orphan\n", encoding="utf-8")
-        collection_errors = validate_collection_readmes(root)
-        expect(collection_errors, "skills/one/README.md", "[collection-command]", failures)
-        expect(collection_errors, "skills/orphan/README.md", "[collection-orphan]", failures)
+        check_skills(root, validate_skills, version_bump_errors, failures)
+        check_plugins(root, validate_plugins, failures)
+        check_collections(root, failures)
     return failures
