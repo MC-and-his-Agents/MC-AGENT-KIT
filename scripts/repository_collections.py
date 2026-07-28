@@ -22,6 +22,7 @@ def collection_readmes(root: Path) -> dict[str, Path]:
     return {
         path.parent.name: path
         for path in sorted((root / "skills").glob("*/README.md"))
+        if not (path.parent / "SKILL.md").is_file()
     }
 
 
