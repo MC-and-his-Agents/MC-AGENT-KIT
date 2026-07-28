@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import re
-import selectors
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def static_check() -> list[str]:
     paths = [
         PLUGIN_ROOT / "README.md",
         *(PLUGIN_ROOT / "reference").rglob("*.md"),
-        *(PLUGIN_ROOT / "skills").rglob("SKILL.md"),
+        *(PLUGIN_ROOT / "skills").rglob("*.md"),
     ]
     errors: list[str] = []
     documented_in_readme: set[str] = set()
@@ -50,24 +51,16 @@ def static_check() -> list[str]:
     return errors
 
 
-def read_response(process: subprocess.Popen[str], request_id: int, timeout: float) -> dict:
-    selector = selectors.DefaultSelector()
-    assert process.stdout is not None
-    selector.register(process.stdout, selectors.EVENT_READ)
+def read_response(lines: queue.Queue[str], request_id: int, timeout: float) -> dict:
     deadline = time.monotonic() + timeout
-    try:
-        while time.monotonic() < deadline:
-            events = selector.select(deadline - time.monotonic())
-            if not events:
-                break
-            line = process.stdout.readline()
-            if not line:
-                break
-            response = json.loads(line)
-            if response.get("id") == request_id:
-                return response
-    finally:
-        selector.close()
+    while time.monotonic() < deadline:
+        try:
+            line = lines.get(timeout=deadline - time.monotonic())
+        except queue.Empty:
+            break
+        response = json.loads(line)
+        if response.get("id") == request_id:
+            return response
     raise RuntimeError(f"CodeGraph MCP did not answer request {request_id} within {timeout:g}s")
 
 
@@ -75,6 +68,11 @@ def send(process: subprocess.Popen[str], message: dict) -> None:
     assert process.stdin is not None
     process.stdin.write(json.dumps(message) + "\n")
     process.stdin.flush()
+
+
+def collect_lines(stream, lines: queue.Queue[str]) -> None:
+    for line in stream:
+        lines.put(line)
 
 
 def live_check(timeout: float) -> list[str]:
@@ -86,11 +84,16 @@ def live_check(timeout: float) -> list[str]:
         cwd=Path.cwd(),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
     )
     try:
+        assert process.stdout is not None
+        lines: queue.Queue[str] = queue.Queue()
+        threading.Thread(
+            target=collect_lines, args=(process.stdout, lines), daemon=True
+        ).start()
         send(
             process,
             {
@@ -104,7 +107,7 @@ def live_check(timeout: float) -> list[str]:
                 },
             },
         )
-        initialized = read_response(process, 1, timeout)
+        initialized = read_response(lines, 1, timeout)
         if "error" in initialized:
             return [f"CodeGraph MCP initialize failed: {initialized['error']}"]
         send(
@@ -115,7 +118,7 @@ def live_check(timeout: float) -> list[str]:
             process,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         )
-        response = read_response(process, 2, timeout)
+        response = read_response(lines, 2, timeout)
         if "error" in response:
             return [f"CodeGraph MCP tools/list failed: {response['error']}"]
         available = {

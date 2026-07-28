@@ -8,8 +8,9 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+from repository_validator_selfcheck import run_self_test
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,22 +120,56 @@ def load_json(path: Path, root: Path) -> tuple[dict | None, list[str]]:
 def validate_component_path(
     root: Path, plugin_dir: Path, manifest_path: Path, field: str, value: object
 ) -> list[str]:
-    if value is None or field not in {"skills", "hooks", "mcpServers"}:
+    if value is None:
         return []
-    paths = [value] if isinstance(value, str) else value if isinstance(value, list) else []
-    errors: list[str] = []
-    for item in paths:
-        if not isinstance(item, str):
-            continue
-        target = (plugin_dir / item).resolve()
-        if not target.is_relative_to(plugin_dir.resolve()) or not target.exists():
-            errors.append(
+    source = manifest_path.relative_to(root)
+    if not isinstance(value, str) or not value:
+        return [
+            failure(source, "plugin-component-type", f"set `{field}` to one relative path string")
+        ]
+    target = (plugin_dir / value).resolve()
+    if not target.is_relative_to(plugin_dir.resolve()):
+        return [
+            failure(source, "plugin-component-path", f"keep `{field}` inside {plugin_dir.name}")
+        ]
+    if field == "skills":
+        if not target.is_dir() or not any(target.glob("*/SKILL.md")):
+            return [
                 failure(
-                    manifest_path.relative_to(root),
+                    source,
                     "plugin-component-path",
-                    f"make `{field}: {item}` resolve inside {plugin_dir.relative_to(root)}",
+                    f"make `{field}: {value}` point to a skill directory",
                 )
+            ]
+        return []
+    if not target.is_file() or target.suffix != ".json":
+        return [
+            failure(
+                source,
+                "plugin-component-path",
+                f"make `{field}: {value}` point to a JSON file",
             )
+        ]
+    document, errors = load_json(target, root.resolve())
+    if document is None:
+        return errors
+    valid = (
+        bool(document)
+        and all(
+            isinstance(server, dict) and isinstance(server.get("command"), str)
+            for server in document.values()
+        )
+        if field == "mcpServers"
+        else isinstance(document.get("hooks"), dict) and bool(document["hooks"])
+    )
+    if not valid:
+        errors.append(
+            failure(
+                target.relative_to(root.resolve()),
+                "plugin-component-content",
+                f"add a valid {field} configuration",
+            )
+        )
     return errors
 
 def validate_private_skills(
@@ -159,6 +194,11 @@ def validate_private_skills(
                     "plugin-skill-name",
                     f"set `name: {skill_path.parent.name}` to match its directory",
                 )
+            )
+        description = values.get("description")
+        if not isinstance(description, str) or not description.strip():
+            errors.append(
+                failure(source, "plugin-skill-description", "add frontmatter `description`")
             )
         if metadata.get("internal") is not True:
             errors.append(failure(source, "plugin-skill-private", "set `metadata.internal: true`"))
@@ -427,65 +467,17 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
         )
     return errors
 
-def self_test() -> list[str]:
-    failures: list[str] = []
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        for collection in ("one", "two"):
-            path = root / "skills" / collection / "same"
-            path.mkdir(parents=True)
-            (path / "SKILL.md").write_text(
-                "---\nname: same\ndescription: test\nmetadata:\n  version: 0.1.0\n---\n",
-                encoding="utf-8",
-            )
-        _, duplicate_errors = validate_skills(root)
-        if not any("[skill-unique-id]" in error for error in duplicate_errors):
-            failures.append("duplicate skill self-check did not fail")
-
-        missing = root / "skills" / "missing" / "SKILL.md"
-        missing.parent.mkdir()
-        missing.write_text("---\nname: missing\ndescription: test\n---\n", encoding="utf-8")
-        _, missing_errors = validate_skills(root)
-        if not any("[skill-version]" in error for error in missing_errors):
-            failures.append("missing version self-check did not fail")
-
-        current = {"skill:same": ("skills/one/same", "0.1.0")}
-        previous = {"skill:same": ("skills/one/same", "0.1.0")}
-        unchanged = version_bump_errors(current, previous, {"skills/one/same/SKILL.md"})
-        if not any("[artifact-version-bump]" in error for error in unchanged):
-            failures.append("unchanged version self-check did not fail")
-
-        plugin = root / "plugins" / "broken"
-        for harness in (".codex-plugin", ".claude-plugin"):
-            manifest = plugin / harness / "plugin.json"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text(
-                json.dumps(
-                    {
-                        "name": "broken",
-                        "version": "0.1.0",
-                        "description": "test",
-                        "author": {"name": "test"},
-                        "license": "MIT",
-                        "keywords": [],
-                        "skills": "./missing/",
-                        "mcpServers": "./missing.json",
-                    }
-                ),
-                encoding="utf-8",
-            )
-        _, manifest_errors = validate_plugins(root, set())
-        if not any("[plugin-component-path]" in error for error in manifest_errors):
-            failures.append("invalid manifest self-check did not fail")
-    return failures
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-ref", help="compare artifact versions with this Git ref")
     parser.add_argument("--self-test", action="store_true", help="run negative contract checks")
     args = parser.parse_args()
     try:
-        errors = self_test() if args.self_test else validate_repository(ROOT, args.base_ref)
+        errors = (
+            run_self_test(validate_skills, version_bump_errors, validate_plugins)
+            if args.self_test
+            else validate_repository(ROOT, args.base_ref)
+        )
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         errors = [failure(".", "validator-runtime", f"fix validator input or environment: {exc}")]
     for error in errors:
