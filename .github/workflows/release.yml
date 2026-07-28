@@ -131,21 +131,32 @@ jobs:
       - name: Recheck and publish
         env:
           GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
           set -euo pipefail
           test "$(jq -r .release.tag "$RUNNER_TEMP/release/artifacts.json")" = "$RELEASE_TAG"
           test "$(jq -r .release.target_commit "$RUNNER_TEMP/release/artifacts.json")" = "$TARGET_SHA"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$TARGET_SHA"
           test "$(
             gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG" \
               --jq "[.[] | select(.ref == \"refs/tags/$RELEASE_TAG\")] | length"
           )" = "0"
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release already exists: $RELEASE_TAG" >&2
-            exit 1
-          fi
+          releases="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --slurp
+          )"
+          test "$(
+            jq --arg tag "$RELEASE_TAG" '[add[] | select(.tag_name == $tag)] | length' \
+              <<< "$releases"
+          )" = "0"
+          test "$(
+            jq -er '
+              add
+              | map(select(.draft == false and .prerelease == false and .published_at != null))
+              | sort_by(.published_at) | last | .tag_name
+            ' <<< "$releases"
+          )" = "$PREVIOUS_TAG"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$TARGET_SHA"
           gh release create "$RELEASE_TAG" \
             "$RUNNER_TEMP/release/artifacts.json#artifacts.json" \
             --repo "$GITHUB_REPOSITORY" \
