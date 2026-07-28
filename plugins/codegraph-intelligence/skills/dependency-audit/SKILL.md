@@ -1,6 +1,8 @@
 ---
 name: dependency-audit
 description: Audit module dependencies and detect high coupling or cycles using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill when you need to understand how modules depend on each other, identify tight coupling or detect circular dependencies.

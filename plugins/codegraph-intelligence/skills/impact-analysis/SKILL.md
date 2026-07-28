@@ -1,6 +1,8 @@
 ---
 name: impact-analysis
 description: Analyze the impact of modifying, renaming, deleting, or refactoring a symbol, module, API, route or service using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill before changing code that may affect callers, callees, tests, routes, public exports or shared modules.

@@ -1,7 +1,6 @@
 {
   "name": "codegraph-intelligence",
-  "displayName": "CodeGraph Intelligence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Graph-backed code intelligence workflows using CodeGraph MCP with CLI fallback.",
   "author": {
     "name": "mcontheway"
@@ -17,19 +16,5 @@
     "claude code"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
-  "mcpServers": "./.mcp.json",
-  "interface": {
-    "displayName": "CodeGraph Intelligence",
-    "shortDescription": "Graph-backed workflows for exploring and modifying codebases using CodeGraph.",
-    "longDescription": "This plugin bundles twelve skills that help you understand and safely change large codebases using CodeGraph. It prefers lightweight MCP tools for targeted work, uses codegraph_explore for unfamiliar areas, and falls back to the CodeGraph CLI when MCP tools are unavailable. Skills include context bootstrapping, impact analysis, request-flow tracing, refactor planning, test targeting, architecture mapping, entry-point finding, bug localization, dependency auditing, public-API guarding, dead-code hunting and change-plan generation. A SessionStart hook checks for the CodeGraph CLI and index at the start of each session.",
-    "developerName": "mcontheway",
-    "category": "Developer Tools",
-    "capabilities": ["Read", "Write"],
-    "defaultPrompt": [
-      "Use CodeGraph Intelligence to analyze the impact of changing this symbol.",
-      "Use CodeGraph Intelligence to trace this request flow.",
-      "Use CodeGraph Intelligence to plan a safe refactor."
-    ]
-  }
+  "mcpServers": "./.mcp.json"
 }

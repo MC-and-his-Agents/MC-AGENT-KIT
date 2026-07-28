@@ -1,6 +1,8 @@
 ---
 name: test-target-finder
 description: Identify the minimal set of tests to run after code changes using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill after code has been modified to determine which tests should be run to validate the change. It helps avoid running the entire test suite unnecessarily.

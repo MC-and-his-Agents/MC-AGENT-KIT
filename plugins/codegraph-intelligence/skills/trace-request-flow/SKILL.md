@@ -1,6 +1,8 @@
 ---
 name: trace-request-flow
 description: Trace a request or function call from entry point through middleware, controllers, services, repositories and external calls using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill when the user asks how a particular request, API call, route or function flows through the system.

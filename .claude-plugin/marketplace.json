@@ -1,0 +1,16 @@
+{
+  "name": "mcskills",
+  "owner": {
+    "name": "mcontheway"
+  },
+  "metadata": {
+    "description": "MC 自研 Agent Plugins"
+  },
+  "plugins": [
+    {
+      "name": "codegraph-intelligence",
+      "source": "./plugins/codegraph-intelligence",
+      "category": "development"
+    }
+  ]
+}

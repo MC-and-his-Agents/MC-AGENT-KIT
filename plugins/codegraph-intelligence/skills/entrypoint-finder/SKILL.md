@@ -1,6 +1,8 @@
 ---
 name: entrypoint-finder
 description: Find application entry points and system startup locations using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill when you need to locate where an application or service starts execution (e.g. for debugging, instrumentation or understanding control flow).

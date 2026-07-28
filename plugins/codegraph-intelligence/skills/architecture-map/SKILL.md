@@ -1,6 +1,8 @@
 ---
 name: architecture-map
 description: Map the architecture of a repository using CodeGraph.
+metadata:
+  internal: true
 ---
 
 Use this skill to get a high-level overview of how a repository is structured, how modules relate to each other and where responsibilities lie.
