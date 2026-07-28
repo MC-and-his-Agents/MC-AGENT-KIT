@@ -9,11 +9,10 @@ import re
 import sys
 from pathlib import Path
 
-from repository_collections import collection_readmes, discovered_collections
+from repository_collections import NPX_ADD_PREFIX, collection_readmes, discovered_collections
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "MC-and-his-Agents/MC-SKILLS"
 SEMVER_NUMBER = r"(?:0|[1-9]\d*)"
 SEMVER_PRERELEASE = rf"(?:{SEMVER_NUMBER}|\d*[A-Za-z-][0-9A-Za-z-]*)"
 SEMVER_PATTERN = re.compile(
@@ -282,7 +281,7 @@ def render_collection(collection: str) -> str:
             "安装本主题当前全部 skills：",
             "",
             "```bash",
-            f"npx skills add {REPOSITORY} {skill_args}",
+            f"{NPX_ADD_PREFIX} {skill_args}",
             "```",
         ]
     )

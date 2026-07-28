@@ -11,22 +11,22 @@ Standalone skills live directly under `skills/<skill>/` or in a themed collectio
 List available skills:
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --list
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --list
 ```
 
 Install one skill:
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --skill write-a-goal
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill write-a-goal
 ```
 
 Install all standalone skills for one supported agent:
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --skill '*' --agent codex
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill '*' --agent codex
 ```
 
-Use `--agent claude-code` for Claude Code. See the collection pages for theme-specific batch commands:
+The `skills/` subpath excludes plugin-internal skills; `--full-depth` discovers both flat skills and two-level collections. Use `--agent claude-code` for Claude Code. See the collection pages for theme-specific batch commands:
 
 - [`dev`](./skills/dev/README.md) — software development and engineering decisions.
 - [`design`](./skills/design/README.md) — product, interaction and interface design.

@@ -11,22 +11,22 @@ MC 自研 Agent Skills 和 Agent Plugins 的源码与分发仓库。每个 artif
 查看可用 skills：
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --list
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --list
 ```
 
 安装单个 skill：
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --skill write-a-goal
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill write-a-goal
 ```
 
 为一个已支持的 agent 安装全部独立 skills：
 
 ```bash
-npx skills add MC-and-his-Agents/MC-SKILLS --skill '*' --agent codex
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill '*' --agent codex
 ```
 
-Claude Code 使用 `--agent claude-code`。按主题批量安装请查看 collection 页面：
+`skills/` 子路径隔离了 plugin 内部 skills；`--full-depth` 同时发现扁平 skill 和二级 collection。Claude Code 使用 `--agent claude-code`。按主题批量安装请查看 collection 页面：
 
 - [`dev`](./skills/dev/README.md)：软件开发与工程决策。
 - [`design`](./skills/design/README.md)：产品、交互与界面设计。
