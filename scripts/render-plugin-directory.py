@@ -9,6 +9,8 @@ import re
 import sys
 from pathlib import Path
 
+from repository_collections import collection_readmes, discovered_collections
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "MC-and-his-Agents/MC-SKILLS"
@@ -330,15 +332,16 @@ def main() -> int:
                 changed.append(path)
                 if not args.check:
                     path.write_text(rendered, encoding="utf-8")
-        collections = sorted(
-            {skill_collection(path) for path in skill_paths()} - {"—"}
-        )
+        collections = discovered_collections(ROOT)
+        readmes = collection_readmes(ROOT)
+        if set(collections) != set(readmes):
+            missing = sorted(set(collections) - set(readmes))
+            orphaned = sorted(set(readmes) - set(collections))
+            raise RenderError(
+                f"Collection README mismatch; missing={missing}, orphaned={orphaned}"
+            )
         for collection in collections:
-            path = ROOT / "skills" / collection / "README.md"
-            if not path.is_file():
-                raise RenderError(
-                    f"Collection README is missing: {path.relative_to(ROOT)}"
-                )
+            path = readmes[collection]
             rendered = replace_block(
                 path.read_text(encoding="utf-8"),
                 "COLLECTION_MEMBERS",

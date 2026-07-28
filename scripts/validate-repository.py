@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from repository_collections import validate_collection_readmes
+from repository_plugin_components import load_json, validate_component_path
 from repository_validator_selfcheck import run_self_test
 
 
@@ -89,7 +91,8 @@ def validate_skills(root: Path) -> tuple[dict[str, tuple[str, str]], list[str]]:
             errors.append(
                 failure(source, "skill-name", f"set `name: {path.parent.name}` to match its directory")
             )
-        if not values.get("description"):
+        description = values.get("description")
+        if not isinstance(description, str) or not description.strip():
             errors.append(failure(source, "skill-description", "add frontmatter `description`"))
         if name in seen:
             errors.append(
@@ -104,73 +107,6 @@ def validate_skills(root: Path) -> tuple[dict[str, tuple[str, str]], list[str]]:
             continue
         artifacts[f"skill:{name}"] = (path.parent.relative_to(root).as_posix(), version)
     return artifacts, errors
-
-def load_json(path: Path, root: Path) -> tuple[dict | None, list[str]]:
-    source = path.relative_to(root).as_posix()
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None, [failure(source, "json-present", "add the required JSON file")]
-    except json.JSONDecodeError as exc:
-        return None, [failure(source, "json-syntax", f"fix JSON syntax: {exc}")]
-    if not isinstance(value, dict):
-        return None, [failure(source, "json-object", "use a JSON object at the top level")]
-    return value, []
-
-def validate_component_path(
-    root: Path, plugin_dir: Path, manifest_path: Path, field: str, value: object
-) -> list[str]:
-    if value is None:
-        return []
-    source = manifest_path.relative_to(root)
-    if not isinstance(value, str) or not value:
-        return [
-            failure(source, "plugin-component-type", f"set `{field}` to one relative path string")
-        ]
-    target = (plugin_dir / value).resolve()
-    if not target.is_relative_to(plugin_dir.resolve()):
-        return [
-            failure(source, "plugin-component-path", f"keep `{field}` inside {plugin_dir.name}")
-        ]
-    if field == "skills":
-        if not target.is_dir() or not any(target.glob("*/SKILL.md")):
-            return [
-                failure(
-                    source,
-                    "plugin-component-path",
-                    f"make `{field}: {value}` point to a skill directory",
-                )
-            ]
-        return []
-    if not target.is_file() or target.suffix != ".json":
-        return [
-            failure(
-                source,
-                "plugin-component-path",
-                f"make `{field}: {value}` point to a JSON file",
-            )
-        ]
-    document, errors = load_json(target, root.resolve())
-    if document is None:
-        return errors
-    valid = (
-        bool(document)
-        and all(
-            isinstance(server, dict) and isinstance(server.get("command"), str)
-            for server in document.values()
-        )
-        if field == "mcpServers"
-        else isinstance(document.get("hooks"), dict) and bool(document["hooks"])
-    )
-    if not valid:
-        errors.append(
-            failure(
-                target.relative_to(root.resolve()),
-                "plugin-component-content",
-                f"add a valid {field} configuration",
-            )
-        )
-    return errors
 
 def validate_private_skills(
     root: Path,
@@ -428,6 +364,7 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
         root, {identity.removeprefix("skill:") for identity in skill_artifacts}
     )
     errors.extend(plugin_errors)
+    errors.extend(validate_collection_readmes(root))
     plugin_names = {identity.removeprefix("plugin:") for identity in plugin_artifacts}
     errors.extend(
         validate_marketplace(root, ".agents/plugins/marketplace.json", "Codex", plugin_names)
