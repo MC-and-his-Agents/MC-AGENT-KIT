@@ -1,7 +1,7 @@
 {
   "name": "codegraph-intelligence",
   "displayName": "CodeGraph Intelligence",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Graph-backed code intelligence workflows using CodeGraph MCP with CLI fallback.",
   "author": {
     "name": "mcontheway"

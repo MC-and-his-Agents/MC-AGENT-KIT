@@ -13,13 +13,13 @@ Shared tool policy:
 - Follow `../../reference/codegraph-tool-policy.md` for common CodeGraph tool selection, fallback and unavailable handling.
 
 Task-specific tools:
-- Prefer `codegraph_search`, `codegraph_context`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_explore` for unfamiliar bug areas.
+- Prefer `codegraph_search`, `codegraph_node`, `codegraph_callers`, `codegraph_callees` and `codegraph_explore` for unfamiliar bug areas.
 
 Workflow:
 1. Summarise the bug description into a few keywords (e.g. for "users cannot reset password", keywords might be "password reset", "reset password", "token", "forgotPassword", "resetPassword", etc.).
 2. Ensure the graph index is available using `codegraph_status`.
 3. Use `codegraph_search` with these keywords to locate candidate symbols. Include synonyms, route patterns and error messages if possible.
-4. If the bug spans an unfamiliar subsystem, use `codegraph_context` first. Use `codegraph_explore` only when you need a deeper survey, and keep the query anchored to symbols or files found by search.
+4. If the bug spans an unfamiliar subsystem, use one bounded `codegraph_explore` query anchored to the bug and any symbols or files found by search.
 5. For each candidate, inspect details with `codegraph_node` and note the file path, symbol kind and any obvious misuse.
 6. Examine callers and callees with `codegraph_callers` and `codegraph_callees` to see how the candidate fits into the broader system.
 7. Prioritise candidates based on:

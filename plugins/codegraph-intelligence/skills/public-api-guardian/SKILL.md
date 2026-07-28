@@ -16,13 +16,13 @@ Shared tool policy:
 - Follow `../../reference/codegraph-tool-policy.md` for common CodeGraph tool selection, fallback and unavailable handling.
 
 Task-specific tools:
-- Prefer `codegraph_context`, `codegraph_explore`, `codegraph_search`, `codegraph_node`, `codegraph_callers` and `codegraph_impact`.
+- Prefer `codegraph_explore`, `codegraph_search`, `codegraph_node`, `codegraph_callers` and `codegraph_impact`.
 
 Workflow:
 1. Verify the graph index is available using `codegraph_status`.
 2. Read `reference/public-api-rules.md` and use it to classify public API signals and external consumer risk.
 3. Locate the public API symbol (function, method, class, module, route) using `codegraph_search`. Confirm it is exported or reachable via an HTTP path.
-4. Use `codegraph_context` for surrounding API context. Use `codegraph_explore` only if the API surface belongs to an unfamiliar subsystem.
+4. Use one bounded `codegraph_explore` call for surrounding API context when the surface belongs to an unfamiliar subsystem.
 5. Inspect the symbol with `codegraph_node` to understand its file path, export declaration and any documentation or annotations.
 6. Use `codegraph_callers` to find direct consumers of the symbol. Distinguish internal callers (within the same codebase) from external callers (other packages, microservices, public entry points).
 7. Use `codegraph_impact` to identify indirect consumers and test files that reference the symbol.

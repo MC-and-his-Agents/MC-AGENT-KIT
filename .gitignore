@@ -55,8 +55,8 @@ vite.svg
 *.log
 
 # Git / build outputs
+.codegraph/
 target/
 out/
 tmp/
 temp/
-

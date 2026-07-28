@@ -12,11 +12,10 @@ Start graph-backed work with `codegraph_status` or `codegraph status .`.
 
 ## MCP First
 
-Prefer MCP tools when they are available:
+The following eight tools are required by this plugin; it currently declares no optional MCP capabilities. Prefer them when they are available:
 
 - `codegraph_search`: find symbols by name, route, module or short code term.
-- `codegraph_context`: build focused task context without broad file reads.
-- `codegraph_explore`: survey unfamiliar modules or broad areas after search finds concrete anchors.
+- `codegraph_explore`: build bounded context for a task or survey an unfamiliar area.
 - `codegraph_node`: inspect one symbol's location, signature, export state or source.
 - `codegraph_callers` / `codegraph_callees`: trace direct relationships.
 - `codegraph_impact`: estimate broader change radius.
@@ -24,7 +23,7 @@ Prefer MCP tools when they are available:
 
 ## Explore Discipline
 
-Use `codegraph_explore` only for broad or unfamiliar areas. Do not use it for narrow symbol lookups. Anchor explore queries to symbols, file names or short code terms found by `codegraph_search`; avoid natural-language-only explore queries.
+Use one bounded `codegraph_explore` call for a cohesive task or unfamiliar area. Use `codegraph_search` and `codegraph_node` for narrow symbol lookups. Anchor explore queries to the task and any known symbols, file names or short code terms.
 
 ## CLI Fallback
 
