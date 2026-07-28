@@ -12,6 +12,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "MC-and-his-Agents/MC-SKILLS"
+SEMVER_NUMBER = r"(?:0|[1-9]\d*)"
+SEMVER_PRERELEASE = rf"(?:{SEMVER_NUMBER}|\d*[A-Za-z-][0-9A-Za-z-]*)"
+SEMVER_PATTERN = re.compile(
+    rf"^{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER}"
+    rf"(?:-{SEMVER_PRERELEASE}(?:\.{SEMVER_PRERELEASE})*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 README_CONFIGS = (
     {
         "path": ROOT / "README.md",
@@ -101,17 +108,24 @@ def parse_skill_front_matter(path: Path) -> tuple[str, str, str]:
     version = metadata_values.get("version")
     if not version:
         raise RenderError(f"Missing metadata.version in {path.relative_to(ROOT)}")
+    if not SEMVER_PATTERN.fullmatch(version):
+        raise RenderError(
+            f"Invalid metadata.version in {path.relative_to(ROOT)}: {version}"
+        )
     return name, version, first_sentence(description)
 
 
 def skill_paths() -> list[Path]:
     skills_root = ROOT / "skills"
-    return sorted(
-        [
-            *skills_root.glob("*/SKILL.md"),
-            *skills_root.glob("*/*/SKILL.md"),
-        ]
-    )
+    flat = list(skills_root.glob("*/SKILL.md"))
+    nested = list(skills_root.glob("*/*/SKILL.md"))
+    for flat_skill in flat:
+        if any(flat_skill.parent.glob("*/SKILL.md")):
+            raise RenderError(
+                "Collection root cannot contain SKILL.md: "
+                f"{flat_skill.relative_to(ROOT)}"
+            )
+    return sorted([*flat, *nested])
 
 
 def skill_collection(skill_path: Path) -> str:
@@ -191,14 +205,35 @@ def render_plugins(headers: tuple[str, str, str, str, str]) -> str:
         if not manifests:
             raise RenderError(f"Plugin has no supported manifest: {plugin_dir.relative_to(ROOT)}")
 
-        names = {manifest.get("name") for _, manifest in manifests}
-        versions = {manifest.get("version") for _, manifest in manifests}
-        if len(names) != 1 or None in names:
-            raise RenderError(f"Plugin manifest names differ in {plugin_dir.relative_to(ROOT)}")
-        if len(versions) != 1 or None in versions:
-            raise RenderError(f"Plugin manifest versions differ in {plugin_dir.relative_to(ROOT)}")
-        name = names.pop()
-        version = versions.pop()
+        shared_fields = (
+            "name",
+            "version",
+            "description",
+            "author",
+            "license",
+            "keywords",
+            "skills",
+            "mcpServers",
+        )
+        for field in shared_fields:
+            values = [manifest.get(field) for _, manifest in manifests]
+            if any(value is None for value in values) or any(
+                value != values[0] for value in values[1:]
+            ):
+                raise RenderError(
+                    f"Plugin manifest {field} differs in "
+                    f"{plugin_dir.relative_to(ROOT)}"
+                )
+        for _, candidate in manifests:
+            for field in ("skills", "hooks", "mcpServers"):
+                value = candidate.get(field)
+                if isinstance(value, str) and not (plugin_dir / value).exists():
+                    raise RenderError(
+                        f"Plugin manifest {field} path does not exist: "
+                        f"{plugin_dir.relative_to(ROOT) / value}"
+                    )
+        name = manifests[0][1]["name"]
+        version = manifests[0][1]["version"]
         manifest = manifests[0][1]
         interface = manifest.get("interface")
         category = interface.get("category", "") if isinstance(interface, dict) else ""
