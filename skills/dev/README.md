@@ -8,10 +8,11 @@
 | Skill | 版本 | 描述 |
 |---|---:|---|
 | [code-smell-decision](./code-smell-decision/SKILL.md) | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
+| [tasks-owner](./tasks-owner/SKILL.md) | 0.3.0 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。 |
 
 从 Preview / latest source 安装本主题当前全部 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill code-smell-decision
+npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill code-smell-decision --skill tasks-owner
 ```
 <!-- COLLECTION_MEMBERS_END -->
