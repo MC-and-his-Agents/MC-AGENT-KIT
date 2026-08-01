@@ -1,0 +1,29 @@
+{
+  "fallback_positive_concepts": ["delegation", "github_truth", "orchestration"],
+  "positive_concepts": {
+    "delegation": {
+      "weight": 0.5,
+      "phrases": ["项目总负责", "主 owner", "总负责 owner", "项目统筹", "take ownership"]
+    },
+    "github_truth": {
+      "weight": 0.25,
+      "phrases": ["github", "milestone", "fr", "issue"]
+    },
+    "orchestration": {
+      "weight": 0.25,
+      "phrases": ["调度波次", "任务线程", "自动派发", "flat", "hierarchical"]
+    }
+  },
+  "negative_concepts": {
+    "skill_maintenance": {
+      "weight": 0.8,
+      "exclusive": true,
+      "phrases": ["评审这个 skill", "讨论这个 skill", "修改这个 skill", "测试这个 skill", "evaluate this skill"]
+    },
+    "no_delegation": {
+      "weight": 0.8,
+      "exclusive": true,
+      "phrases": ["不要激活 owner", "不委任", "只做一次", "just explain"]
+    }
+  }
+}

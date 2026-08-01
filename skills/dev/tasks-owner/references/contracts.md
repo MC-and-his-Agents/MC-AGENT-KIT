@@ -47,13 +47,14 @@ Automation
 - <可验证条件>
 ```
 
-## 下游任务线程合同
+## output contract：下游任务线程合同
 
 新任务说明第一行写入主 Owner 的真实线程 ID，并包含：
 
 ```text
 主 owner 线程 ID: <真实 threadId>
 task_key: <GitHub issue URL 或 issue 编号>
+subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 
 任务身份与目标
 - GitHub milestone / FR / issue
@@ -69,7 +70,7 @@ task_key: <GitHub issue URL 或 issue 编号>
 - branch / worktree / PR 规则
 - 执行模式：<flat / hierarchical>
 - 任务线程模型与推理程度：<flat 默认 gpt-5.6-luna / max；hierarchical 默认 gpt-5.6-terra / max>
-- Subagent 策略：<flat 禁止创建；hierarchical 默认 gpt-5.6-terra / xhigh>
+- Subagent 策略：<flat 为 Owner 执行的策略禁令，不声称宿主原生隔离；hierarchical 默认 gpt-5.6-terra / xhigh>
 - 用户明确指定的覆盖项：<没有则写无>
 - 允许自主决定的范围
 
@@ -80,3 +81,14 @@ task_key: <GitHub issue URL 或 issue 编号>
 ```
 
 任务线程只在目标完成、真实阻塞、需要跨任务决定或需要用户决定时主动汇报；不发送无实质变化的状态消息。
+
+## Flat 独立审查合同
+
+`flat` 执行任务不得自审。Owner 创建同级只读 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。review 任务同样设置 `subagent_policy: forbidden`。
+
+## rollback boundary
+
+- 派发前：可直接撤回调度建议，不产生任务状态。
+- 已创建未写入：暂停或归档对应任务，并在 Owner checkpoint 标记取消原因。
+- 已产生 branch/PR：停止继续写入，保留 branch/PR 作为可审计证据；是否关闭或删除必须由 Owner 按仓库规则确认。
+- 已执行外部可见或不可逆动作：不承诺自动回滚，立即停止并交由用户决定。
