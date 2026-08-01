@@ -8,6 +8,8 @@
 当前对话现作为 <GitHub 项目> 的总负责线程。
 
 owner_thread_id: <真实 threadId>
+owner_model: <默认 gpt-5.6-sol>
+owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
 
 项目与范围
 - GitHub 项目：<project>
@@ -63,7 +65,9 @@ task_key: <GitHub issue URL 或 issue 编号>
 
 执行方式
 - branch / worktree / PR 规则
-- 模型与 Subagent 策略
+- 任务线程模型与推理程度：<默认 gpt-5.6-terra / max>
+- Subagent 模型与推理程度：<默认 gpt-5.6-terra / xhigh>
+- 用户明确指定的覆盖项：<没有则写无>
 - 允许自主决定的范围
 
 完成与汇报

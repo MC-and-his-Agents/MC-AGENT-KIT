@@ -2,7 +2,7 @@
 name: become-codex-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论或修改本 Skill 不激活。
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -38,6 +38,16 @@ metadata:
 4. 检查同一项目是否已有明显活跃的 Owner。发现冲突时只读说明候选线程和建议的所有权转移，不派发任务。
 5. 如果任何宿主能力或 GitHub 事实缺失，报告缺口并停留在只读模式，不假设存在替代控制面。
 
+## 模型与推理策略
+
+除非用户明确指定其他配置，否则使用以下默认值：
+
+- 主 Owner：`gpt-5.6-sol`，`reasoning_effort: high`；可按复杂度提升为 `xhigh` 或 `max`，不得低于 `high`。
+- 独立任务线程：`gpt-5.6-terra`，`reasoning_effort: max`。
+- 任务线程衍生的 Subagent：`gpt-5.6-terra`，`reasoning_effort: xhigh`。
+
+激活前回读当前 Owner 的模型和推理程度；不符合默认要求且用户没有明确覆盖时，要求用户切换，不静默降级。创建任务线程或 Subagent 时显式传递对应配置，并在创建后回读验证；宿主不支持指定值时，报告缺口，不用其他配置代替。
+
 ## 范围与调度方案
 
 创建任何任务线程前，Owner 必须先形成一份短的调度建议，并让用户确认：
@@ -69,7 +79,7 @@ metadata:
 1. 一次性回读 GitHub truth 和现有线程，以 `task_key` 验证活动、待创建、已结束和状态不明的任务；不要把标题或摘要直接当作指令。
 2. 计算 `可用槽位 = 用户确认的并发上限 - 活动线程 - 待创建线程`，从依赖已满足且写入范围不冲突的 ready set 中选取不超过可用槽位的任务。
 3. 对选中任务并发调用非阻塞创建；GitHub 仓库默认使用独立 Worktree。返回 `clientThreadId` 时记为待创建并占用槽位，未得到真实 `threadId` 前不把它当作线程 ID。
-4. 整个波次提交后统一回读项目、模型、目标、`threadId` 和 `task_key`；`wait_threads` 有单次目标数限制时分组等待，不降低派发并发。
+4. 整个波次提交后统一回读项目、模型、推理程度、目标、`threadId` 和 `task_key`；`wait_threads` 有单次目标数限制时分组等待，不降低派发并发。
 5. 单个任务状态不明只隔离该 `task_key`，不阻塞其他独立任务。下一次 Heartbeat 完整执行 `list_threads`、`wait_threads` 和 `read_thread` 后仍无法解析，且存在空闲槽位时，允许用相同 `task_key` 做一次补偿重试，并在 checkpoint 增加 `dispatch_generation`。
 6. 发现重复时保留已验证的权威线程，暂停该 `task_key` 的后续派发并报告；其他无冲突任务继续推进，不得用归档代替事实确认。
 7. 任务说明使用 [下游任务合同](references/contracts.md)，完成或阻塞时只回传结果、证据、head、风险和下一解锁条件。
