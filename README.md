@@ -46,8 +46,8 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 | Skill | Collection | Version | Description |
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
-| [become-codex-owner](./skills/dev/become-codex-owner/SKILL.md) | dev | 0.3.0 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。 |
 | [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
+| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.3.0 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.1.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal。 |
 <!-- SKILLS_END -->
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "成为 Codex 项目总负责"
-  short_description: "在 Codex App 中统筹 GitHub 项目任务、依赖与收口"
-  default_prompt: "使用 $become-codex-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色，并先提出调度方案供我确认。"

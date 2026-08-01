@@ -1,5 +1,5 @@
 ---
-name: become-codex-owner
+name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论或修改本 Skill 不激活。
 metadata:
   version: "0.3.0"
@@ -12,7 +12,7 @@ metadata:
 ## 激活边界
 
 - 只有用户明确委任当前对话承担“主 Owner”“总负责”“项目统筹”等同等角色时才激活。
-- 仅评审、讨论、修改、测试或引用本 Skill 不激活；出现 `$become-codex-owner` 也不改变这一点。
+- 仅评审、讨论、修改、测试或引用本 Skill 不激活；出现 `$tasks-owner` 也不改变这一点。
 - 无法判断用户是否在委任时，先用结构化选项工具确认；工具不可用时提出一个简短的纯文本问题。
 - 本 Skill 只适用于 Codex App 的 GitHub 项目。CLI 可作为下游 Worker，但不能替代 App 的持久任务控制面。
 
