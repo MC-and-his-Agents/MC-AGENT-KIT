@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理独立任务线程、依赖、技术决策、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论或修改本 Skill 不激活。
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -22,7 +22,7 @@ metadata:
 2. 用户显式项目优先于当前目录项目，当前目录项目优先于唯一匹配项目。
 3. 当前线程就是 Owner，不为了激活 Owner 再创建线程。
 4. Owner 不在 `main` 上实施产品代码；实现交给绑定 issue 和 worktree 的任务线程。
-5. 独立任务线程承载长期、可独立查看的交付；Subagent 只承载任务线程内有界的探索、测试、审查或局部实现。
+5. 独立任务线程承载长期、可独立查看的交付；是否允许任务线程创建 Subagent 由已确认的执行模式决定。
 6. 共享 GitHub truth、仓库 carrier 和公共合同只能由一个明确的写入者修改。
 7. 不自动创建或改写 GitHub truth；不在用户未授权时部署、发布、删除、付费或发送外部消息。
 8. 过程数据只保存在当前 Owner 对话和 Codex App 运行状态中，不写入 GitHub 规划字段或仓库文件。
@@ -38,13 +38,22 @@ metadata:
 4. 检查同一项目是否已有明显活跃的 Owner。发现冲突时只读说明候选线程和建议的所有权转移，不派发任务。
 5. 如果任何宿主能力或 GitHub 事实缺失，报告缺口并停留在只读模式，不假设存在替代控制面。
 
+## 执行模式
+
+创建任务线程前，Owner 必须推荐并让用户确认本批次的执行模式：
+
+- `flat`：主 Owner → 独立任务线程。任务线程禁止创建 Subagent；主 Owner 负责调度单元拆分、执行推动、纠偏、独立审查和收口。任务超出边界时，由主 Owner 创建同级任务线程，不在任务内部继续分层。
+- `hierarchical`：主 Owner → 独立任务线程 → Subagent。任务线程可以为有界探索、测试、审查或局部实现创建 Subagent。
+
+执行模式按已确认的批次范围生效；切换模式前重新取得用户确认。
+
 ## 模型与推理策略
 
 除非用户明确指定其他配置，否则使用以下默认值：
 
 - 主 Owner：`gpt-5.6-sol`，`reasoning_effort: high`；可按复杂度提升为 `xhigh` 或 `max`，不得低于 `high`。
-- 独立任务线程：`gpt-5.6-terra`，`reasoning_effort: max`。
-- 任务线程衍生的 Subagent：`gpt-5.6-terra`，`reasoning_effort: xhigh`。
+- `flat` 任务线程：`gpt-5.6-luna`，`reasoning_effort: max`。
+- `hierarchical` 任务线程：`gpt-5.6-terra`，`reasoning_effort: max`；其 Subagent 使用 `gpt-5.6-terra`，`reasoning_effort: xhigh`。
 
 激活前回读当前 Owner 的模型和推理程度；不符合默认要求且用户没有明确覆盖时，要求用户切换，不静默降级。创建任务线程或 Subagent 时显式传递对应配置，并在创建后回读验证；宿主不支持指定值时，报告缺口，不用其他配置代替。
 
@@ -57,16 +66,16 @@ metadata:
 - 推荐调度单元：milestone、FR batch 或单 issue；
 - 第一波可启动任务、硬依赖、软依赖和收敛依赖；
 - 每个任务的写入范围、worktree/branch、验证和 closeout owner；
-- 并发上限、模型策略以及暂不启动的任务。
+- 执行模式、并发上限、模型策略以及暂不启动的任务。
 
 调度单元按以下原则选择：
 
 - 默认选择有单一写入所有权、明确验收和可独立 closeout 的 issue；
 - 多个紧密 issue 共享合同、实现和收口时，合并为 FR batch；
 - 只有 milestone 本身是单一、有界交付时才为 milestone 建线程；
-- 纯调查、测试分析、审查和低风险 inventory 优先留在任务线程内使用 Subagent。
+- `hierarchical` 模式下，纯调查、测试分析、审查和低风险 inventory 优先留在任务线程内使用 Subagent；`flat` 模式下需要并行时拆成同级任务线程。
 
-用户未确认范围、调度单元或验收时，只读沟通，不派发。优先使用结构化选项工具；不可用时用简短问题确认。
+用户未确认范围、调度单元、执行模式或验收时，只读沟通，不派发。优先使用结构化选项工具；不可用时用简短问题确认。
 
 ## 任务派发与防重
 
@@ -93,6 +102,7 @@ metadata:
 ```text
 owner_thread_id
 scope
+execution_mode
 task_key -> threadId -> status
 task_key -> clientThreadId -> dispatch_generation
 启动依赖与下一解锁条件
@@ -128,7 +138,7 @@ Heartbeat 每次唤醒：读取 checkpoint 和 GitHub truth，检查线程完成
 1. 是否已激活 Owner，以及未激活的具体原因；
 2. 当前真实 `threadId`、标题和 GitHub 项目；
 3. 已回读的 milestone/FR/issue 规划真相；
-4. 当前范围、非目标、验收标准和推荐调度方案；
+4. 当前范围、非目标、验收标准、执行模式和推荐调度方案；
 5. 任务就绪门禁状态与待用户确认项；
 6. 已派发线程、task_key、branch/worktree、PR/head 和下一收敛点；
 7. Automation 是否启用、权限模式和剩余风险。
@@ -139,7 +149,7 @@ Owner 契约模板见 [contracts.md](references/contracts.md)。
 
 - 没有真实 `threadId`：只读，不派发，向用户索取线程链接或 ID。
 - 没有 GitHub truth：说明本 Skill 不适用，不激活；不把仓库文件或聊天记录提升为 GitHub 规划真相。
-- 项目不唯一、Owner 冲突或调度方案未确认：只读沟通，等待用户决定。
+- 项目不唯一、Owner 冲突、执行模式或调度方案未确认：只读沟通，等待用户决定。
 - 线程创建失败或只返回 `clientThreadId`：保留现状，按回读流程等待，不虚假记录为已派发。
 - Automation 不可用：继续手动 Owner；不写替代 cron，不假设周期运行。
 - 事实不足、状态重复或证据脱节：停止下游派发，先回读并报告根因、选项和推荐决策。

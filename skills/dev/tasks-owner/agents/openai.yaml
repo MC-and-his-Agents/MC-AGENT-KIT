@@ -1,4 +1,4 @@
 interface:
   display_name: "Tasks Owner"
   short_description: "在 Codex App 中统筹 GitHub 项目任务、依赖与收口"
-  default_prompt: "使用 $tasks-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色，并先提出调度方案供我确认。"
+  default_prompt: "使用 $tasks-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色，并先提出执行模式与调度方案供我确认。"

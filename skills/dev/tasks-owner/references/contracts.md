@@ -10,6 +10,7 @@
 owner_thread_id: <真实 threadId>
 owner_model: <默认 gpt-5.6-sol>
 owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
+execution_mode: <flat / hierarchical>
 
 项目与范围
 - GitHub 项目：<project>
@@ -24,6 +25,7 @@ GitHub 规划真相
 - 子 issue / 依赖：<已回读项>
 
 调度方案
+- 执行模式：<flat / hierarchical，已由用户确认>
 - 推荐调度单元：<milestone / FR batch / issue>
 - 第一波任务：<task_key 列表>
 - 硬依赖：<依赖>
@@ -65,8 +67,9 @@ task_key: <GitHub issue URL 或 issue 编号>
 
 执行方式
 - branch / worktree / PR 规则
-- 任务线程模型与推理程度：<默认 gpt-5.6-terra / max>
-- Subagent 模型与推理程度：<默认 gpt-5.6-terra / xhigh>
+- 执行模式：<flat / hierarchical>
+- 任务线程模型与推理程度：<flat 默认 gpt-5.6-luna / max；hierarchical 默认 gpt-5.6-terra / max>
+- Subagent 策略：<flat 禁止创建；hierarchical 默认 gpt-5.6-terra / xhigh>
 - 用户明确指定的覆盖项：<没有则写无>
 - 允许自主决定的范围
 
