@@ -12,6 +12,10 @@
     {
       "text": "Take ownership of this GitHub milestone and use hierarchical task orchestration.",
       "family": "hierarchical_delegation"
+    },
+    {
+      "text": "请作为这个 GitHub FR 的项目总负责，使用 direct 模式调度 Subagent。",
+      "family": "direct_delegation"
     }
   ],
   "should_not_trigger": [

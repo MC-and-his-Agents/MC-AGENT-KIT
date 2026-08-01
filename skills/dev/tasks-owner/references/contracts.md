@@ -10,7 +10,8 @@
 owner_thread_id: <真实 threadId>
 owner_model: <默认 gpt-5.6-sol>
 owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
-execution_mode: <flat / hierarchical>
+execution_mode: <direct / flat / hierarchical>
+luna_subagent_status: <supported / fallback / pending_restart / unverified>
 
 项目与范围
 - GitHub 项目：<project>
@@ -25,7 +26,7 @@ GitHub 规划真相
 - 子 issue / 依赖：<已回读项>
 
 调度方案
-- 执行模式：<flat / hierarchical，已由用户确认>
+- 执行模式：<direct / flat / hierarchical，已由用户确认>
 - 推荐调度单元：<milestone / FR batch / issue>
 - 第一波任务：<task_key 列表>
 - 硬依赖：<依赖>
@@ -69,8 +70,8 @@ subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 执行方式
 - branch / worktree / PR 规则
 - 执行模式：<flat / hierarchical>
-- 任务线程模型与推理程度：<flat 默认 gpt-5.6-luna / max；hierarchical 默认 gpt-5.6-terra / max>
-- Subagent 策略：<flat 为 Owner 执行的策略禁令，不声称宿主原生隔离；hierarchical 默认 gpt-5.6-terra / xhigh>
+- 任务线程模型与推理程度：<默认 gpt-5.6-luna / max>
+- Subagent 策略：<flat 为 Owner 执行的策略禁令，不声称宿主原生隔离；hierarchical 默认 gpt-5.6-luna / max 或用户确认的回退模型>
 - 用户明确指定的覆盖项：<没有则写无>
 - 允许自主决定的范围
 
@@ -81,6 +82,10 @@ subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 ```
 
 任务线程只在目标完成、真实阻塞、需要跨任务决定或需要用户决定时主动汇报；不发送无实质变化的状态消息。
+
+## Direct Subagent 合同
+
+`direct` 由主 Owner 使用原生 `spawn_agent` 创建 Subagent，并显式设置 `fork_turns: "none"`、`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；门禁失败时使用用户确认的回退模型。提示必须包含主 Owner ID、`task_key`、GitHub truth、范围、依赖、写入边界、验收和回报格式。Subagent 不得继续衍生下级；多个 Subagent 并行时只允许一个写入者，其余保持只读。
 
 ## Flat 独立审查合同
 

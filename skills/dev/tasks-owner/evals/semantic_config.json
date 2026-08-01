@@ -11,7 +11,7 @@
     },
     "orchestration": {
       "weight": 0.25,
-      "phrases": ["调度波次", "任务线程", "自动派发", "flat", "hierarchical"]
+      "phrases": ["调度波次", "任务线程", "自动派发", "direct", "flat", "hierarchical"]
     }
   },
   "negative_concepts": {

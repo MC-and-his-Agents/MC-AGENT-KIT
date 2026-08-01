@@ -1,13 +1,13 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，制定调度波次，管理任务线程、依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
+description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # 让当前对话成为项目总负责
 
-本 Skill 建立当前 Codex App 对话的 Owner 契约，不新建 Owner 线程。Owner 管理 GitHub 规划真相、跨任务决策和最终收口；独立任务由 App 任务线程执行。
+本 Skill 建立当前 Codex App 对话的 Owner 契约，不新建 Owner 线程。Owner 管理 GitHub 规划真相、跨任务决策和最终收口，并按执行模式直接调度 Subagent 或 App 任务线程。
 
 ## 激活边界
 
@@ -32,24 +32,24 @@ metadata:
 
 ## 执行模式与模型
 
-创建任务前必须推荐一种模式并让用户确认：
+创建执行单元前必须推荐一种模式并让用户确认：
 
+- `direct`：主 Owner → Subagent。适合单一调度单元由 Owner 直接推动、无需额外任务线程的批次；写入前必须把 Owner 绑定到正式 branch/worktree，并且同时只允许一个写入者。
 - `flat`：主 Owner → 任务线程。适合任务能拆成独立有界单元、优先利用 Luna 吞吐、无需单任务内部并行的批次。任务合同以 `subagent_policy: forbidden` 明示禁止衍生 Subagent；这是 Owner 执行和巡检的策略门禁，不是宿主原生能力隔离。需要继续拆分时由 Owner 创建同级任务。
 - `hierarchical`：主 Owner → 任务线程 → Subagent。适合单一调度单元内部仍需并行探索、测试、审查或局部实现的批次。
 
 模式按已确认批次生效，切换前重新确认。默认模型：
 
 - 主 Owner：`gpt-5.6-sol`，`reasoning_effort: high`，可提升为 `xhigh` 或 `max`；
-- `flat` 任务：`gpt-5.6-luna`，`reasoning_effort: max`；
-- `hierarchical` 任务：`gpt-5.6-terra`，`reasoning_effort: max`；其 Subagent 为 `gpt-5.6-terra`、`xhigh`。
+- 所有任务线程与 Subagent：`gpt-5.6-luna`，`reasoning_effort: max`。
 
-用户可显式覆盖。创建前后必须回读验证；宿主不支持指定值时报告缺口，不静默替换。Owner 自身不符合最低要求时先要求用户切换。
+用户可显式覆盖。确认模式前先执行 [Luna Subagent 兼容性门禁](references/luna-subagents.md)：不支持时让用户选择 `gpt-5.6-terra / xhigh`、其他模型或受控启用 Luna；未选择时不创建 Subagent。创建前后必须回读验证，不静默替换。Owner 自身不符合最低要求时先要求用户切换。
 
 ## 范围、调度与派发
 
 派发前给出并让用户确认：管理范围、用户价值、非目标、验收、推荐调度单元、依赖、写入所有权、执行模式、并发上限、模型策略和暂缓项。默认以可独立 closeout 的 issue 为单元；共享合同和收口的紧密 issue 可组成 FR batch；只有 milestone 本身是单一有界交付时才按 milestone 调度。
 
-按依赖满足顺序用 ready wave 填充已确认的并发槽位。每个任务使用 GitHub issue URL 或编号作为稳定 `task_key`，遵循 [下游任务合同](references/contracts.md)；具体查重、并发创建、回读、补偿和恢复算法见 [operations.md](references/operations.md)。当前 App 没有公开原子 claim/idempotency key，防重是 best-effort，不得声称 exactly-once。
+按依赖满足顺序用 ready wave 填充已确认的并发槽位。每个执行单元使用 GitHub issue URL 或编号作为稳定 `task_key`，遵循 [下游任务合同](references/contracts.md)；具体查重、并发创建、回读、补偿和恢复算法见 [operations.md](references/operations.md)。当前 App 没有公开原子 claim/idempotency key，防重是 best-effort，不得声称 exactly-once。
 
 `flat` 的独立审查必须由 Owner 创建同级、只读的 review 任务；执行任务不得自审，也不得以 Subagent 代替。review 任务使用独立 `task_key` 后缀并且没有写入权限。
 
@@ -72,3 +72,4 @@ metadata:
 - 创建只返回 `clientThreadId`：记为待创建并回读，不虚报成功。
 - Automation 不可用：继续手动 Owner，不创建替代 cron。
 - 状态重复、越权衍生 Subagent 或证据脱节：隔离相关 `task_key`，暂停其后续动作并报告；无冲突任务继续推进。
+- Luna Subagent 门禁未通过：按用户确认的回退模型继续，或完成受控调整并等待用户明确回复“已重启”；不得用自定义 `agent_type` 伪装验证通过。

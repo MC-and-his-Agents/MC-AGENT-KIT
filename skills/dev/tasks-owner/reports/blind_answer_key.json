@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "seed": "yao-output-eval-blind-v1",
   "summary": {
-    "pair_count": 5,
-    "with_skill_expected_count": 5,
+    "pair_count": 8,
+    "with_skill_expected_count": 8,
     "baseline_expected_count": 0
   },
   "answers": [
@@ -45,6 +45,33 @@
     },
     {
       "case_id": "file-backed-scheduling",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "direct-mode-contract",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "luna-v1-consent",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "luna-adjustment",
       "variant_a_role": "baseline",
       "variant_b_role": "with_skill",
       "expected_winner_role": "with_skill",

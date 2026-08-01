@@ -9,7 +9,8 @@
 
 ## missing evidence
 
-- Codex App 尚无已验证的任务线程原生 Subagent 禁用开关；`flat` 只能由合同和 Owner 巡检约束。
-- 模型与推理参数能否被所有宿主版本严格执行，需要逐次创建后回读。
+- Codex App 尚无已验证的任务线程原生 Subagent 禁用开关；`flat` 和 `direct` 的下级衍生限制只能由合同和 Owner 巡检约束。
+- Luna 的 `multi_agent_version: v2` 本地目录覆盖是受控兼容方案，不是上游修复；只有重启后的原生 `spawn_agent` 冒烟测试通过才算支持。
+- 模型与推理参数必须逐次创建后回读；用户选择的回退模型只对本批次生效。
 - 输出评测目前是确定性合同样例，尚无 provider-backed 执行结果和人工盲审结论。
 - `agents/interface.yaml` 是 Yao 通用适配器约定；本包以 Codex 原生 `agents/openai.yaml` 为权威，不复制第二份元数据。
