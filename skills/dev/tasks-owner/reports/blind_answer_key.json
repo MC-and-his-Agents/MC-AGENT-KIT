@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "seed": "yao-output-eval-blind-v1",
   "summary": {
-    "pair_count": 20,
-    "with_skill_expected_count": 20,
+    "pair_count": 24,
+    "with_skill_expected_count": 24,
     "baseline_expected_count": 0
   },
   "answers": [
@@ -180,6 +180,42 @@
     },
     {
       "case_id": "max-inflight-cap-resolution",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "non-actionable-delta-coalescing",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "owner-ack-suppression",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "single-convergence-lane",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "legacy-owner-reporting-migration",
       "variant_a_role": "with_skill",
       "variant_b_role": "baseline",
       "expected_winner_role": "with_skill",

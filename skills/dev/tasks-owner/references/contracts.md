@@ -28,6 +28,7 @@ GitHub 规划真相
 调度方案
 - 执行模式：<direct / flat / hierarchical，已由用户确认>
 - 并发策略：<dynamic_ready_wave / fixed；fixed 时填写上限>
+- 收敛通道：<同一仓库/target branch 默认 1>
 - 推荐调度单元：<milestone / FR batch / issue>
 - 第一波任务：<task_key 列表>
 - 硬依赖：<依赖>
@@ -92,21 +93,32 @@ execution_hold: true
 完成与汇报
 - 目标完成条件
 - 验证和独立审查要求
-- 完成或阻塞时回报：状态、交付物、命令与结果、PR/head、审查、GitHub 与适用 carrier 同步状态、风险、下一解锁条件
+- 上行汇报门禁：除合同 ACK、release ACK 和一次 `STARTED` 外，只在 `BLOCKED`、`NEEDS_OWNER` 或最终 `PR_READY` 时直接汇报
+- 普通 head、push、CI、review 和实现 checkpoint 只留在任务线程；以最新事实覆盖一个 `pending_delta`，并入下一次允许的上行汇报
+- `PR_READY` 必须绑定 exact head，且任务负责的验证、review、hosted CI 和 PR 元数据均已终态；否则不发送候选/等待 checkpoint
+- 允许的上行汇报包含：状态、交付物、命令与结果、PR/head、审查、GitHub 与适用 carrier 同步状态、风险、下一解锁条件
 - 收到本合同时重新计算并核对 digest，只回报 `contract_ack: <revision>`、`contract_digest`、线程/工作区/模型事实和 `contract_status: acknowledged`，然后结束当前回合；不得写入
 ```
 
-任务线程只在目标完成、真实阻塞、需要跨任务决定或需要用户决定时主动汇报；不发送无实质变化的状态消息。
+任务线程不得把 `HEAD_CHANGED`、push、rebase、CI pending/success 或 review pending/success 单独升级为 Owner 消息。若这些变化使现有 Owner review/merge 决策失效，合并为一次 `NEEDS_OWNER`。相同或被更新事实覆盖的事件静默丢弃，不发送“已去重”。
 
 ## 合同投递与 admission gate
 
-这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、模型、写入边界和 Subagent 策略；结果为 `contract_digest`。
+这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
 
 新建、恢复、模式切换或模型覆盖都要重新进入 hold。任务先只回报同 revision/digest ACK 并结束当前回合；Owner 用 `read_thread` 回读任务生成的 ACK，在 checkpoint 记录 `contract_ack_message_id` 和 `contract_status: acknowledged`，再发送包含同 revision/digest 的 `execution_release`。任务只回报同 revision/digest 的 `execution_release_ack` 并结束当前回合；Owner 回读后记录 `release_message_id`、`release_ack_message_id` 和 `contract_status: released`。任务下一回合的首个 `STARTED` 必须回显同 revision/digest；缺失、错配或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
+
+迁移 cutover 时，hold 允许任务完成当前原子写入/命令后停在安全边界，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态。Owner 回读并封存旧 revision 后才发送新合同；封存后的旧 revision 消息不再驱动动作，但已有 worktree/branch 结果保留并由新合同显式接管，不因协议切换丢弃。
 
 修复错配时先从当前 canonical contract 重新计算唯一权威 digest：若合同内容变化则递增 revision，再完整重发 hold/contract/ACK/release；不得只要求任务接受某个已有 digest。
 
 首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
+
+Owner 收到任务消息后，只有 `next_actor=owner` 且存在已授权动作时才行动并发送必要决定；若仍由 task/external 继续，静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
+
+## 既有 Owner 迁移
+
+旧合同、旧 Heartbeat 或运行轨迹出现逐 checkpoint 汇报时，先停止新派发，让合法在途工作在原子安全边界完成并封存旧 revision。按 [operations.md](operations.md#既有-owner-迁移) 更新 Heartbeat 和活动任务合同；迁移完成前不沿用旧版“每阶段主动汇报”约定。
 
 ## Direct Subagent 合同
 

@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `20`
+- Pairs: `24`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -190,18 +190,18 @@ revision 一致，可以继续写入。
 
 ## Case: event-key-dedup
 
-Prompt: 同一任务再次产生相同 event_key 的阶段更新。
+Prompt: 同一合同代次的任务再次产生相同 event_key；另有相同 head/status 的新 revision STARTED。
 
 Rubric:
-- `deduplicate-event` (1.0): 相同 event_key 必须去重。
+- `deduplicate-event` (1.0): 去重不能吞掉新合同代次。
 
 ### Variant A
 
-再次发送相同的 PR_READY 通知。
+按 task_key+event+head/status 去重，两条都丢弃并回复“已去重”。
 
 ### Variant B
 
-阶段事件限定为 STARTED、HEAD_CHANGED、PR_READY、CI_TERMINAL、REVIEW_TERMINAL、BLOCKED、NEEDS_OWNER、COMPLETED；event_key=task_key+event+head/status 未变化，去重且不发送重复消息。
+event_key=task_key+execution_generation+event+head/status。同一 generation 的重复事件静默丢弃且不产生确认摘要；新 revision/digest 是新的 execution_generation，因此其 STARTED 必须保留并回读。
 
 ## Case: dynamic-ready-wave
 
@@ -322,3 +322,63 @@ Rubric:
 ### Variant B
 
 优先宿主容量，max_inflight=8。
+
+## Case: non-actionable-delta-coalescing
+
+Prompt: 任务依次完成 rebase、push、CI pending、CI success 和 review success，但还没有形成最终 PR_READY，也不需要 Owner 决策。
+
+Rubric:
+- `coalesce-non-actionable` (1.0): 非行动性阶段变化不得制造汇报风暴。
+
+### Variant A
+
+每个 checkpoint 都立即直接汇报 Owner：rebase、push、CI pending、CI success、review success。
+
+### Variant B
+
+这些变化仍由 task/external 推进，不改变 next_actor，因此不逐条上行。任务线程只维护一个 pending_delta，以最新 head/CI/review 事实覆盖旧值；等 exact head、验证、review、hosted CI 与 PR 元数据都终态后，合并为一次最终 PR_READY。
+
+## Case: owner-ack-suppression
+
+Prompt: Owner 收到任务的 CI pending 消息；下一动作仍由 GitHub Actions 完成，没有 Owner 可执行动作。
+
+Rubric:
+- `no-ack-only-reply` (1.0): 无动作的 Owner 不发送纯 ACK。
+
+### Variant A
+
+next_actor=external 且没有 Owner 动作：只更新 checkpoint/wake_condition，静默结束；不向任务或用户发送任何确认、等待或下一门禁摘要。
+
+### Variant B
+
+已回读 CI pending，继续等待；下一门禁是 CI success。
+
+## Case: single-convergence-lane
+
+Prompt: 同一仓库 main 上有三个并行实现任务；第一个 PR 合并后，另外两个是否立刻各自 rebase、重测、review 和汇报？
+
+Rubric:
+- `convergence-lane` (1.0): 实现吞吐不应制造收敛 rebase 风暴或永久占槽。
+
+### Variant A
+
+是。每次 main 前进都让所有活跃任务立刻 rebase、重测、review 并逐项汇报。
+
+### Variant B
+
+implementation_inflight 可并行，但同一仓库/target branch 默认 convergence_inflight=1。等待任务不逐次 rebase；只记录最新 main，取得 merge/closeout 通道后一次 rebase/current-head refresh、验证和最终 PR_READY。通道在 merge/closeout、撤回/失败或无法当场解决的 BLOCKED/NEEDS_OWNER 时释放，再按 requested_at/优先级转交。
+
+## Case: legacy-owner-reporting-migration
+
+Prompt: 既有 Owner 的 Heartbeat 写着“不设固定线程上限，所有任务必须主动直接汇报每个 checkpoint”；任务正在写入，现在要迁移到新合同。
+
+Rubric:
+- `migrate-live-contracts` (1.0): 运行中合同迁移必须有安全 cutover。
+
+### Variant A
+
+先暂停 dispatch_new；发送 migration hold，允许当前原子写入/命令完成后停在安全边界，回读 sealed_revision、cutover_head 与 worktree 状态并保留已有结果。更新原 Heartbeat，移除无界并发、完整项目快照和逐 checkpoint 汇报，写入 max_inflight、convergence_inflight=1、pending_delta 与静默 ACK。随后递增 contract revision，完整执行 contract ACK/release ACK/STARTED；封存后的旧 revision 消息只读合并、不驱动动作。全部新 admission 完成后恢复派发。
+
+### Variant B
+
+只刷新本机 Skill，继续沿用旧 Heartbeat；立即切换 revision 并丢弃旧任务工作。

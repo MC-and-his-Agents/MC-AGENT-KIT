@@ -45,11 +45,13 @@ metadata:
 
 默认 `dynamic_ready_wave`，但必须受 `max_inflight` 硬上限、依赖、写入冲突和 `task_key` 防重约束；无宿主/用户上限时初始上限为 8。Owner 可在上限内调节，扩大成本或权限边界才询问用户。算法见 [operations.md](references/operations.md)。防重是 best-effort，不声称 exactly-once。
 
+实现可并行，但同一仓库和 target branch 默认只有一条 merge/closeout 收敛通道；等待收敛的任务不因每次 main 前进而反复 rebase。调度细节见 [operations.md](references/operations.md#实现并发与收敛通道)。
+
 `flat` 的独立审查由 Owner 创建同级只读 review 任务；执行任务不得自审。
 
 ## 运行态与 Automation
 
-状态变化后写 compact checkpoint；满足已授权的 Owner 唤醒条件时立即行动，不只报告。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
+状态变化后写 compact checkpoint；只有控制握手、真实阻塞、需要 Owner/用户行动或最终 `PR_READY` 才向上汇报。普通 head、push、CI、review 变化在任务内合并；Owner 不发送“已回读/继续等待”等纯 ACK。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
 
 创建或更新 Heartbeat 前让用户确认范围、间隔、并发、通知和权限模式；未授权不创建，优先更新同用途 Automation。见 [automation.md](references/automation.md)。
 
