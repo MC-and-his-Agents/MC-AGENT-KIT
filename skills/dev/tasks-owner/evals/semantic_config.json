@@ -3,7 +3,7 @@
   "positive_concepts": {
     "delegation": {
       "weight": 0.5,
-      "phrases": ["项目总负责", "主 owner", "总负责 owner", "项目统筹", "take ownership"]
+      "phrases": ["项目总负责", "主 owner", "总负责 owner", "项目统筹", "委托给你长期统筹", "承担项目总负责", "交给你负责", "授权你统筹", "请接管", "总负责人", "负责这个 github milestone", "take ownership"]
     },
     "github_truth": {
       "weight": 0.25,
@@ -23,7 +23,7 @@
     "no_delegation": {
       "weight": 0.8,
       "exclusive": true,
-      "phrases": ["不要激活 owner", "不委任", "只做一次", "just explain"]
+      "phrases": ["不要激活 owner", "不要委任 owner", "不委任", "不承担项目总负责", "只做一次", "just explain"]
     }
   }
 }

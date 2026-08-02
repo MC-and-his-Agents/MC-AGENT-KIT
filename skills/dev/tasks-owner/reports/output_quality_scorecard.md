@@ -2,12 +2,12 @@
 
 This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `8`
+- Cases: `24`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `8`
+- Blind A/B pairs: `24`
 - Gate pass: `True`
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
@@ -25,6 +25,22 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | direct-mode-contract | 0.0 | 100.0 | 100.0 | with_skill | None |
 | luna-v1-consent | 0.0 | 100.0 | 100.0 | with_skill | None |
 | luna-adjustment | 0.0 | 100.0 | 100.0 | with_skill | None |
+| existing-task-contract-gate | 0.0 | 100.0 | 100.0 | with_skill | None |
+| inspection-owner-action-required | 0.0 | 100.0 | 100.0 | with_skill | None |
+| stale-release-rejected | 0.0 | 100.0 | 100.0 | with_skill | None |
+| event-key-dedup | 0.0 | 100.0 | 100.0 | with_skill | None |
+| dynamic-ready-wave | 0.0 | 100.0 | 100.0 | with_skill | None |
+| owner-budget-boundary | 0.0 | 100.0 | 100.0 | with_skill | None |
+| workspace-entry-admission | 0.0 | 100.0 | 100.0 | with_skill | None |
+| one-off-owner-perspective | 0.0 | 100.0 | 100.0 | with_skill | None |
+| completed-closeout-gate | 0.0 | 100.0 | 100.0 | with_skill | None |
+| automation-correction-cannot-dispatch | 0.0 | 100.0 | 100.0 | with_skill | None |
+| release-ack-required | 0.0 | 100.0 | 100.0 | with_skill | None |
+| max-inflight-cap-resolution | 0.0 | 100.0 | 100.0 | with_skill | None |
+| non-actionable-delta-coalescing | 0.0 | 100.0 | 100.0 | with_skill | None |
+| owner-ack-suppression | 0.0 | 100.0 | 100.0 | with_skill | None |
+| single-convergence-lane | 0.0 | 100.0 | 100.0 | with_skill | None |
+| legacy-owner-reporting-migration | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 

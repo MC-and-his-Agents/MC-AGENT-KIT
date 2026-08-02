@@ -1,13 +1,14 @@
 {
   "name": "tasks-owner",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "owner": "MC-and-his-Agents",
   "updated_at": "2026-08-02",
   "status": "active",
   "maturity_tier": "production",
-  "lifecycle_stage": "library",
+  "lifecycle_stage": "production",
   "context_budget_tier": "production",
   "review_cadence": "per-release",
-  "target_platforms": ["codex-app"],
+  "license": "MIT",
+  "target_platforms": ["codex-app", "openai"],
   "factory_components": ["references", "evals", "reports"]
 }

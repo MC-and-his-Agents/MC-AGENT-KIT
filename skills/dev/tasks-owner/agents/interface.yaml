@@ -1,0 +1,20 @@
+interface:
+  display_name: "Tasks Owner"
+  short_description: "在 Codex App 中统筹 GitHub 项目任务、依赖与收口"
+  default_prompt: "使用 $tasks-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色，并先提出执行模式与调度方案供我确认。"
+compatibility:
+  canonical_format: "agent-skills"
+  adapter_targets:
+    - "openai"
+  activation:
+    mode: "manual"
+    paths: []
+  execution:
+    context: "inline"
+    shell: "bash"
+  trust:
+    source_tier: "local"
+    remote_inline_execution: "forbid"
+    remote_metadata_policy: "allow-metadata-only"
+  degradation:
+    openai: "Codex App 原生任务线程、Automation 或 Subagent 能力缺失时保持只读并报告。"
