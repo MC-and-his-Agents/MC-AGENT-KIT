@@ -51,7 +51,9 @@ Automation
 
 ## Bootstrap hold
 
-新任务的初始消息只用于建立执行现场，必须包含主 Owner ID、`task_key`、目标摘要和 `execution_hold: true`，要求任务保持只读、只回报真实 `task_thread_id`、branch/worktree、模型与推理程度后结束当前回合。恢复、模式切换或模型覆盖时先发送同样的 hold。Owner 回读这些事实并登记、回读 `workspace_entry` 后，再发送下列完整合同。
+新任务的初始消息只用于建立执行现场，必须包含主 Owner ID、`task_key`、目标摘要和 `execution_hold: true`，要求任务保持只读、只回报真实 `task_thread_id`、branch/worktree/head、模型与推理程度后结束当前回合。恢复、模式切换或模型覆盖时先发送同样的 hold。
+
+Owner 从该回报构造 `workspace_entry = task_thread_id + branch + absolute_worktree + head`，回读后只存入 Owner checkpoint/App 运行态；除非适用的 `AGENTS.md` 明确要求，不写入 GitHub 或仓库。它不是宿主原生字段。
 
 ## output contract：下游任务线程合同
 
@@ -64,6 +66,7 @@ task_thread_id: <真实 task threadId；不得等于 owner_thread_id>
 task_key: <GitHub issue URL 或 issue 编号>
 subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 contract_revision: <单调递增版本>
+contract_digest: <下述合同绑定摘要>
 execution_hold: true
 
 任务身份与目标
@@ -76,7 +79,7 @@ execution_hold: true
 - 允许修改的文件/仓库/PR
 - 禁止修改的共享 carrier 和公共合同
 - 正式 branch / worktree
-- workspace_entry：<回读到的正式 workspace 入口>
+- workspace_entry：<Owner 运行态中已回读的 tuple>
 
 执行方式
 - branch / worktree / PR 规则
@@ -89,25 +92,33 @@ execution_hold: true
 完成与汇报
 - 目标完成条件
 - 验证和独立审查要求
-- 完成或阻塞时回报：状态、交付物、命令与结果、head、审查、同步状态、风险、下一解锁条件
-- 收到本合同时只回报 `contract_ack: <contract_revision>`、线程/工作区/模型事实和 `contract_status: acknowledged`，然后结束当前回合；不得写入
+- 完成或阻塞时回报：状态、交付物、命令与结果、PR/head、审查、GitHub 与适用 carrier 同步状态、风险、下一解锁条件
+- 收到本合同时重新计算并核对 digest，只回报 `contract_ack: <revision>`、`contract_digest`、线程/工作区/模型事实和 `contract_status: acknowledged`，然后结束当前回合；不得写入
 ```
 
 任务线程只在目标完成、真实阻塞、需要跨任务决定或需要用户决定时主动汇报；不发送无实质变化的状态消息。
 
 ## 合同投递与 admission gate
 
-新建、恢复、模式切换或模型覆盖的既有任务，都要按 bootstrap hold 投递上述完整合同。任务必须先只回报同版本 `contract_ack` 并结束当前回合；Owner 用 `read_thread` 回读任务生成的 ACK，在 checkpoint 记录其真实 `contract_message_id`、`contract_revision` 和 `contract_status: acknowledged`，再发送 `execution_release: <同一 contract_revision>`。Owner 回读 release 消息后记录 `release_message_id` 和 `contract_status: released`，任务才能开始写入。ACK/release 缺失、线程或版本不匹配时仍是 `pending_contract`，不得写入、派发后续动作或声称已绑定。
+这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、模型、写入边界和 Subagent 策略；结果为 `contract_digest`。
 
-任务首次写入前还必须同时满足：真实 `task_thread_id != owner_thread_id`；正式 branch/worktree 已创建；`workspace_entry` 已回读；任务线程的模型与 `reasoning_effort` 和已确认策略一致。任一项缺失都停在 admission gate，不以标题、摘要或 `clientThreadId` 替代事实。
+新建、恢复、模式切换或模型覆盖都要重新进入 hold。任务先只回报同 revision/digest ACK 并结束当前回合；Owner 用 `read_thread` 回读任务生成的 ACK，在 checkpoint 记录 `contract_ack_message_id` 和 `contract_status: acknowledged`，再发送包含同 revision/digest 的 `execution_release`。任务只回报同 revision/digest 的 `execution_release_ack` 并结束当前回合；Owner 回读后记录 `release_message_id`、`release_ack_message_id` 和 `contract_status: released`。任务下一回合的首个 `STARTED` 必须回显同 revision/digest；缺失、错配或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
+
+修复错配时先从当前 canonical contract 重新计算唯一权威 digest：若合同内容变化则递增 revision，再完整重发 hold/contract/ACK/release；不得只要求任务接受某个已有 digest。
+
+首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
 
 ## Direct Subagent 合同
 
-`direct` 由主 Owner 使用原生 `spawn_agent` 创建 Subagent，并显式设置 `fork_turns: "none"`、`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；门禁失败时使用用户确认的回退模型。它没有独立 App 任务线程，因此不使用 hold/release；Owner 必须在 spawn 前完成 GitHub truth、正式 branch/worktree、workspace_entry、模型和写入权门禁，并把完整合同原子地放入 spawn prompt。创建后回读真实 agent ID。Subagent 不得继续衍生下级；多个 Subagent 并行时只允许一个写入者，其余保持只读。
+`direct` 由主 Owner 使用原生 `spawn_agent` 创建 Subagent，并显式设置 `fork_turns: "none"`、`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；门禁失败时使用用户确认的回退模型。它没有独立 App 任务线程，因此不使用 hold/release；Owner 在 spawn 前以 `owner_thread_id + branch + absolute_worktree + head` 构造 direct workspace_entry，完成 GitHub truth、模型和写入权门禁，并把完整合同原子地放入 spawn prompt。创建后回读真实 agent ID。Subagent 不得继续衍生下级；多个 Subagent 并行时只允许一个写入者，其余保持只读。
 
 ## Flat 独立审查合同
 
 `flat` 执行任务不得自审。Owner 创建同级只读 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。review 任务同样设置 `subagent_policy: forbidden`。
+
+## Closeout contract
+
+任务只能报告 `PR_READY` 或局部交付完成。Owner 仅在回读适用证据后发出 `COMPLETED`：目标验收通过；PR 已合并或明确无需 PR；merge commit 与 target branch 可验证；GitHub issue 状态已同步；适用 `AGENTS.md` 要求的 repo carrier/current pointer 已同步；外部状态与仓内事实一致。缺项时保持 `NEEDS_OWNER` 或 `BLOCKED`，不得把 PR/head 当作最终完成。
 
 ## rollback boundary
 

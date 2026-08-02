@@ -10,19 +10,19 @@
 4. 回读适用的 `AGENTS.md`、GitHub milestone、父 FR、子 issue、依赖、branch、正式 worktree、PR 和 head。
 5. 检查同项目是否已有活跃 Owner；冲突时只读说明候选线程和所有权转移建议。
 6. 在模式确认前执行 [luna-subagents.md](luna-subagents.md) 的兼容性门禁，并记录 `luna_subagent_status` 与用户选择。
-7. 新建任务先用 `execution_hold: true` 的 bootstrap 消息取得真实 thread/worktree；恢复、模式切换或模型覆盖也先进入 hold。登记并回读 workspace_entry 后发送完整合同，要求任务只回报同版本 ACK 后结束当前回合。Owner 用 `read_thread` 回读任务生成的 ACK，记录 `contract_revision`、`contract_message_id`、`contract_status: acknowledged`，再发送并回读同版本 `execution_release`，记录 `release_message_id`、`contract_status: released` 后才允许写入或声称绑定。
+7. 新建、恢复、模式切换或模型覆盖先进入 hold；按 [contracts.md](contracts.md) 构造 workspace_entry 与 digest。任务依次只回报同 revision/digest 的合同 ACK、release ACK 并各自结束回合；Owner 回读两次 ACK 后，任务以同 revision/digest 的 `STARTED` 证明进入执行。
 8. 写入 admission gate 还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 `workspace_entry`，以及任务线程模型/推理策略与已确认合同一致；缺任一项只保持只读。
-9. 激活/恢复时核对用户要求的持续推进和完整 closeout 与 Automation 权限；无人值守目标若只有 `仅巡检`，显示权限差异并请求升级，不静默保留错配。
+9. 激活/恢复时把目标所需动作映射为 `inspect`、`correct_existing`、`dispatch_new`，与 Automation 权限做 capability diff；任何缺口都显示并请求升级，不静默保留错配。
 
 ## Ready wave 与防重
 
 Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat。
 
 1. 一次性回读 GitHub truth 和现有线程，用 `task_key` 区分活动、待创建、已结束和状态不明任务，并对既有任务按本文件的合同流程补发完整合同。
-2. 默认采用 `dynamic_ready_wave`，依据宿主实时容量、硬依赖、写入冲突和 `task_key` 防重选择 ready set；用户可明确指定 `fixed` 上限，不能把数值 2 当默认。
+2. 计算 `max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8。活动任务和待创建任务都计入；checkpoint 记录 resolved cap 及来源。`dynamic_ready_wave` 只能在此硬上限内选择依赖满足且写入不冲突的 ready set。
 3. 对选中任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时记为待创建并占用当前波次容量，不能当作真实线程 ID。
-4. 整个波次提交后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；完成合同 ACK/admission gate 并发送匹配版本的 `execution_release` 后才允许写入。等待工具有单次目标数限制时分组等待，不降低创建并发。
-5. 单个任务状态不明只隔离该 `task_key`。下一次 Heartbeat 完整回读后仍无法解析且动态容量允许时，允许用同一 `task_key` 补偿重试一次，并递增 `dispatch_generation`。
+4. 整个波次提交后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次回读匹配 revision/digest 的合同 ACK、release ACK 和首个 `STARTED` 后才允许写入。等待工具有单次目标数限制时分组等待，不降低创建并发。
+5. 干净波次可在硬上限内增加下一波宽度；rate/resource/worktree/duplicate failure 时减半。单个不明任务只隔离该 `task_key`；下一次完整回读后仍无法解析时只补偿重试一次，并递增 `dispatch_generation`。
 6. 发现重复时保留已验证的权威线程，暂停该 `task_key` 后续派发并报告；不得用归档代替事实确认。
 7. Owner 可在既有授权内自主调整自设并发、重试和调用预算；只有扩大成本、隐私、外部发送、权限或不可逆动作边界才询问用户。
 
@@ -38,8 +38,9 @@ scope
 execution_mode
 task_key -> threadId/agentId -> status
 task_key -> clientThreadId -> dispatch_generation
-task_key -> contract_revision/contract_message_id/release_message_id/status
+task_key -> contract_revision/digest/ack_message_id/release_message_id/release_ack_message_id/status
 task_key -> workspace_entry
+wave_id / wave_width / max_inflight / last_capacity_failure
 依赖与下一解锁条件
 最近 wait/read cursor
 automation id 与权限模式
@@ -57,8 +58,8 @@ updated_at
 
 ## 下游阶段事件
 
-只允许发送这些阶段事件：`STARTED`、`HEAD_CHANGED`、`PR_READY`、`CI_TERMINAL`、`REVIEW_TERMINAL`、`BLOCKED`、`NEEDS_OWNER`、`COMPLETED`。`event_key` 固定为 `task_key+event+head/status`；相同 key 或事实未变化时去重，不发送重复消息，保留“无实质变化不汇报”。
+只允许发送 `STARTED`、`HEAD_CHANGED`、`PR_READY`、`CI_TERMINAL`、`REVIEW_TERMINAL`、`BLOCKED`、`NEEDS_OWNER`、`COMPLETED`。`STARTED` 必须带当前 revision/digest；`event_key = task_key + event + head/status`，相同事实去重。状态顺序默认是 `STARTED → HEAD_CHANGED/PR_READY → CI/REVIEW_TERMINAL → NEEDS_OWNER → COMPLETED`；`COMPLETED` 必须满足 [closeout contract](contracts.md#closeout-contract)。
 
 ## 策略违规
 
-`flat` 与 `direct` 的下级衍生禁令是合同与巡检策略，宿主没有已验证的原生禁用开关。发现违规时暂停相关执行单元及其写入权限，回读影响并向用户报告；不要把未验证的后代输出并入交付。其他写入范围不冲突的任务可以继续。
+hold/release 与 `flat`/`direct` 下级衍生禁令都是协作策略，宿主没有已验证的原生写入锁或禁用开关。发现提前写入、digest 错配或越权衍生时暂停执行单元、回读影响并报告；不采用违规输出。其他无冲突任务继续。

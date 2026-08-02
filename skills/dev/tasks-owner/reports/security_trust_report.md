@@ -1,7 +1,7 @@
 # Security Trust Report
 
-- OK: `False`
-- Scanned files: `13`
+- OK: `True`
+- Scanned files: `14`
 - Scripts: `0`
 - Internal script modules: `0`
 - Secret findings: `0`
@@ -15,12 +15,12 @@
 - CLI help smoke failures: `0`
 - Interactive scripts: `0`
 - Package hash scope: `source-contract-without-generated-reports`
-- Package hash files: `13`
-- Package SHA256: `d0712c94069d1fbea6beecfea81b3d990f333c77688bcc10b2b018bf64c05f34`
+- Package hash files: `14`
+- Package SHA256: `448a2e1ffd92c179a7f5eeb5dea3628d5e50e2491b3beadcb85ec961bdb2b9fe`
 
 ## Failures
 
-- remote_inline_execution must be forbid for governed release
+- None
 
 ## Warnings
 
