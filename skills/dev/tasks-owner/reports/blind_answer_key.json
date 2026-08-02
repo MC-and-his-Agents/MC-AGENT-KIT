@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "seed": "yao-output-eval-blind-v1",
   "summary": {
-    "pair_count": 24,
-    "with_skill_expected_count": 24,
+    "pair_count": 27,
+    "with_skill_expected_count": 27,
     "baseline_expected_count": 0
   },
   "answers": [
@@ -216,6 +216,33 @@
     },
     {
       "case_id": "legacy-owner-reporting-migration",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "owner-handoff-drift",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "pr-ready-pending-delivery",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "owner-handoff-continuous-maintenance",
       "variant_a_role": "with_skill",
       "variant_b_role": "baseline",
       "expected_winner_role": "with_skill",

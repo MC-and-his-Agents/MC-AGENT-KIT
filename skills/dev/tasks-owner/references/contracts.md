@@ -43,12 +43,16 @@ GitHub 规划真相
 
 Automation
 - 状态：<未启用 / 已启用>
-- 权限模式：<仅巡检 / 巡检并纠偏 / 巡检、纠偏并自动派发>
 - automation id：<如有>
+- 唤醒间隔/范围：<RRULE 或 interval、scope>
+- 通知策略：<策略>
+- owner_handoff：<handoff_revision / updated_at>
 
 完成条件
 - <可验证条件>
 ```
+
+Owner authority 来自用户委任、Owner 契约、适用 `AGENTS.md` 和外部动作边界，不来自 Heartbeat prompt。外部可见或不可逆动作仍须按既有明确授权执行；Heartbeat 不能扩权，也不能削弱 Owner 合同。Heartbeat 只是绑定 `owner_thread_id` 的周期唤醒机制。
 
 ## Bootstrap hold
 
@@ -102,6 +106,22 @@ execution_hold: true
 
 任务线程不得把 `HEAD_CHANGED`、push、rebase、CI pending/success 或 review pending/success 单独升级为 Owner 消息。若这些变化使现有 Owner review/merge 决策失效，合并为一次 `NEEDS_OWNER`。相同或被更新事实覆盖的事件静默丢弃，不发送“已去重”。
 
+## 上行事件与活性兜底
+
+任务的 `BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，消息至少携带：
+
+```text
+task_key
+execution_generation
+event_key
+next_actor
+next_action
+wake_condition
+evidence_locator
+```
+
+任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK。Owner 收到消息或恢复回读后验证任务线程和实时 GitHub truth，再把已验证 locator 写入自己的 checkpoint 和已有 `owner_handoff`。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，并在自身 final 中保留同一结构化事件；Owner/Heartbeat 恢复时必须回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+
 ## 合同投递与 admission gate
 
 这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
@@ -114,7 +134,7 @@ execution_hold: true
 
 首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
 
-Owner 收到任务消息后，只有 `next_actor=owner` 且存在已授权动作时才行动并发送必要决定；若仍由 task/external 继续，静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
+Owner 收到任务消息后，只有 `next_actor=owner` 且存在已授权动作时才行动并发送必要决定；普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
 
 ## 既有 Owner 迁移
 

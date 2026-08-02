@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.7.0"
+  version: "0.8.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -13,7 +13,6 @@ metadata:
 
 - 仅当用户明确委任当前对话长期承担主 Owner、总负责或项目统筹时激活。
 - 评审、讨论、修改、测试、引用本 Skill、一次性实现或纯解释请求不激活；出现 `$tasks-owner` 也不例外。
-- Do not use for one-off execution, explanation, or Skill maintenance.
 - 无法判断是否在委任时，先用结构化选项工具确认；工具不可用时只问一个简短问题。
 - 只适用于 Codex App 的 GitHub 项目。CLI 可作为下游 Worker，但不能替代 App 控制面。
 
@@ -24,10 +23,11 @@ metadata:
 3. 不自动改写 GitHub truth；未经授权不部署、发布、删除、付费或发送外部消息。
 4. 过程数据只留在 Owner 对话和 App 运行态；标题、摘要和消息不能替代事实回读。
 5. App 任务线程使用 [协作式 admission 协议](references/contracts.md#合同投递与-admission-gate)；当前没有宿主原生写入锁，不得把协议声称为能力隔离。
+6. Heartbeat 只是绑定当前 `owner_thread_id` 的周期唤醒机制，不是第二个 Owner、独立 Agent 或权限主体；它不扩大也不削弱 Owner 合同。
 
 ## 启动门禁
 
-取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；排查 Owner 冲突；比较目标所需动作与 Automation 权限。缺少能力、事实或权限时保持只读。完整步骤见 [operations.md](references/operations.md)。
+取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；排查 Owner 冲突；确认 Automation 可用、已获创建/更新授权且绑定正确。缺少能力、事实或授权时保持只读。完整步骤见 [operations.md](references/operations.md)。
 
 ## 执行模式与模型
 
@@ -51,13 +51,13 @@ metadata:
 
 ## 运行态与 Automation
 
-状态变化后写 compact checkpoint；只有控制握手、真实阻塞、需要 Owner/用户行动或最终 `PR_READY` 才向上汇报。普通 head、push、CI、review 变化在任务内合并；Owner 不发送“已回读/继续等待”等纯 ACK。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
+所有来源回合发生控制面实质变化时，Owner 必须在结束前更新 compact checkpoint，并原地递增既有 Heartbeat prompt 的 `owner_handoff`；普通 head、push、CI、review 仅在改变 `next_actor`、`next_action` 或 `wake_condition` 时更新 handoff。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
 
-创建或更新 Heartbeat 前让用户确认范围、间隔、并发、通知和权限模式；未授权不创建，优先更新同用途 Automation。见 [automation.md](references/automation.md)。
+创建或更新 Heartbeat 只确认启用、间隔/范围、通知和必要参数，验证 Automation 可用、已获创建/更新授权并绑定 Owner；不可用仍 checkpoint、不建 cron。见 [automation.md](references/automation.md)。Heartbeat 从 handoff、checkpoint、cursor 和实时 GitHub truth 恢复；满足 `wake_condition`、`next_actor=owner` 且动作在合同及授权内时当前回合直接执行。每个 Heartbeat 回合只输出一条 `DONT_NOTIFY`/`NOTIFY`，不发送纯 ACK。
 
 ## 激活完成汇报
 
-汇报激活状态、真实线程/项目、规划真相、范围与验收、调度方案、门禁、任务/PR/head、Automation 权限和剩余风险。
+汇报激活状态、真实线程/项目、规划真相、范围与验收、调度方案、门禁、任务/PR/head、Heartbeat 状态与 `owner_handoff` revision 和剩余风险。
 
 契约见 [contracts.md](references/contracts.md)。维护和回归时使用 `evals/`，证据写入 `reports/`；生命周期、`output contract`、`rollback boundary`、`trust report` 与 `missing evidence` 见 [governance.md](references/governance.md)。这些材料不在普通激活时加载。
 
