@@ -12,11 +12,11 @@
 6. 在模式确认前执行 [luna-subagents.md](luna-subagents.md) 的兼容性门禁，并记录 `luna_subagent_status` 与用户选择。
 7. 新建、恢复、模式切换或模型覆盖先进入 hold；按 [contracts.md](contracts.md) 构造 workspace_entry 与 digest。任务依次只回报同 revision/digest 的合同 ACK、release ACK 并各自结束回合；Owner 回读两次 ACK 后，任务以同 revision/digest 的 `STARTED` 证明进入执行。
 8. 写入 admission gate 还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 `workspace_entry`，以及任务线程模型/推理策略与已确认合同一致；缺任一项只保持只读。
-9. 激活/恢复时把目标所需动作映射为 `inspect`、`correct_existing`、`dispatch_new`，与 Automation 权限做 capability diff；任何缺口都显示并请求升级，不静默保留错配。
+9. 启动或恢复 Heartbeat 时只确认 Automation 可用、创建/更新已获授权、绑定当前 `owner_thread_id`，以及间隔/范围、通知策略和必要运行参数；不得把 Heartbeat 当作额外权限来源。
 
 ## Ready wave 与防重
 
-Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat。
+Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，Heartbeat 只负责唤醒这个 Owner。
 
 1. 一次性回读 GitHub truth 和现有线程，用 `task_key` 区分活动、待创建、已结束和状态不明任务，并对既有任务按本文件的合同流程补发完整合同。
 2. 计算 `max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8。活动任务和待创建任务都计入；checkpoint 记录 resolved cap 及来源。`dynamic_ready_wave` 只能在此硬上限内选择依赖满足且写入不冲突的 ready set。
@@ -37,7 +37,7 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat。
 - 通道由 `convergence_generation` 标识。PR merge/closeout、任务撤回/失败，或无法在当前 Owner 回合解决的 `BLOCKED` / `NEEDS_OWNER` 都必须释放；可立即解决的 Owner 动作完成后可保留。
 - 释放后按 `convergence_requested_at` 和 GitHub 优先级选择下一项；Heartbeat 发现 owner task 已结束、暂停或 wake condition 失效时回收通道，避免永久占用。
 
-## Checkpoint 与恢复
+## Checkpoint、handoff 与恢复
 
 checkpoint 至少包含：
 
@@ -53,7 +53,9 @@ wave_id / wave_width / max_inflight / last_capacity_failure
 implementation_inflight / convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 依赖与下一解锁条件
 最近 wait/read cursor
-automation id 与权限模式
+automation: status / automation id / RRULE或唤醒间隔与范围 / 通知策略
+owner_handoff: handoff_revision / updated_at
+owner_authority_locator
 luna_subagent_status 与回退模型
 next_actor: owner | task | user | external
 next_action
@@ -63,23 +65,28 @@ pending_delta
 updated_at
 ```
 
-恢复或 Heartbeat 唤醒时，从 Owner 对话的 compact checkpoint、线程 cursor、Automation 状态和 GitHub truth 重建运行视图，不复制完整项目状态到 Automation prompt。执行位置 Handoff 只改变运行环境；责任转移必须先回读源线程和 GitHub 事实，再向目标线程发送合同并更新 checkpoint。
+`owner_handoff` 是已存在 Heartbeat prompt 中的紧凑恢复索引；只有主 Owner 写入。它至少按 [automation.md](automation.md#owner_handoff) 模板保留 handoff revision、Owner 合同/范围 locator、next actor/action、wake condition、活动任务 locator、收敛 owner/generation、未决决定和最近实质事件 locator，不写完整项目状态、所有 head、普通 CI/push/review 或用户材料。
 
-当 `wake_condition` 满足、`next_actor=owner` 且 `next_action` 在已授权范围内时，Owner 当前回合立即执行该动作，不只报告“可继续”。若仍由任务或外部参与，更新 checkpoint 后静默结束；不得向任务或用户发送纯 ACK/等待消息。
+无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout/下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
 
-## 下游阶段事件
+恢复或 Heartbeat 唤醒时，从 `owner_handoff`、Owner checkpoint、线程 cursor 和实时 GitHub truth 重建运行视图；Heartbeat 不是权威事实来源，冲突时以实时事实为准并刷新 handoff。若 `wake_condition` 满足、`next_actor=owner` 且 `next_action` 在 Owner 合同及用户授权范围内，Owner 当前回合必须直接执行，不只报告“可继续”、写 `owner_action_required` 或等待再次唤醒。只有 `next_actor=user`、动作超出合同、缺少真实授权/事实或存在真实 blocker 才请求用户；Heartbeat 回合若由 task/external 继续，则更新 locator、不执行额外动作，但仍输出一条 `DONT_NOTIFY`；普通非 Heartbeat Owner 回合无动作时可静默结束，不向任务或用户发送纯 ACK。
+
+## 下游阶段事件与上行投递
 
 任务内可以记录 `HEAD_CHANGED`、`CI_TERMINAL` 和 `REVIEW_TERMINAL`，但不得逐条上行。上行只允许：控制握手中的一次 `STARTED`；需要立即处理的 `BLOCKED` / `NEEDS_OWNER`；满足全部任务侧门禁的单次 `PR_READY`。`COMPLETED` 仅由 Owner 在满足 [closeout contract](contracts.md#closeout-contract) 后发出。
 
 `event_key = task_key + execution_generation + event + head/status`；App 任务线程的 `execution_generation` 为 contract revision/digest，direct 为 spawn/dispatch generation。相同 key、旧 head、被较新事实覆盖或没有改变 `next_actor/next_action/wake_condition` 的事件直接静默丢弃。非紧急变化写入任务内唯一 `pending_delta`，新事实覆盖旧事实，下一次允许上行时一次带出。
 
+`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，并携带 `task_key`、`execution_generation`、`event_key`、`next_actor`、`next_action`、`wake_condition` 和证据 locator。任务只记录宿主投递结果/message locator 并结束，不等待纯 ACK。Owner 收到消息或恢复回读后验证任务线程和 GitHub truth，再把已验证 locator 写入自己的 checkpoint 与 owner_handoff。投递不可验证时标记 `<EVENT>_PENDING_DELIVERY`，在自身 final 中保留结构化事件，不得虚报“已上行”；Owner/Heartbeat 恢复时回读任务线程和 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+
+每次 Heartbeat 回合在当前 Owner 任务中只输出一条简短结果：无可执行变化为 `DONT_NOTIFY` 并说明 next actor/action 或等待方；需要用户决定或真实风险为 `NOTIFY`。禁止逐任务 head/push/CI/review 展开、纯“已回读/继续等待”ACK 和多条阶段播报；该结果是运行记录，不是任务线程 ACK。
+
 ## 既有 Owner 迁移
 
-1. 识别旧 Heartbeat/合同中的无界并发、完整项目快照、逐 checkpoint 汇报或纯 ACK；按 Automation capability diff 判断是否有权纠偏。
-2. 暂停 `dispatch_new`；读取活动任务的真实 thread/workspace/head 和当前 revision。发送 migration hold，允许任务完成当前原子写入/命令后在安全边界停止，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态。
-3. 更新 Heartbeat：只保留稳定策略和运行态 locator，写入 `max_inflight`、`convergence_inflight=1`、上行门禁和静默 ACK；删除“所有阶段主动汇报”及复制的完整项目状态。
-4. Owner 回读 cutover 事实并封存旧 revision；已有 worktree/branch 结果保留。随后递增 revision，重新执行完整合同、合同 ACK、release ACK 与 `STARTED`；新 digest 必须包含汇报策略和收敛通道。
-5. 封存后的旧 revision checkpoint 只读并合并到 `pending_delta`，不驱动动作、不回复；新合同显式接管 cutover head。所有活动任务完成新 revision admission 后恢复派发。
+1. 识别旧 Heartbeat/合同中的无界并发、完整项目快照、逐 checkpoint 汇报或纯 ACK；停止新派发，读取活动任务的真实 thread/workspace/head 和当前 revision。
+2. 发送 migration hold，允许任务完成当前原子写入/命令后在安全边界停止，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态；回读后封存旧 revision，保留已有 worktree/branch 结果。
+3. 原地更新同一 Heartbeat：改为绑定当前 Owner 的唤醒机制，加入稳定 owner_handoff 模板、`max_inflight`、`convergence_inflight=1`、上行门禁、事件去重、禁止向任务回纯 ACK 和 Heartbeat 单条结果；移除完整项目状态、无界并发和逐 checkpoint 汇报。保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权，不创建第二个 Automation。
+4. 递增 `handoff_revision` 与 `contract_revision`，重新执行完整合同、合同 ACK、release ACK 与 `STARTED` admission。封存后的旧 revision 消息只读合并到 pending_delta，不驱动动作；新合同显式接管 cutover head。所有活动任务完成新 revision admission 后恢复派发。
 
 ## 策略违规
 

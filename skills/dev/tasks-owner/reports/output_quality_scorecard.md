@@ -1,13 +1,13 @@
 # Output Quality Scorecard
 
-This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
+This v0.8 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `24`
+- Cases: `27`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `24`
+- Blind A/B pairs: `27`
 - Gate pass: `True`
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
@@ -41,6 +41,9 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | owner-ack-suppression | 0.0 | 100.0 | 100.0 | with_skill | None |
 | single-convergence-lane | 0.0 | 100.0 | 100.0 | with_skill | None |
 | legacy-owner-reporting-migration | 0.0 | 100.0 | 100.0 | with_skill | None |
+| owner-handoff-drift | 0.0 | 100.0 | 100.0 | with_skill | None |
+| pr-ready-pending-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
+| owner-handoff-continuous-maintenance | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 

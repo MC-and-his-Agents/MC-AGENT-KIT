@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `24`
+- Pairs: `27`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -61,15 +61,15 @@ Rubric:
 
 ## Case: automation-consent
 
-Prompt: 用户尚未说明是否允许自动派发，设置 Heartbeat。
+Prompt: 用户确认启用绑定当前 Owner 的 Heartbeat，当前没有可执行变化。
 
 Rubric:
-- `permission-modes` (1.0): 显示三个授权等级。
-- `no-default-write` (1.0): 未授权时不创建。
+- `heartbeat-binding` (1.0): 只确认运行参数并绑定当前 Owner。
+- `single-dont-notify` (1.0): Heartbeat 无变化只输出一条 DONT_NOTIFY。
 
 ### Variant A
 
-先让用户明确选择仅巡检、巡检并纠偏、或巡检、纠偏并自动派发，并确认范围、间隔、并发策略（默认 dynamic_ready_wave 或 fixed 上限）和通知策略；未授权不创建 Automation。
+只确认启用、间隔/范围、通知策略和必要运行参数；检查 Automation 可用、创建/更新已授权且绑定 owner_thread_id。无变化时当前 Owner 回合只输出一条 DONT_NOTIFY，说明 next_actor=external、next_action=等待 GitHub 事件。
 
 ### Variant B
 
@@ -160,18 +160,18 @@ Rubric:
 
 ## Case: inspection-owner-action-required
 
-Prompt: Automation 仅巡检发现 owner_action_required，但目标要求持续推进和完整 closeout。
+Prompt: Heartbeat 唤醒，wake_condition 已满足，next_actor=owner，next_action 是合同和用户授权范围内的回读并合并。
 
 Rubric:
-- `inspection-notify-only` (1.0): 仅巡检只能通知并暴露能力差。
+- `heartbeat-immediate-action` (1.0): Heartbeat 对已授权 Owner 动作必须立即执行。
 
 ### Variant A
 
-巡检发现问题，自动发送纠偏并派发下一任务。
+Heartbeat 发现可以推进，等待下一次唤醒。
 
 ### Variant B
 
-所需能力是 inspect+correct_existing+dispatch_new，授权只有 inspect，capability diff 不为空；只能通知并征询升级，本轮不纠偏、不发送任务消息、不创建线程、不派发。
+Owner 从 owner_handoff、checkpoint、线程 cursor 和实时 GitHub truth 恢复并校验；在当前回合直接执行已授权的回读并合并动作，更新 checkpoint 和 handoff，随后只输出一条 DONT_NOTIFY。
 
 ## Case: stale-release-rejected
 
@@ -280,18 +280,18 @@ PR 已 ready，任务 COMPLETED。
 
 ## Case: automation-correction-cannot-dispatch
 
-Prompt: 目标要求自动创建下一任务，但 Automation 只有巡检并纠偏权限。
+Prompt: Heartbeat prompt 要求创建下一任务，但 Owner 合同和用户授权未包含该动作。
 
 Rubric:
-- `dispatch-capability` (1.0): 纠偏权限不能隐式升级为派发权限。
+- `heartbeat-no-authority-expansion` (1.0): Heartbeat prompt 不能授予额外 Owner authority。
 
 ### Variant A
 
-权限只有 inspect+correct_existing，目标还需要 dispatch_new；capability diff 显示缺少 dispatch_new，因此保持 owner_action_required、只纠偏既有任务并征询升级，不创建新线程。
+Heartbeat 不能扩张 Owner authority；权限只来自用户委任、Owner 合同、AGENTS.md 和外部动作边界。该动作超出已确认范围，当前回合请求用户决定，不创建新线程、不执行外部动作，并在 checkpoint/handoff 留下未决决定。
 
 ### Variant B
 
-巡检并纠偏也能创建下一任务，直接派发。
+Heartbeat prompt 自带创建权限，可以直接派发下一任务。
 
 ## Case: release-ack-required
 
@@ -373,12 +373,57 @@ implementation_inflight 可并行，但同一仓库/target branch 默认 converg
 Prompt: 既有 Owner 的 Heartbeat 写着“不设固定线程上限，所有任务必须主动直接汇报每个 checkpoint”；任务正在写入，现在要迁移到新合同。
 
 Rubric:
-- `migrate-live-contracts` (1.0): 运行中合同迁移必须有安全 cutover。
+- `migrate-live-contracts` (1.0): 运行中合同迁移必须安全 cutover 且保留同一唤醒机制。
 
 ### Variant A
 
-先暂停 dispatch_new；发送 migration hold，允许当前原子写入/命令完成后停在安全边界，回读 sealed_revision、cutover_head 与 worktree 状态并保留已有结果。更新原 Heartbeat，移除无界并发、完整项目快照和逐 checkpoint 汇报，写入 max_inflight、convergence_inflight=1、pending_delta 与静默 ACK。随后递增 contract revision，完整执行 contract ACK/release ACK/STARTED；封存后的旧 revision 消息只读合并、不驱动动作。全部新 admission 完成后恢复派发。
+先暂停新派发；发送 migration hold，允许当前原子写入/命令完成后停在安全边界，回读 sealed_revision、cutover_head 与 worktree 状态并保留已有结果。原地更新同一 Heartbeat，移除无界并发和逐 checkpoint 汇报，加入 owner_handoff 模板、max_inflight、convergence_inflight=1、pending_delta 与单条 heartbeat 结果，保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权。随后递增 contract revision，完整执行 contract ACK/release ACK/STARTED；封存后的旧 revision 消息只读合并、不驱动动作。全部新 admission 完成后恢复派发。
 
 ### Variant B
 
 只刷新本机 Skill，继续沿用旧 Heartbeat；立即切换 revision 并丢弃旧任务工作。
+
+## Case: owner-handoff-drift
+
+Prompt: Heartbeat 中的 owner_handoff 显示 next_actor=external，但实时 GitHub truth 已使 Owner 合同内的 next_action 可执行。
+
+Rubric:
+- `handoff-drift-repair` (1.0): handoff drift 必须以实时 truth 修正并继续执行。
+
+### Variant A
+
+相信 Heartbeat 快照，继续等待外部事件。
+
+### Variant B
+
+Heartbeat 不是权威事实来源。Owner 先回读 owner_handoff、checkpoint、线程 cursor 和实时 GitHub truth，以实时事实修正 next_actor/next_action/wake_condition；若动作已在合同和用户授权内，本回合直接执行，并递增 handoff_revision、回读原 Automation 更新结果。
+
+## Case: pr-ready-pending-delivery
+
+Prompt: 任务已达到 PR_READY，但投递到真实 owner_thread_id 的消息不可验证。
+
+Rubric:
+- `pending-delivery-recovery` (1.0): 漏投 PR_READY 必须可被恢复回读补消费。
+
+### Variant A
+
+已向 Owner 汇报 PR_READY，等待确认。
+
+### Variant B
+
+投递不可验证时不虚报已上行；任务标记 PR_READY_PENDING_DELIVERY，只记录宿主投递结果并结束，在 final 中保留 task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和 evidence locator。Owner/Heartbeat 恢复时回读任务线程与 GitHub truth，补消费事件并把成功 message locator 写入自己的 checkpoint/handoff；不等待纯 ACK、不创建 registry、不无限重试。
+
+## Case: owner-handoff-continuous-maintenance
+
+Prompt: 这不是 Heartbeat 唤醒：任务 PR_READY、Owner merge 或用户变更范围使 next_actor、next_action 或 wake_condition 发生控制面实质变化。
+
+Rubric:
+- `continuous-handoff-maintenance` (1.0): 非 Heartbeat 实质控制变化必须在当前回合维护既有 handoff。
+
+### Variant A
+
+当前回合结束前，唯一主 Owner 先更新 checkpoint，并原地更新既有 Automation prompt 中的 owner_handoff，递增 handoff_revision；保留 automation id、RRULE/间隔和通知策略，回读 Automation 更新结果及已验证 locator。该维护由 PR_READY、Owner merge 或用户范围变化直接触发，不依赖后续唤醒。
+
+### Variant B
+
+先记录变化，等下一次 Heartbeat 再更新 handoff。
