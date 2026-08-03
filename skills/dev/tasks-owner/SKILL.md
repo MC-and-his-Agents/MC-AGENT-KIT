@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.8.1"
+  version: "0.9.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -24,8 +24,10 @@ metadata:
 4. 过程数据只留在 Owner 对话和 App 运行态；标题、摘要和消息不能替代事实回读。
 5. App 任务线程使用 [协作式 admission 协议](references/contracts.md#合同投递与-admission-gate)；当前没有宿主原生写入锁，不得把协议声称为能力隔离。
 6. Heartbeat 只是绑定当前 `owner_thread_id` 的周期唤醒机制，不是第二个 Owner、独立 Agent 或权限主体；它不扩大也不削弱 Owner 合同。
+7. `task final` 只是任务线程的本地记录，不是跨线程交付；任何 `next_actor=owner` 的握手或执行事件都必须用宿主 `send_message_to_thread` 投递到真实 `owner_thread_id` 并唤醒 Owner，至少包括 `contract_ack`、`release_ack`/`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 和合同/权限异常；投递状态、去重和恢复按 [contracts.md](references/contracts.md#跨线程交付状态机) 执行。
+8. Owner 初始化并锁定用户授权的 canonical `owner_runtime_lock`（回显锁）；缺锁、错配、不可验证或运行时漂移时 fail closed，不猜测发送、不继续调度。
 
-Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最小 `<control>` 控制块”双层格式；摘要删除控制块后仍须可读，完整日志和哈希集合留在任务线程或证据载体。控制块字段、可复制示例和用户 final 隐藏规则见 [contracts.md](references/contracts.md#双层消息与人类可读性)。
+Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最小 `<control>` 控制块”双层格式；摘要删除控制块后仍须可读，完整日志和哈希集合留在任务线程或证据载体。交付状态、控制块字段、可复制示例和用户 final 隐藏规则见 [contracts.md](references/contracts.md#双层消息与人类可读性)。
 
 ## 启动门禁
 
@@ -45,7 +47,7 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 
 让用户确认范围、价值、非目标、验收、调度单元、依赖、写入权、模式、并发和模型。默认以可独立 closeout 的 issue 为单元；紧密 issue 可组成 FR batch。
 
-默认 `dynamic_ready_wave`，但必须受 `max_inflight` 硬上限、依赖、写入冲突和 `task_key` 防重约束；无宿主/用户上限时初始上限为 8。Owner 可在上限内调节，扩大成本或权限边界才询问用户。算法见 [operations.md](references/operations.md)。防重是 best-effort，不声称 exactly-once。
+默认 `dynamic_ready_wave`，但必须受 `max_inflight` 硬上限、依赖、写入冲突和 `task_key` 防重约束；无宿主/用户上限时初始上限为 8。每次波次都记录完整 ready 集合、选中波次、实际宽度和未选原因；ready>1 且有容量时默认多选，单选必须写 `single_task_justification`。算法见 [operations.md](references/operations.md)。防重是 best-effort，不声称 exactly-once。
 
 实现可并行，但同一仓库和 target branch 默认只有一条 merge/closeout 收敛通道；等待收敛的任务不因每次 main 前进而反复 rebase。调度细节见 [operations.md](references/operations.md#实现并发与收敛通道)。
 

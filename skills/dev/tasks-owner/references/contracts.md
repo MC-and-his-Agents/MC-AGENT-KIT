@@ -10,6 +10,8 @@
 owner_thread_id: <真实 threadId>
 owner_model: <默认 gpt-5.6-sol>
 owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
+owner_runtime_lock: <完整 canonical lock；model/reasoning_effort/revision/authority:user>
+owner_runtime_lock_status: <verified | unverified>
 execution_mode: <direct / flat / hierarchical>
 luna_subagent_status: <supported / fallback / pending_restart / unverified>
 
@@ -54,6 +56,26 @@ Automation
 
 Owner authority 来自用户委任、Owner 契约、适用 `AGENTS.md` 和外部动作边界，不来自 Heartbeat prompt。外部可见或不可逆动作仍须按既有明确授权执行；Heartbeat 不能扩权，也不能削弱 Owner 合同。Heartbeat 只是绑定 `owner_thread_id` 的周期唤醒机制。
 
+## canonical owner runtime lock（回显锁）
+
+Owner 初始化时建立唯一的用户授权运行时锁，并把完整对象原样纳入 Owner contract、每个活动任务合同、`contract_digest` 和 Owner checkpoint：
+
+```text
+owner_runtime_lock:
+  model: gpt-5.6-sol
+  reasoning_effort: high
+  revision: 1
+  authority: user
+```
+
+这是 Skill 层的 compensating control（回显锁），不是宿主强安全边界。锁的四个字段整体纳入 `contract_digest`；`owner_runtime_lock_status: verified | unverified` 单独记录，不属于用户授权锁。`verified` 只表示工具参数和目标回读已相互匹配；仓库没有宿主实际强制证据时必须记为 `unverified`，不得声称已验证宿主。锁只能由用户修改；用户修改时递增 `revision`、重算 Owner contract，并让活动任务重新走 admission。旧 `runtime_lock_revision` 的事件只读，不驱动动作。
+
+任务线程或 Subagent 用宿主 `send_message_to_thread` 唤醒 Owner 时，实际工具参数必须逐字回显锁：`model: owner_runtime_lock.model`、`thinking: owner_runtime_lock.reasoning_effort`。发送方的 Luna/max、默认配置或当前 Owner runtime 都不得参与；宿主参数名是 `model` / `thinking`，不得杜撰 `target_model`。控制块只需带 `runtime_lock_revision`，不复制整把锁。
+
+发送前发现锁缺失、格式错误、revision/`contract_digest` 不匹配或值不受支持时，不得省略参数或猜测发送；事件记为 `<EVENT>_PENDING_DELIVERY`，等待 Heartbeat/用户修复。消息送达后由 Owner 核对实际 `turn_context`：一致时才把锁状态记为 `verified` 并消费事件；不一致或无法回读时记为 `unverified` 并 fail closed，只读核验并通知用户，暂停调度、派发、merge、closeout 和其他外部动作。
+
+能力门禁只在有证据时标记 `verified`：Luna/max sender 必须显式以锁中 `model=gpt-5.6-sol`、`reasoning_effort=high`（工具 `thinking=high`）唤醒，目标 `turn_context` 仍须为 Sol/high；省略参数、使用 sender 自身 Luna/max 或旧 revision 均为负向场景，不得宣称宿主已强制回显。
+
 ## 双层消息与人类可读性
 
 除纯 ACK、hold、release、`STARTED` 等内部握手外，Owner↔任务线程的消息都采用双层格式：先写一段简短自然语言摘要，末尾再放最小 `<control>` 控制块。摘要在删除控制块后仍应让读者知道发生了什么或结论、为什么/影响或风险，以及下一步由谁做什么；没有实际相关项时不硬凑句子。
@@ -75,11 +97,38 @@ event_key: #123:r4:BLOCKED:abc123
 next_actor: owner
 next_action: 回读 CI run #789 并决定修复或重跑
 wake_condition: Owner 选择路径或新 CI 结果可用
+runtime_lock_revision: 1
 evidence_locator: PR #456 / CI run #789
 </control>
 ```
 
 `BLOCKED`、`NEEDS_OWNER`、`PR_READY`、`COMPLETED` 以及 Owner→task 的普通指令都必须有人话层；握手可保持短机器格式并只留在任务/Owner 内部。给用户的 Owner final 不展示控制块或协议握手字段，除非用户明确要求底层诊断；只报告结果、影响、阻塞/风险和下一步。
+
+## 跨线程交付状态机
+
+`task final` 只是任务线程的本地记录，不能代替跨线程交付。任一控制握手或执行事件只要 `next_actor=owner`，任务都必须对真实 `owner_thread_id` 调用宿主 `send_message_to_thread` 并请求唤醒 Owner；至少覆盖 `contract_ack`、`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY`，以及合同拒绝、合同漂移、锁/权限异常。每次投递同时在任务自身会话留下短记录；消息成功也不等于 Owner 已验证。
+
+每个 `event_key` 的最小状态严格单向推进：
+
+```text
+local_recorded → delivery_pending → delivered → owner_verified → consumed
+```
+
+任务先写 `local_recorded`，再调用 `send_message_to_thread`。工具失败、返回值缺少可验证 message locator、锁/目标 runtime 无法核对或投递状态不明时写 `<EVENT>_PENDING_DELIVERY`，保留同一事件控制块；本地 final 不推进 Owner 合同状态。可验证投递写 `delivered`，Owner 仍必须用 `read_thread` 和实时 GitHub truth 核验后才写 `owner_verified`，消费控制动作后才写 `consumed`。`event_key` 去重只在当前合同/执行代次内生效；不建数据库或 registry，不无限重试，Heartbeat 只补漏投、pending 和漂移恢复。
+
+admission 固定顺序，不得用 final、标题或 wait 结果跳步：
+
+```text
+Owner → Task: contract
+Task → Owner: contract_ack
+Owner → Task: execution_release
+Task → Owner: execution_release_ack
+Owner → Task: START control
+Task → Owner: STARTED
+Owner: read_thread + GitHub truth 核验 → admitted → Owner 可结束回合，Task 继续执行
+```
+
+每一步 `next_actor=owner` 的握手都要真实投递并记录状态。`START` control 是执行许可：Task 收到后先投递 `STARTED`，随后可继续执行，不等待 Owner 纯 ACK；Owner 核验该事件后把任务记为 `admitted/active`。Owner 当前回合在线时可用 `wait_threads` 降低延迟，但它不能替代投递或核验；`read_thread` 用于 admission 核验和恢复。Owner 收到任何事件后必须回读任务线程与 GitHub truth，再决定是否消费；Heartbeats 不承担正常 admission 推进。
 
 ## Bootstrap hold
 
@@ -99,6 +148,9 @@ task_key: <GitHub issue URL 或 issue 编号>
 subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 contract_revision: <单调递增版本>
 contract_digest: <下述合同绑定摘要>
+owner_runtime_lock: <与 Owner contract 完全一致的完整锁对象>
+owner_runtime_lock_status: <verified | unverified>
+runtime_lock_revision: <锁 revision；控制块仅带此字段>
 execution_hold: true
 
 任务身份与目标
@@ -128,14 +180,14 @@ execution_hold: true
 - 普通 head、push、CI、review 和实现 checkpoint 只留在任务线程；以最新事实覆盖一个 `pending_delta`，并入下一次允许的上行汇报
 - `PR_READY` 必须绑定 exact head，且任务负责的验证、review、hosted CI 和 PR 元数据均已终态；否则不发送候选/等待 checkpoint
 - 允许的上行汇报包含：双层摘要中的状态、交付物、结论/影响或风险、下一步与 evidence locator；PR/head、验证和审查只带结论，完整命令、日志、证据清单和哈希集合留在任务线程、PR 或证据载体
-- 收到本合同时重新计算并核对 digest，只回报 `contract_ack: <revision>`、`contract_digest`、线程/工作区/模型事实和 `contract_status: acknowledged`，然后结束当前回合；不得写入
+- 收到本合同时重新计算并核对 digest，先在任务会话写入 `contract_ack` 的 `local_recorded` 记录，再用锁定参数调用 `send_message_to_thread` 投递真实 Owner；消息不可验证则写 `CONTRACT_ACK_PENDING_DELIVERY`，不得把本地 final 当作 Owner 已收到，也不得写入
 ```
 
 任务线程不得把 `HEAD_CHANGED`、push、rebase、CI pending/success 或 review pending/success 单独升级为 Owner 消息。若这些变化使现有 Owner review/merge 决策失效，合并为一次 `NEEDS_OWNER`。相同或被更新事实覆盖的事件静默丢弃，不发送“已去重”。
 
 ## 上行事件与活性兜底
 
-任务的 `BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，消息至少携带：
+任何 `next_actor=owner` 的控制握手或执行事件（包括 `contract_ack`、`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、合同拒绝/漂移和权限或锁异常）必须通过宿主线程消息工具投递到真实 `owner_thread_id` 并请求唤醒；消息至少携带：
 
 ```text
 event
@@ -146,15 +198,16 @@ next_actor
 next_action
 wake_condition
 evidence_locator
+runtime_lock_revision
 ```
 
-消息正文必须遵守[双层消息与人类可读性](#双层消息与人类可读性)：先给结论/影响或风险/下一步的自然语言摘要，再给上述字段组成的 `<control>`；不得把完整测试日志、证据清单或完整 SHA 集合直接转发。任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK。Owner 收到消息或恢复回读后验证任务线程和实时 GitHub truth，再把已验证 locator 写入自己的 checkpoint 和已有 `owner_handoff`。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，并在自身 final 中保留同一结构化事件；Owner/Heartbeat 恢复时必须回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+消息正文必须遵守[双层消息与人类可读性](#双层消息与人类可读性)：先给结论/影响或风险/下一步的自然语言摘要，再给上述字段组成的 `<control>`；握手可保持短机器格式，但也必须有投递记录。不得把完整测试日志、证据清单或完整 SHA 集合直接转发。任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK；每次投递也在任务会话保留简短本地记录。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，在自身 final 中保留同一结构化事件且不推进 Owner 合同状态；Owner/Heartbeat 恢复时必须 `read_thread` 回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
 
 ## 合同投递与 admission gate
 
-这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
+这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、完整 `owner_runtime_lock`、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
 
-新建、恢复、模式切换或模型覆盖都要重新进入 hold。任务先只回报同 revision/digest ACK 并结束当前回合；Owner 用 `read_thread` 回读任务生成的 ACK，在 checkpoint 记录 `contract_ack_message_id` 和 `contract_status: acknowledged`，再发送包含同 revision/digest 的 `execution_release`。任务只回报同 revision/digest 的 `execution_release_ack` 并结束当前回合；Owner 回读后记录 `release_message_id`、`release_ack_message_id` 和 `contract_status: released`。任务下一回合的首个 `STARTED` 必须回显同 revision/digest；缺失、错配或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
+新建、恢复、模式切换、模型覆盖或 runtime lock revision 变化都要重新进入 hold，并固定按以下顺序推进：Owner→Task `contract`；Task 先在自身会话写 `contract_ack` 的 `local_recorded`，再以锁定的 `model`/`thinking` 调用 `send_message_to_thread` 投递 Owner；Owner 用 `read_thread` 和 GitHub truth 核验后记录 `contract_ack_message_id` 与 `contract_status: acknowledged`；Owner→Task 发送同 revision/digest 的 `execution_release`；Task 同样投递 `execution_release_ack`，失败则 `RELEASE_ACK_PENDING_DELIVERY` 且仍为 `pending_contract`；Owner 回读并记录 `release_message_id`、`release_ack_message_id` 与 `contract_status: released`；Owner→Task 发送 `START` control；Task 下一回合先主动投递回显同 revision/digest/runtime_lock_revision 的 `STARTED`，随后可继续执行而不等待纯 ACK；Owner 再次 `read_thread` + GitHub truth 核验后标记 `admitted/active` 并可结束当前回合。缺失、错配、不可验证或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
 
 迁移 cutover 时，hold 允许任务完成当前原子写入/命令后停在安全边界，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态。Owner 回读并封存旧 revision 后才发送新合同；封存后的旧 revision 消息不再驱动动作，但已有 worktree/branch 结果保留并由新合同显式接管，不因协议切换丢弃。
 
@@ -162,7 +215,7 @@ evidence_locator
 
 首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
 
-Owner 收到任务消息后，只有 `next_actor=owner` 且存在已授权动作时才行动并发送必要决定；普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
+Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，再仅在 `next_actor=owner` 且存在已授权动作时行动并发送必要决定；Owner 当前回合在线时可用 `wait_threads` 降低延迟，但不能替代投递或核验。普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 只补 pending、漏投和漂移恢复，不承担正常 admission；Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
 
 ## 既有 Owner 迁移
 

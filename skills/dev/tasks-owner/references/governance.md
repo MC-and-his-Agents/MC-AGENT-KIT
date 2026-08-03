@@ -16,3 +16,5 @@
 - 输出评测目前是确定性合同样例，尚无 provider-backed 执行结果和人工盲审结论。
 - `agents/openai.yaml` 是 Codex UI 元数据；`agents/interface.yaml` 是 Yao Production 验证与信任边界，两者的三个 `interface` 字段必须保持一致。
 - hold/release 是协作式协议，不是宿主写权限锁；违反合同的任务只能由 Owner 检测、隔离和停止采用其输出。
+- `owner_runtime_lock` 是用户授权的 Skill 层 compensating control，不是宿主强安全边界；仓库没有证据证明宿主会强制 `send_message_to_thread` 的 `model` / `thinking` 回显，实际能力状态默认 `unverified`。
+- Luna/max sender 以锁定的 Sol/high 唤醒并回读目标 `turn_context` 只在本地合同证据齐全时标记 `verified`；缺锁、旧 revision、参数省略或 runtime 漂移必须 fail closed。
