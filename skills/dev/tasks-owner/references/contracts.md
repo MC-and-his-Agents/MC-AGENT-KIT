@@ -40,8 +40,13 @@ GitHub 规划真相
 
 决策边界
 - 任务线程：局部、可逆、不改变公共合同的实现选择。
-- Owner：跨任务依赖、公共接口、调度、审查、合并和 closeout。
+- Owner：跨任务依赖、公共接口、持续 scope integrity、纠偏、调度、审查、合并和 closeout。
 - 用户：产品含义、优先级、权限、隐私、显著成本和不可逆外部动作。
+
+持续语义门禁
+- semantic_scope_checkpoint：<revision / trigger / status / evidence locator>
+- material scope delta：<四类判据与任务上行规则>
+- repeat blocker：<blocker_class / remediation count / 下一动作>
 
 Automation
 - 状态：<未启用 / 已启用>
@@ -249,7 +254,8 @@ execution_hold: true
 - 目标完成条件
 - 验证和独立审查要求
 - 局部 implementation packet：按 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#五段局部-implementation-packet) 原样包含 `OBJECTIVE`、`FILES AND OWNERSHIP`、`INTERFACES`、`CONSTRAINTS`、`VERIFICATION`；每条验证有准确命令/检查和 concrete success criterion
-- 上行汇报门禁：除合同 ACK、release ACK 和一次 `STARTED` 外，只在 `BLOCKED`、`NEEDS_OWNER` 或最终 `PR_READY` 时直接汇报
+- 上行汇报门禁：除合同 ACK、release ACK 和一次 `STARTED` 外，只在 `SCOPE_DELTA`、`BLOCKED`、`NEEDS_OWNER` 或最终 `PR_READY` 时直接汇报
+- material scope delta：新增未声明生产子系统、跨 native/build/signing/security boundary、触碰另一 Work Item ownership 或明显扩大实现面时先停相关写入并发送 `SCOPE_DELTA`；测试、文档、fixture 和既有 ownership 内不改变公共/安全/运行边界的薄 adapter/同域 helper 不触发
 - 普通 head、push、CI、review 和实现 checkpoint 只留在任务线程；以最新事实覆盖一个 `pending_delta`，并入下一次允许的上行汇报
 - `PR_READY` 必须绑定 exact head，且任务负责的验证、review、hosted CI 和 PR 元数据均已终态；否则不发送候选/等待 checkpoint
 - 允许的上行汇报包含：双层摘要中的状态、交付物、结论/影响或风险、下一步与 evidence locator；PR/head、验证和审查只带结论，完整命令、日志、证据清单和哈希集合留在任务线程、PR 或证据载体
@@ -260,7 +266,7 @@ execution_hold: true
 
 ## 上行事件与活性兜底
 
-任何 `next_actor=owner` 的控制握手或执行事件（包括 `contract_ack`、`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、合同拒绝/漂移和权限或锁异常）必须通过宿主线程消息工具投递到真实 `owner_thread_id` 并请求唤醒；消息至少携带：
+任何 `next_actor=owner` 的控制握手或执行事件（包括 `contract_ack`、`execution_release_ack`、`STARTED`、`SCOPE_DELTA`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、合同拒绝/漂移和权限或锁异常）必须通过宿主线程消息工具投递到真实 `owner_thread_id` 并请求唤醒；消息至少携带：
 
 ```text
 event
@@ -274,11 +280,13 @@ evidence_locator
 runtime_lock_revision
 ```
 
+`SCOPE_DELTA` 另带 `changed_area`、`trigger_category`、`affected_ownership`；任务只报告事实并保持相关写入 hold，不能自行批准合同扩张。Owner 必须按 [scope integrity review](operations.md#持续语义纠偏与-scope-integrity)回读后决定 `aligned | shrink | split | reassign | user_decision`。
+
 消息正文必须遵守[双层消息与人类可读性](#双层消息与人类可读性)：先给结论/影响或风险/下一步的自然语言摘要，再给上述字段组成的 `<control>`；握手可保持短机器格式，但也必须有投递记录。不得把完整测试日志、证据清单或完整 SHA 集合直接转发。任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK；每次投递也在任务会话保留简短本地记录。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，在自身 final 中保留同一结构化事件且不推进 Owner 合同状态；Owner/Heartbeat 恢复时必须 `read_thread` 回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
 
 ## 合同投递与 admission gate
 
-这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、完整 `owner_runtime_lock`、完整五段 implementation packet、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
+这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、完整 `owner_runtime_lock`、完整五段 implementation packet、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。digest 只能证明这些字段未被改写，不能证明合同符合 GitHub 目标或实际 change set；首次 admission 和任何语义修订仍须单独取得 `semantic_scope_status: aligned`。
 
 新建、恢复、模式切换、模型覆盖或 runtime lock revision 变化都要重新进入 hold，并固定按以下顺序推进：Owner→Task `contract`；Task 先在自身会话写 `contract_ack` 的 `local_recorded`，再以锁定的 `model`/`thinking` 调用 `send_message_to_thread` 投递 Owner；Owner 用 `read_thread` 和 GitHub truth 核验后记录 `contract_ack_message_id` 与 `contract_status: acknowledged`；Owner→Task 发送同 revision/digest 的 `execution_release`；Task 同样投递 `execution_release_ack`，失败则 `RELEASE_ACK_PENDING_DELIVERY` 且仍为 `pending_contract`；Owner 回读并记录 `release_message_id`、`release_ack_message_id` 与 `contract_status: released`；Owner→Task 发送 `START` control；Task 下一回合先主动投递回显同 revision/digest/runtime_lock_revision 的 `STARTED`，随后可继续执行而不等待纯 ACK；Owner 再次 `read_thread` + GitHub truth 核验后标记 `admitted/active` 并可结束当前回合。缺失、错配、不可验证或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
 
@@ -288,7 +296,7 @@ runtime_lock_revision
 
 首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
 
-Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，再仅在 `next_actor=owner` 且存在已授权动作时行动并发送必要决定；Owner 当前回合在线时可用 `wait_threads` 降低延迟，但不能替代投递或核验。普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 只补 pending、漏投和漂移恢复，不承担正常 admission；Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
+Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，再检查当前 trigger/合同/change set 的 semantic scope checkpoint，仅在 `next_actor=owner`、`semantic_scope_status: aligned` 且存在已授权动作时继续原动作；`SCOPE_DELTA` 或过期 checkpoint 则先纠偏。Owner 当前回合在线时可用 `wait_threads` 降低延迟，但不能替代投递或核验。普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 只补 pending、漏投和漂移恢复，不承担正常 admission；Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
 
 ## 既有 Owner 迁移
 
@@ -304,7 +312,7 @@ Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，�
 
 ## Flat 独立审查合同
 
-`flat` 执行任务不得自审。Owner 创建同级 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。需要独立审查的 `direct`、`flat`、`hierarchical` 交付统一要求 `reviewed_head`、被审 change set 的准确 `reviewed_files`、`review_write_scope: empty`、完整 `diff_locator` 和 `ship | fix-first | rethink` verdict；任何后续 diff/head 变化立即使旧 verdict 失效，修复后必须 fresh review。reviewer 不得实现修复；Owner 负责判断和重新派发。review 还要分别记录 requested/observed sandbox 与 permission；只有 observed sandbox 真为 `read-only` 才能称 enforced read-only，低风险放宽时按前后状态核验和 residual risk 规则继续，详见 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#fresh-exact-head-review)。review 任务仍设置 `subagent_policy: forbidden`，但不强制所有微小 carrier/closeout 使用 Sol reviewer。
+`flat` 执行任务不得自审。Owner 创建同级 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。需要独立审查的 `direct`、`flat`、`hierarchical` 交付统一要求 `reviewed_head`、被审 change set 的准确 `reviewed_files`、`review_write_scope: empty`、完整 `diff_locator`、`semantic_scope_status: aligned` 和 `ship | fix-first | rethink` verdict；任何后续 diff/head 变化立即使旧 verdict 失效，修复后必须 fresh review。reviewer 不得实现修复；Owner 负责判断和重新派发。review 还要分别记录 requested/observed sandbox 与 permission；只有 observed sandbox 真为 `read-only` 才能称 enforced read-only，低风险放宽时按前后状态核验和 residual risk 规则继续，详见 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#fresh-exact-head-review)。review 任务仍设置 `subagent_policy: forbidden`，但不强制所有微小 carrier/closeout 使用 Sol reviewer。
 
 ## Closeout contract
 
