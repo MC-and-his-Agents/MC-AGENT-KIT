@@ -77,7 +77,9 @@ updated_at
 
 `event_key = task_key + execution_generation + event + head/status`；App 任务线程的 `execution_generation` 为 contract revision/digest，direct 为 spawn/dispatch generation。相同 key、旧 head、被较新事实覆盖或没有改变 `next_actor/next_action/wake_condition` 的事件直接静默丢弃。非紧急变化写入任务内唯一 `pending_delta`，新事实覆盖旧事实，下一次允许上行时一次带出。
 
-`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，并携带 `task_key`、`execution_generation`、`event_key`、`next_actor`、`next_action`、`wake_condition` 和证据 locator。任务只记录宿主投递结果/message locator 并结束，不等待纯 ACK。Owner 收到消息或恢复回读后验证任务线程和 GitHub truth，再把已验证 locator 写入自己的 checkpoint 与 owner_handoff。投递不可验证时标记 `<EVENT>_PENDING_DELIVERY`，在自身 final 中保留结构化事件，不得虚报“已上行”；Owner/Heartbeat 恢复时回读任务线程和 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，并携带 `event`、`task_key`、`execution_generation`、`event_key`、`next_actor`、`next_action`、`wake_condition` 和证据 locator。任务只记录宿主投递结果/message locator 并结束，不等待纯 ACK。Owner 收到消息或恢复回读后验证任务线程和 GitHub truth，再把已验证 locator 写入自己的 checkpoint 与 owner_handoff。投递不可验证时标记 `<EVENT>_PENDING_DELIVERY`，在自身 final 中保留结构化事件，不得虚报“已上行”；Owner/Heartbeat 恢复时回读任务线程和 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+
+上述跨线程消息遵守 [双层消息与人类可读性](contracts.md#双层消息与人类可读性)：先用自然语言说明结论、影响/风险和下一步，再在末尾放最小 `<control>`；完整日志、证据清单和哈希集合不跨线程转发。纯 ACK、hold、release、`STARTED` 仍可保持短机器格式并内部化。
 
 每次 Heartbeat 回合在当前 Owner 任务中只输出一条简短结果：无可执行变化为 `DONT_NOTIFY` 并说明 next actor/action 或等待方；需要用户决定或真实风险为 `NOTIFY`。禁止逐任务 head/push/CI/review 展开、纯“已回读/继续等待”ACK 和多条阶段播报；该结果是运行记录，不是任务线程 ACK。
 

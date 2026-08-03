@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.8.0"
+  version: "0.8.1"
 ---
 
 # 让当前对话成为项目总负责
@@ -24,6 +24,8 @@ metadata:
 4. 过程数据只留在 Owner 对话和 App 运行态；标题、摘要和消息不能替代事实回读。
 5. App 任务线程使用 [协作式 admission 协议](references/contracts.md#合同投递与-admission-gate)；当前没有宿主原生写入锁，不得把协议声称为能力隔离。
 6. Heartbeat 只是绑定当前 `owner_thread_id` 的周期唤醒机制，不是第二个 Owner、独立 Agent 或权限主体；它不扩大也不削弱 Owner 合同。
+
+Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最小 `<control>` 控制块”双层格式；摘要删除控制块后仍须可读，完整日志和哈希集合留在任务线程或证据载体。控制块字段、可复制示例和用户 final 隐藏规则见 [contracts.md](references/contracts.md#双层消息与人类可读性)。
 
 ## 启动门禁
 
