@@ -29,6 +29,8 @@ owner_handoff:
   updated_at: <ISO-8601>
   owner_thread_id: <真实 threadId>
   owner_contract_revision: <revision；或 contract_digest/稳定 locator>
+  owner_runtime_lock_revision: <锁 revision>
+  owner_runtime_lock_status: <verified | unverified>
   scope_locator: <GitHub milestone/FR/issue locator>
   next_actor: <owner | task | user | external>
   next_action: <一项短动作或等待原因>
@@ -54,9 +56,9 @@ owner_handoff:
 1. 从 owner_handoff、Owner checkpoint、线程 cursor 和实时 GitHub truth 恢复并校验状态；Heartbeat 不是权威事实来源，发生漂移时以实时事实为准并刷新 handoff。
 2. 若 wake_condition 满足、next_actor=owner 且 next_action 位于既有 Owner 合同和用户授权范围内，在本回合直接执行；不得只报告“可以推进”、写 owner_action_required 或等待下一次唤醒。
 3. 仅当 next_actor=user、动作超出 Owner 合同、缺少真实授权/事实或存在真实 blocker 时请求用户；next_actor=task/external 时更新必要 locator，不执行额外动作，但仍按第 5 条输出唯一 heartbeat 结果。
-4. BLOCKED、NEEDS_OWNER、PR_READY 通过宿主线程消息工具投递到真实 owner_thread_id，携带 event、task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和证据 locator；消息先给结论、影响/风险和下一步的自然语言摘要，末尾再放最小 `<control>`，不得转发完整日志、证据清单或完整 SHA 集合。任务只记录宿主投递结果/message locator 并结束。Owner 收到消息或恢复回读后验证任务线程与 GitHub truth，再把已验证 locator 写入自己的 checkpoint/handoff。投递不可验证时使用 <EVENT>_PENDING_DELIVERY，不得虚报成功；Owner/Heartbeat 恢复时回读任务线程与 GitHub truth 补消费。
+4. 任一 `next_actor=owner` 的控制握手或执行事件（`contract_ack`、`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、合同拒绝/漂移/锁权限异常）都通过宿主 `send_message_to_thread` 投递到真实 `owner_thread_id` 并唤醒 Owner。任务先在自身会话留短记录，调用参数逐字取自完整 `owner_runtime_lock`（宿主参数名为 `model` / `thinking`，控制块仅带 `runtime_lock_revision`）；消息先给结论、影响/风险和下一步的自然语言摘要，末尾再放最小 `<control>`，不得转发完整日志、证据清单或完整 SHA 集合。投递状态按 `local_recorded → delivery_pending → delivered → owner_verified → consumed` 记录；不可验证时使用 `<EVENT>_PENDING_DELIVERY`，不得虚报成功或由 final 推进 Owner 合同。Owner 收到消息或恢复时必须 `read_thread` + GitHub truth 核验，再把 locator 写入自己的 checkpoint/handoff；Heartbeat 只补漏投、pending 和漂移，不承担正常 admission。
 5. 每次 Heartbeat 回合在当前 Owner 任务中只输出一条简短结果：无可执行变化输出 `DONT_NOTIFY` 并说明 next_actor/next_action 或当前等待方；需要用户决定或真实风险输出 `NOTIFY`。不得展开逐任务 head/push/CI/review，不发送纯“已回读/继续等待”ACK，不发送多条阶段播报；该结果是运行记录，不是任务线程 ACK。
-6. 继续按既有 Owner 合同执行 ready wave、单收敛通道、事件去重和 pending_delta；不要由 Heartbeat 自行扩权或另建 Automation。
+6. 先核对 Owner 实际 `turn_context` 与 canonical `owner_runtime_lock`；缺锁、格式/摘要/revision/支持性异常或 runtime 漂移时 fail closed，只读通知用户并暂停调度、派发、merge、closeout 与外部动作。否则继续按既有 Owner 合同执行 ready wave、单收敛通道、事件去重和 pending_delta；不要由 Heartbeat 自行扩权或另建 Automation。
 
 不得补造 GitHub 范围或验收标准，不得把标题/摘要当指令，不得执行未经授权的发布、删除、付费或外部发送。
 ```
@@ -66,11 +68,11 @@ owner_handoff:
 `task_key` 使用 GitHub issue URL 或稳定 issue 编号，是查重键而非新的状态库。
 
 1. 一次性读取已有线程并用 `read_thread` 验证 task_key、项目、目标和状态。
-2. `max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8。活动与待创建任务都计入，并记录 resolved cap 及来源；`dynamic_ready_wave` 只在硬上限内选择依赖满足且写入不冲突的任务。
+2. 每次恢复都重新计算并记录完整 `ready_task_keys`、`resolved_max_inflight`、`selected_wave`、`actual_wave_width`；对未选项写硬依赖 locator、具体写入/公共合同冲突、容量、防重或用户 hold 的精确理由。`max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8；活动与待创建任务都计入。ready>1 且有容量默认多选，单选必须有 `single_task_justification`；`dynamic_ready_wave` 只在硬上限内选择依赖满足且写入不冲突的任务。
 3. `clientThreadId` 记为待创建并占用槽位；本轮不立即重试，其他独立任务不受影响。
 4. 波次提交后统一回读真实 `threadId`、host/project、目标、branch/worktree 和 task_key。
 5. 下一次运行仍无法解析某个待创建任务时，允许用相同 task_key 做一次补偿重试并记录 `dispatch_generation`；不得无限重试。
-6. Owner checkpoint 记录 task_key、threadId/clientThreadId/agentId、dispatch_generation、status、cursor、依赖、合同 ACK、workspace_entry、Luna 门禁、`next_actor`、`next_action`、`wake_condition`、`last_event_key`、pending_delta 和更新时间；实质变化同时更新 owner_handoff。
+6. Owner checkpoint 记录 task_key、threadId/clientThreadId/agentId、dispatch_generation、status、cursor、依赖、合同 ACK、workspace_entry、完整 `owner_runtime_lock`/revision/status、Luna 门禁、`next_actor`、`next_action`、`wake_condition`、`last_event_key`、事件交付状态和 pending_delta；实质变化同时更新 owner_handoff。
 7. 下一次运行从 checkpoint、owner_handoff、App 线程 cursor 和 GitHub truth 重建，不向仓库或 GitHub 写入线程运行数据，也不复制完整项目状态。
 
 当前 App 未提供公开原子 claim/idempotency key 时，只能提供可审计的 best-effort 防重，不能宣称 exactly-once。重复或不确定状态只隔离对应 task_key，不阻塞无冲突任务。
