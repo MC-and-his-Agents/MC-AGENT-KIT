@@ -1,4 +1,4 @@
 interface:
-  display_name: "编写 goal 指令"
-  short_description: "起草或设置可持续推进的 Codex goal"
-  default_prompt: "使用 $write-a-goal 将当前任务整理成可持续推进的 Codex goal，并保持与用户语言一致；默认中文输出。先判断输出模式：给用户复制执行时输出单行 /goal 命令；直接设置 active goal 时使用自包含 objective。必须包含清晰的结果、验证、约束、边界、迭代、阻塞和完成条件。"
+  display_name: "编写 goal 与 Issue"
+  short_description: "起草或校验 Codex goal 与 GitHub Work Item Issue"
+  default_prompt: "使用 $write-a-goal 整理当前任务，并保持与用户语言一致；默认中文输出。先判断输出模式：copyable_goal_command 输出单行 /goal，active_goal_api 设置自包含 objective，GitHub Issue 使用 github_issue 输出标题、结果/价值、验收、范围、依赖、验证和暂停条件。Issue 不输出 /goal 或运行态合同字段。"

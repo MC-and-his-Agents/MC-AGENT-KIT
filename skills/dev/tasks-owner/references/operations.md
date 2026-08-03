@@ -4,6 +4,13 @@
 
 ## 能力与事实门禁
 
+0. 对准备进入调度的 Work Item，先执行 [Issue readiness 门禁](issue-readiness.md)：回读 GitHub
+   milestone、父 FR、Issue、依赖和 `blocked-by`，完成六项最小检查。缺事实或核心字段时保持
+   `planning_not_ready`，只输出修订建议，不 admission/派发；Issue 草案不携带运行态合同字段。
+   仅当 catalog 元数据明确声明 `github_issue`/GitHub Issue 能力时，才使用可选的
+   `write-a-goal`/`write-follow-goal` 增强；名称存在但未声明、调用不可用或输出不合格时立即
+   回退内置模板，不因增强失败单独标记 `planning_not_ready`。不探测或安装依赖；未经用户授权
+   不写 GitHub。
 1. 获取当前真实 `threadId`；无法取得时只能建立只读契约。
 2. 检查宿主是否提供项目读取、任务线程管理、`spawn_agent`、Subagent 查询/等待/消息/中断、标题和 Automation 管理能力。
 3. 用户显式项目优先于当前目录项目，当前目录项目优先于唯一匹配项目。
@@ -32,7 +39,7 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，
 4. 完整计算 `ready_task_keys` 后，从可 admission 的 ready task 按优先级填充 `selected_wave`，直到 `implementation_target_cap - implementation_admitted_inflight` 没有空槽，或没有额外可 admission 的 ready task。`actual_wave_width` 只记录本波真实完成 admission 的任务数。每个空槽和每个未选 `task_key` 必须有精确、任务级 `not_selected_reason` 及 `dependency_locator`、具体冲突定位、授权/合同缺口、容量证据或 wake condition；不得用同仓库、同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎或 Owner 偏好作理由。
 5. 若 ready task 数量多于可用槽位，按可验证的硬依赖、具体写入/公共合同冲突、防重或用户 hold 选择；这些原因只阻塞具体 task，不改变 cap。已关闭依赖不再阻塞后继 task；局部文件/接口冲突只阻塞相冲突的 task，其余 ready task 继续填充。`selected_wave` 少于可用槽位时必须留下每个空槽对应的精确 task-level blocker。
 6. 一个 task 默认只绑定一个可独立 closeout 的 issue，或一个紧密 FR batch/implementation PR。跨多个连续 PR 的 milestone 超级任务必须拆成各自稳定身份；不得把项目级调度隐藏进 hierarchical 任务内部。
-7. 对选中任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时只占 `host_inflight`/`admission_pending`（若宿主已占槽），不能计入实现 actual，也不能当作真实线程 ID。派发后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次核验匹配 revision/digest/runtime lock 的合同 ACK、release ACK、`STARTED` 后，才将任务记为 `admitted/active`。
+7. 对选中且已通过 Issue readiness 的任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时只占 `host_inflight`/`admission_pending`（若宿主已占槽），不能计入实现 actual，也不能当作真实线程 ID。派发后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次核验匹配 revision/digest/runtime lock 的合同 ACK、release ACK、`STARTED` 后，才将任务记为 `admitted/active`。`planning_not_ready` 任务不得进入此步骤。
 8. `BOOTSTRAP_READBACK` 返回并唤醒 Owner 后按固定优先级处理：若缺口是 Owner 合同内可完成的 branch、worktree、workspace_entry、合同构造或只读 runtime/GitHub 核验，本控制周期必须先完成这些动作并继续发送完整合同进入 admission，不得把流程前置条件写成 blocker。只有当前回合无法在既有授权、宿主能力或真实外部条件内解除的 blocker，才记录 evidence locator/wake condition 并释放 implementation slot；bootstrap 无用或重复时才结束并释放 host slot。不得无限保持 `execution_hold`，不得将 bootstrap/hold 计为 active。
 9. rate、resource、worktree、duplicate 或 dispatch failure 只在具体 task 上记录 `status`、failure evidence 和 wake condition；可选择其他 ready task 填充空槽。失败不得触发全局 cap 变化、动态减半或自动降档；同一 task 的补偿重试必须保持 `task_key` 不变并记录新的 `dispatch_generation`，身份错配则隔离并新建 task_key。
 10. merge、依赖解除、收敛通道释放、任务完成或阻塞后，重新回读 GitHub truth 并重新计算 ready wave、六项统计、理由和宽度；旧波次记录只读，不沿用过期选择。
@@ -49,6 +56,16 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，
 - 通道由 `convergence_generation` 标识。PR merge/closeout、任务撤回/失败，或无法在当前 Owner 回合解决的 `BLOCKED` / `NEEDS_OWNER` 都必须释放；可立即解决的 Owner 动作完成后可保留。
 - 释放后按 `convergence_requested_at` 和 GitHub 优先级选择下一项；Heartbeat 发现 owner task 已结束、暂停或 wake condition 失效时回收通道，避免永久占用。
 
+## 收口后 cleanup lane
+
+Owner 得到 `closeout_verified` 后按 [cleanup.md](cleanup.md) 派发专用清理 Subagent。cleanup lane
+按仓库串行，和 implementation/convergence 分开计数；它可占宿主槽，但不计入
+`implementation_admitted_inflight`，不降低 `implementation_target_cap` 或
+`resolved_max_inflight`。任务线程、hierarchical 下游和 Heartbeat 都不得创建或执行清理；
+Heartbeat 只能唤醒 Owner 恢复 `cleanup_pending/partial/blocked`。清理完成后 Owner 必须独立
+回读 worktree、local ref、remote ref、target head、PR/issue 与稳定 checkout，再决定
+`cleanup_verified`、`preserved` 或阻塞。
+
 ## Checkpoint、handoff 与恢复
 
 checkpoint 至少包含：
@@ -64,6 +81,7 @@ task_key -> workspace_entry
 task_key -> runtime_evidence_locator/status/target
 wave_id / ready_task_keys / selected_wave / actual_wave_width / host_cap / user_cap / resolved_max_inflight / implementation_target_cap / implementation_admitted_inflight / host_inflight / read_only_inflight / admission_pending / not_selected_reason / dependency_locator / last_capacity_failure
 convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
+cleanup_policy / cleanup_authority_locator / cleanup_inflight / cleanup_key / cleanup_generation / cleanup_status / cleanup_evidence_locator
 event_key -> local_recorded | delivery_pending | delivered | owner_verified | consumed
 依赖与下一解锁条件
 最近 wait/read cursor
@@ -81,7 +99,7 @@ updated_at
 
 `owner_handoff` 是已存在 Heartbeat prompt 中的紧凑恢复索引；只有主 Owner 写入。它至少按 [automation.md](automation.md#owner_handoff) 模板保留 handoff revision、Owner 合同/范围 locator、next actor/action、wake condition、活动任务 locator、收敛 owner/generation、未决决定和最近实质事件 locator，不写完整项目状态、所有 head、普通 CI/push/review 或用户材料。runtime evidence 只写 locator/status/target；不得写 prompt、env、token、配置正文或完整 rollout 日志。
 
-无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout/下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
+无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout、cleanup 派发/部分成功/阻塞/验收、下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
 
 恢复或 Heartbeat 唤醒时，从 `owner_handoff`、Owner checkpoint、线程 cursor 和实时 GitHub truth 重建运行视图；Heartbeat 不是权威事实来源，冲突时以实时事实为准并刷新 handoff。若 `wake_condition` 满足、`next_actor=owner` 且 `next_action` 在 Owner 合同及用户授权范围内，Owner 当前回合必须直接执行，不只报告“可继续”、写 `owner_action_required` 或等待再次唤醒。只有 `next_actor=user`、动作超出合同、缺少真实授权/事实或存在真实 blocker 才请求用户；Heartbeat 回合若由 task/external 继续，则更新 locator、不执行额外动作，但仍输出一条 `DONT_NOTIFY`；普通非 Heartbeat Owner 回合无动作时可静默结束，不向任务或用户发送纯 ACK。
 

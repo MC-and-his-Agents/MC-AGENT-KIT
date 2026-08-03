@@ -13,7 +13,7 @@ owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
 owner_runtime_lock: <完整 canonical lock；model/reasoning_effort/revision/authority:user>
 owner_runtime_lock_status: <verified | unverified>
 execution_mode: <direct / flat / hierarchical>
-luna_subagent_status: <supported / fallback / pending_restart / unverified>
+luna_subagent_status: <supported / probe_ready / fallback / pending_restart / unverified>
 
 项目与范围
 - GitHub 项目：<project>
@@ -49,6 +49,11 @@ Automation
 - 唤醒间隔/范围：<RRULE 或 interval、scope>
 - 通知策略：<策略>
 - owner_handoff：<handoff_revision / updated_at>
+
+收口后清理
+- cleanup_policy：<分别列 local_worktree/local_branch/remote_branch 的 delete | preserve>
+- verified_rewritten_merge_delete：<allow | forbid>
+- cleanup_authority：<用户确认 locator / revision>
 
 完成条件
 - <可验证条件>
@@ -203,13 +208,15 @@ admission 前置动作包装成 blocker。
 
 ## output contract：下游任务线程合同
 
-bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。第一行仍写入主 Owner 的真实线程 ID，并包含：
+bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。发送合同前必须消费 [Issue readiness 门禁](issue-readiness.md)：`planning_not_ready` 或 GitHub truth 缺失时保持只读，不发送合同、不 admission/派发。Issue 草案只保留规划事实和验证证据，不能携带下方运行态字段；运行态由本合同单独补充。第一行仍写入主 Owner 的真实线程 ID，并包含：
 
 ```text
 主 owner 线程 ID: <真实 threadId>
 owner_thread_id: <同一真实 threadId>
 task_thread_id: <真实 task threadId；不得等于 owner_thread_id>
 task_key: <GitHub issue URL 或 issue 编号>
+issue_readiness: ready
+planning_truth_locator: <GitHub milestone/FR/issue/依赖回读定位>
 subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 contract_revision: <单调递增版本>
 contract_digest: <下述合同绑定摘要>
@@ -301,11 +308,18 @@ Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，�
 
 ## Closeout contract
 
-任务只能报告 `PR_READY` 或局部交付完成。Owner 仅在回读适用证据后发出 `COMPLETED`：目标验收通过；PR 已合并或明确无需 PR；merge commit 与 target branch 可验证；GitHub issue 状态已同步；适用 `AGENTS.md` 要求的 repo carrier/current pointer 已同步；外部状态与仓内事实一致。缺项时保持 `NEEDS_OWNER` 或 `BLOCKED`，不得把 PR/head 当作最终完成。
+任务只能报告 `PR_READY` 或局部交付完成。Owner 回读以下证据后先记为 `closeout_verified`：目标验收通过；PR 已合并或明确无需 PR；merge commit 与 target branch 可验证；GitHub issue 状态已同步；适用 `AGENTS.md` 要求的 repo carrier/current pointer 已同步；外部状态与仓内事实一致。缺项时保持 `NEEDS_OWNER` 或 `BLOCKED`，不得把 PR/head 当作最终完成。
+
+`closeout_verified` 后按 [现场清理合同](cleanup.md) 执行：任一资产为 `delete` 时由 Owner 直接创建专用清理 Subagent；全部为 `preserve` 时保留用户选择和残余资产证据。只有 Owner 独立回读得到 `cleanup_verified`，或用户明确选择全部 `preserve`，才发出最终 `COMPLETED`。`cleanup_pending`、`cleanup_partial`、`cleanup_blocked` 都不能冒充完成。
+
+## Post-closeout cleanup contract
+
+清理合同必须绑定 `cleanup_key`、generation、task/PR、repo/remote、base/target、merge commit、PR exact head OID、绝对 worktree、local/remote ref 与 expected OID、逐项授权和授权 locator。清理 Subagent 由 Owner 直接创建，使用 `fork_turns: "none"` 和已通过门禁的默认 Luna/max，不得衍生下级；它不使用任务线程 admission，也不得修改代码、GitHub truth、tag、default/base/target/protected branch 或合同外资产。完整门禁、执行顺序、回读和恢复见 [cleanup.md](cleanup.md)。
 
 ## rollback boundary
 
 - 派发前：可直接撤回调度建议，不产生任务状态。
 - 已创建未写入：暂停或归档对应任务，并在 Owner checkpoint 标记取消原因。
 - 已产生 branch/PR：停止继续写入，保留 branch/PR 作为可审计证据；是否关闭或删除必须由 Owner 按仓库规则确认。
+- 已进入现场清理：保存每个 ref 删除前的 exact OID；成功删除的资产不自动重建。阻塞或部分成功时保留未删资产和恢复命令建议；Owner 先在既有授权内安全纠正，仍需用户决定时给出分析、选项和最优建议。
 - 已执行外部可见或不可逆动作：不承诺自动回滚，立即停止并交由用户决定。
