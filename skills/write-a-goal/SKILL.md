@@ -1,17 +1,19 @@
 ---
 name: write-a-goal
-description: 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal。起草前先根据最新用户请求确定输出语言。为用户起草可复制的单行 /goal 命令；用户明确要求时，通过 goal 工具/API 创建自包含的 active goal objective。用户使用中文、混合语言或语言不明确时，输出中文。保留命令、路径、代码标识符、URL、issue ID、精确引用，以及 /goal、API、objective、copyable_goal_command、active_goal_api 等标识原文。
+description: 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，或起草、优化、校验可执行的 GitHub Work Item Issue。根据最新用户请求选择 copyable_goal_command、active_goal_api 或 github_issue；Issue 模式只输出 Issue 草案/修订建议，不输出 /goal 或运行态合同字段。用户使用中文、混合语言或语言不明确时输出中文，并保留命令、路径、代码标识符、URL、issue ID 和模式标识原文。
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
-# 编写 Codex Goal
+# 编写 Codex Goal 或 GitHub Issue
 
 ## 概览
 
-把用户上下文整理成简洁、稳定、可执行的 Codex goal 契约。优先保证一个目标、一个可验证终态、明确约束与边界，以及可持续推进的验证循环。
+把用户上下文整理成简洁、稳定、可执行的 Codex goal 契约或 GitHub Work Item Issue。优先保证一个目标、一个可验证终态、明确价值、约束与边界，以及可持续推进的验证循环。
 
 `references/follow-goal-spec.md` 是 goal 契约的事实来源。用户要求符合官方规范、验证已有 goal，或任务高风险、模糊、长周期到需要精确结构时，读取该文件。
+
+用户请求 GitHub Issue 的起草、优化或校验时，读取 `references/github-issue-spec.md`；该文件是 `github_issue` 模式的事实来源。Issue 是规划/执行入口，不是 Codex 运行态合同。
 
 ## 语言策略
 
@@ -19,24 +21,27 @@ metadata:
 
 ## 语言门
 
-在任何起草、解释、提问或通过工具创建 goal 之前，根据最新面向用户的请求设置 `output_language`；不要根据本 skill 文件、示例、路径、代码、日志或引用文本判断语言。
+在任何起草、解释、提问、创建 goal 或生成 Issue 之前，根据最新面向用户的请求设置 `output_language`；不要根据本 skill 文件、示例、路径、代码、日志或引用文本判断语言。
 
 规则：
 
 - 最新用户消息包含中文字符时，设置 `output_language = Chinese`。
 - 最新用户消息中英文混合时，设置 `output_language = Chinese`。
 - 语言不明确时，设置 `output_language = Chinese`。
-- 所有生成内容都使用 `output_language`，包括 `/goal` 正文、解释、标题、假设、自检和问题。
+- 所有生成内容都使用 `output_language`，包括 `/goal` 正文、Issue 标题/正文、解释、假设、自检和问题。
 - 仅 shell 命令、文件路径、代码标识符、URL、issue ID 和精确引用原文保持不变。
 
 ## 输出模式门
 
-起草或设置 goal 之前，必须且只能选择一种输出模式：
+起草或设置目标之前，必须且只能选择一种输出模式：
 
 - `copyable_goal_command`：用户要求 goal 措辞、`/goal` 命令、可复制命令，要求起草/优化/分析并产出 goal，或没有明确要求 Codex 直接设置 active goal 时使用。可执行产物必须是一条以 `/goal ` 开头的物理单行。
 - `active_goal_api`：用户明确要求设置、创建或开始一个 active goal，且当前有 goal 工具/API 可用时使用。通过工具/API 创建 goal。`objective` 可以多段，但必须自包含并包含完整 goal 契约。
+- `github_issue`：用户要求起草、优化、校验或准备 GitHub Work Item Issue 时使用。输出 Issue 标题、正文和必要的 parent/milestone/blocked-by 元数据或修订建议；不输出 `/goal`，不调用 goal API，不把模型、thread、worktree、runtime lock、heartbeat、contract digest 等运行态字段写入 Issue。详细字段、校验门和父 FR/milestone 的轻量结构见 `references/github-issue-spec.md`。
 
-如果没有可用的 goal 工具/API，回退到 `copyable_goal_command`，并说明用户可以复制该命令使用。
+如果选择 `active_goal_api` 但没有可用的 goal 工具/API，回退到 `copyable_goal_command`，并说明用户可以复制该命令使用；`github_issue` 不受此回退影响。
+
+`github_issue` 是独立输出模式，不要求 goal 工具可用；默认只给出可复制的草案/修订建议，不直接写 GitHub。只有用户明确授权且存在已获准的写入能力时，才讨论外部写入，并报告动作证据。
 
 ## 命令形态契约
 
@@ -75,16 +80,17 @@ Desktop/CLI/IDE 的 slash command 解析可能只会把 `/goal ` 后第一个自
 
 1. 从用户上下文提取稳定目标。
 2. 起草前先识别可验证终态。
-3. 选择输出模式：`copyable_goal_command` 或 `active_goal_api`。
-4. 只有当输入/上下文能明确起点时才写入；不要默认加入“先阅读”这类流程噪音。
-5. 定义验证方式：要运行的命令、要检查的产物、要对比的截图、要通过的测试、要达到的分数、要确认的外部状态或要更新的文档。
-6. 设置约束和边界：Codex 可以改什么或做什么，必须保留什么，什么需要确认。
-7. 涉及外部系统或高影响操作时，加入动作授权策略。
-8. 加入迭代行为：聚焦尝试、验证节奏、要报告的证据，以及重复失败处理。
-9. 加入暂停或阻塞条件：缺少凭据、决策不清、动作不安全、需要策略判断、需求不清或重复验证失败。
-10. 对 `copyable_goal_command`，把契约压缩为一条 `/goal ` 命令；辅助说明可选且不能承载必要信息。
-11. 对 `active_goal_api`，用完整自包含的 `objective` 创建 active goal，然后简要说明已设置的内容。
-12. 检查每句生成内容是否符合 `output_language`；如果意外回落为英文，先修正再回复。
+3. 选择输出模式：`copyable_goal_command`、`active_goal_api` 或 `github_issue`；不要在同一产物中混用模式。
+4. 若为 `github_issue`，按 `references/github-issue-spec.md` 检查结果/用户价值、完成标准、上下文入口、范围/非目标、依赖/约束、验证证据、暂停/决策条件和规划元数据，然后停止在 Issue 草案/修订建议。
+5. 只有当输入/上下文能明确起点时才写入；不要默认加入“先阅读”这类流程噪音。
+6. 定义验证方式：要运行的命令、要检查的产物、要对比的截图、要通过的测试、要达到的分数、要确认的外部状态或要更新的文档。
+7. 设置约束和边界：Codex 可以改什么或做什么，必须保留什么，什么需要确认。
+8. 涉及外部系统或高影响操作时，加入动作授权策略。
+9. 加入迭代行为：聚焦尝试、验证节奏、要报告的证据，以及重复失败处理。
+10. 加入暂停或阻塞条件：缺少凭据、决策不清、动作不安全、需要策略判断、需求不清或重复验证失败。
+11. 对 `copyable_goal_command`，把契约压缩为一条 `/goal ` 命令；辅助说明可选且不能承载必要信息。
+12. 对 `active_goal_api`，用完整自包含的 `objective` 创建 active goal，然后简要说明已设置的内容。
+13. 检查每句生成内容是否符合 `output_language`；如果意外回落为英文，先修正再回复。
 
 ## 起草形态
 
@@ -145,9 +151,9 @@ Desktop/CLI/IDE 的 slash command 解析可能只会把 `/goal ` 后第一个自
 
 ## 验证检查
 
-最终输出前，检查 goal 是否回答了以下问题：
+最终输出前，按所选模式检查产物是否回答了以下问题：
 
-- 输出模式：这是可复制 slash command，还是 active goal API 请求？
+- 输出模式：这是可复制 slash command、active goal API 请求，还是 GitHub Issue 草案/修订建议？
 - 结果：Codex 要达成什么最终状态？
 - 验证面：哪些命令、产物、外部状态或报告能证明进展和完成？
 - 约束：哪些行为、数据、权限、安全、质量或业务规则不能被破坏？
@@ -157,6 +163,7 @@ Desktop/CLI/IDE 的 slash command 解析可能只会把 `/goal ` 后第一个自
 - 完成条件：什么精确证据允许 Codex 停止或标记 complete？
 - 动作授权策略：如果涉及外部或高影响动作，哪些允许、哪些禁止、哪些需要确认、哪些需要记录？
 - 命令/API 形态：对 `copyable_goal_command`，可执行 goal 是否正好是一条以 `/goal ` 开头的物理单行？对 `active_goal_api`，`objective` 即使多段是否仍然自包含？
+- Issue 形态：对 `github_issue`，是否覆盖 Issue 的结果/价值、完成、上下文、范围/非目标、依赖/约束、验证、暂停/决策和必要规划元数据？是否没有 `/goal` 和运行态合同字段？父 FR/milestone 是否保持轻量？
 - 规范契约：命令或 `objective` 是否说明了要达成什么、不能改变什么、如何验证进展、何时停止？
 - 语言：包括 `/goal` 正文在内的每句生成内容是否符合 `output_language`？
 

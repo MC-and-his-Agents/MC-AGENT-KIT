@@ -203,13 +203,15 @@ admission 前置动作包装成 blocker。
 
 ## output contract：下游任务线程合同
 
-bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。第一行仍写入主 Owner 的真实线程 ID，并包含：
+bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。发送合同前必须消费 [Issue readiness 门禁](issue-readiness.md)：`planning_not_ready` 或 GitHub truth 缺失时保持只读，不发送合同、不 admission/派发。Issue 草案只保留规划事实和验证证据，不能携带下方运行态字段；运行态由本合同单独补充。第一行仍写入主 Owner 的真实线程 ID，并包含：
 
 ```text
 主 owner 线程 ID: <真实 threadId>
 owner_thread_id: <同一真实 threadId>
 task_thread_id: <真实 task threadId；不得等于 owner_thread_id>
 task_key: <GitHub issue URL 或 issue 编号>
+issue_readiness: ready
+planning_truth_locator: <GitHub milestone/FR/issue/依赖回读定位>
 subagent_policy: <flat 必须为 forbidden；hierarchical 为 allowed>
 contract_revision: <单调递增版本>
 contract_digest: <下述合同绑定摘要>

@@ -1,8 +1,8 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
+description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，先用独立的 Work Item Issue readiness 门禁整理目标，再选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。Issue readiness 可独立运行，不硬依赖其他 Skill；仅当用户明确委任当前对话承担项目总负责时使用，评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.11.0"
+  version: "0.12.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -15,6 +15,20 @@ metadata:
 - 评审、讨论、修改、测试、引用本 Skill、一次性实现或纯解释请求不激活；出现 `$tasks-owner` 也不例外。
 - 无法判断是否在委任时，先用结构化选项工具确认；工具不可用时只问一个简短问题。
 - 只适用于 Codex App 的 GitHub 项目。CLI 可作为下游 Worker，但不能替代 App 控制面。
+
+## Work Item Issue readiness 门禁（强制）
+
+规划、创建或派发 Work Item 前，必须先执行 [Issue readiness 门禁](references/issue-readiness.md)。
+门禁内置六项最小检查，即使只安装 `tasks-owner` 也能输出修订建议；GitHub truth 或核心字段
+不足时标记 `planning_not_ready`，只保留只读建议，不进入 admission 或派发。
+
+仅当已加载的 skills catalog 元数据明确声明 `github_issue` 或 GitHub Issue 能力时，才优先请求
+`write-a-goal` 或兼容的旧名称 `write-follow-goal` 生成/校验建议；名称存在但能力未声明时视为
+不可用。这是可选增强，不探测、安装或修改依赖；调用不可用或输出不合格时立即丢弃增强结果，
+改用本 Skill 自带最小模板，不能仅因增强失败标记 `planning_not_ready`。未经用户授权不写 GitHub；Issue 正文不
+把 Tasks Owner/Codex 的运行时编排键、admission 元数据或控制块写成合同字段，完整运行态合同
+仍由后续 tasks-owner admission 单独补充；产品域、代码术语和验证对象中的同名词可以保留。父
+FR/milestone 只保留轻量规划关系。
 
 ## 硬性规则
 
@@ -32,7 +46,7 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 
 ## 启动门禁
 
-取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；排查 Owner 冲突；确认 Automation 可用、已获创建/更新授权且绑定正确。派发后和接受结果前追加 runtime evidence 回读；缺少能力、事实、证据或授权时保持只读。完整步骤见 [operations.md](references/operations.md)。
+取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；先消费 Work Item 的 Issue readiness 结果，再排查 Owner 冲突；确认 Automation 可用、已获创建/更新授权且绑定正确。派发后和接受结果前追加 runtime evidence 回读；缺少能力、事实、证据或授权时保持只读。完整步骤见 [operations.md](references/operations.md)。
 
 ## 执行模式与模型
 
