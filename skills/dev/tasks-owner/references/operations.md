@@ -15,29 +15,37 @@
 9. 派发后和接受任务/审查结果前，按 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#runtime-evidence-gate) 先回读公开 thread/spawn/details metadata，核对实际 thread/agent、角色或任务类型、model、effort、cwd、正式 worktree、当前/目标 head；custom agent 还要核对实际 config/profile locator。公开 metadata 缺字段时才使用 allowlisted、只读本地证据；public/local 同时存在必须一致，字段缺失、同一目标存在无法消歧的多条记录、矛盾或错配立即 fail closed。不要把发送方 runtime 当作 Owner lock 或接受证据。
 10. 启动或恢复 Heartbeat 时只确认 Automation 可用、创建/更新已获授权、绑定当前 `owner_thread_id`，以及间隔/范围、通知策略和必要运行参数；不得把 Heartbeat 当作额外权限来源。
 
-## Ready wave 与防重
+## Ready wave、并发统计与防重
 
 Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，Heartbeat 只负责唤醒这个 Owner。
 
-1. 一次性回读 GitHub truth 和现有线程，用 `task_key` 区分活动、待创建、已结束和状态不明任务，并对既有任务按本文件的合同流程补发完整合同。
-2. 每次调度先完整计算 ready 集合并写入 checkpoint：`ready_task_keys`（完整 task_key 列表）、`resolved_max_inflight` 及 host/user 来源、`selected_wave`、`actual_wave_width`。`max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8；活动任务和待创建任务都计入。对每个未选 task_key 写精确 `not_selected_reason`，只能是硬依赖 locator、具体写入/公共合同冲突、容量、防重或用户 hold，并记录 `dependency_locator`/冲突定位。`dynamic_ready_wave` 只在此硬上限内选择依赖满足且写入不冲突的 ready set。
-3. `ready_task_keys` 多于一个且仍有容量时，默认选择多个相互独立任务；只选一个必须记录 `single_task_justification`（不能只写同仓库、同 milestone、同 target、`hierarchical`、任务可衍生 Subagent 或 `convergence_inflight=1`）。`implementation_inflight` 是实现吞吐，不能因单一收敛通道被压成 1；`convergence_inflight=1` 只限制 merge/closeout 收敛。
-4. 一个 task 默认只绑定一个可独立 closeout 的 issue，或一个紧密 FR batch/implementation PR。跨多个连续 PR 的 milestone 超级任务必须逐项证明其他项存在真实硬依赖或具体写冲突；不得把项目级调度隐藏进 hierarchical 任务内部。
-5. merge、依赖解除、收敛通道释放、任务完成或阻塞后，重新回读 GitHub truth 并重新计算 ready wave、理由和宽度；旧波次记录只读，不沿用过期选择。
-6. 对选中任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时记为待创建并占用当前波次容量，不能当作真实线程 ID。
-7. 整个波次提交后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次回读匹配 revision/digest/runtime lock 的合同 ACK 与 release ACK 后发送 `START` control。Task 先主动投递首个 `STARTED`，随后可继续执行而不等待纯 ACK；Owner 回读后把任务记为 `admitted/active`。等待工具有单次目标数限制时分组等待，不降低创建并发；`wait_threads` 仅用于 Owner 当前回合在线降延迟，`read_thread` 才是核验/恢复依据。
-8. 干净波次可在硬上限内增加下一波宽度；rate/resource/worktree/duplicate failure 时减半。单个不明任务只隔离该 `task_key`；下一次完整回读后仍无法解析时只补偿重试一次，并递增 `dispatch_generation`。
-9. 发现重复时保留已验证的权威线程，暂停该 `task_key` 后续派发并报告；不得用归档代替事实确认。
-10. Owner 可在既有授权内自主调整自设并发、重试和调用预算；只有扩大成本、隐私、外部发送、权限或不可逆动作边界才询问用户。
+1. 一次性回读 GitHub truth 和现有线程，用不可变 `task_key` 区分活动、待创建、已结束和状态不明任务，并对既有任务按本文件的合同流程补发完整合同。`task_key` 首次 admission 后永久绑定一个 issue、FR、milestone 或紧密 batch；线程不得跨目标复用。发现 issue、FR、milestone、batch、branch 或写入 owner 错配时，立即隔离旧线程、保存其 worktree/成果，为新目标创建新的 `task_key` 和新线程；若新目标仍 ready，replacement 必须留在当前 ready wave，身份漂移不能成为空槽理由。
+2. 每次调度先解析唯一的全局 cap 并写入 checkpoint：`host_cap`、`user_cap`、`resolved_max_inflight`、`implementation_target_cap`、`selected_wave`、`actual_wave_width` 和六项并发统计。解析规则固定为 `resolved_max_inflight = min(host_cap, user_cap)`；一方缺失取另一方，两方均缺失才为 8。只有用户修改 user cap 或宿主有可验证 cap 变化时才重算；Owner、Task、Heartbeat、风险、依赖、ownership、授权、admission、容量、dispatch rate 或 resource failure 均不得降低、动态减半、覆盖或“临时”改写该值。
+3. 强制区分以下统计，任何汇报都同时列 target 与 actual 及 evidence locator：
+   - `host_inflight`：宿主已占用的线程/任务槽；可包含只读、bootstrap 或待创建槽。
+   - `read_only_inflight`：只读探索、review 或无写 ownership 的在途任务。
+   - `admission_pending`：`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、ACK/release/STARTED 未核验或 `clientThreadId` 待创建的任务。
+   - `implementation_target_cap`：本控制周期要填充的实现目标，必须等于 `resolved_max_inflight`，不是实际活跃数。
+   - `implementation_admitted_inflight`：只有真实 `task_thread_id`、正式 branch/worktree、稳定 `task_key`、完整合同、ACK/release/STARTED 已核验且存在写 ownership 的 `admitted/active` 任务。
+   - `resolved_max_inflight`：唯一全局实现上限，按第 2 条求得。
+   `read_only_inflight`、`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、`clientThreadId`、`idle`、`blocked` 和 `goal blocked` 均不计入 `implementation_admitted_inflight`；目标数量或已创建数量不得冒充 actual。
+4. 完整计算 `ready_task_keys` 后，从可 admission 的 ready task 按优先级填充 `selected_wave`，直到 `implementation_target_cap - implementation_admitted_inflight` 没有空槽，或没有额外可 admission 的 ready task。`actual_wave_width` 只记录本波真实完成 admission 的任务数。每个空槽和每个未选 `task_key` 必须有精确、任务级 `not_selected_reason` 及 `dependency_locator`、具体冲突定位、授权/合同缺口、容量证据或 wake condition；不得用同仓库、同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎或 Owner 偏好作理由。
+5. 若 ready task 数量多于可用槽位，按可验证的硬依赖、具体写入/公共合同冲突、防重或用户 hold 选择；这些原因只阻塞具体 task，不改变 cap。已关闭依赖不再阻塞后继 task；局部文件/接口冲突只阻塞相冲突的 task，其余 ready task 继续填充。`selected_wave` 少于可用槽位时必须留下每个空槽对应的精确 task-level blocker。
+6. 一个 task 默认只绑定一个可独立 closeout 的 issue，或一个紧密 FR batch/implementation PR。跨多个连续 PR 的 milestone 超级任务必须拆成各自稳定身份；不得把项目级调度隐藏进 hierarchical 任务内部。
+7. 对选中任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时只占 `host_inflight`/`admission_pending`（若宿主已占槽），不能计入实现 actual，也不能当作真实线程 ID。派发后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次核验匹配 revision/digest/runtime lock 的合同 ACK、release ACK、`STARTED` 后，才将任务记为 `admitted/active`。
+8. `BOOTSTRAP_READBACK` 返回并唤醒 Owner 后按固定优先级处理：若缺口是 Owner 合同内可完成的 branch、worktree、workspace_entry、合同构造或只读 runtime/GitHub 核验，本控制周期必须先完成这些动作并继续发送完整合同进入 admission，不得把流程前置条件写成 blocker。只有当前回合无法在既有授权、宿主能力或真实外部条件内解除的 blocker，才记录 evidence locator/wake condition 并释放 implementation slot；bootstrap 无用或重复时才结束并释放 host slot。不得无限保持 `execution_hold`，不得将 bootstrap/hold 计为 active。
+9. rate、resource、worktree、duplicate 或 dispatch failure 只在具体 task 上记录 `status`、failure evidence 和 wake condition；可选择其他 ready task 填充空槽。失败不得触发全局 cap 变化、动态减半或自动降档；同一 task 的补偿重试必须保持 `task_key` 不变并记录新的 `dispatch_generation`，身份错配则隔离并新建 task_key。
+10. merge、依赖解除、收敛通道释放、任务完成或阻塞后，重新回读 GitHub truth 并重新计算 ready wave、六项统计、理由和宽度；旧波次记录只读，不沿用过期选择。
+11. Owner 不得自行降低 cap，也不得以“并发提升/扩张”描述目标。只能报告 `implementation_target_cap`、`implementation_admitted_inflight`、`resolved_max_inflight` 和各自 evidence locator；只有用户修改 user cap 或宿主可验证 cap 变化才允许改变 resolved 值。
 
 `direct` 使用稳定 `task_name` 和原生 `spawn_agent` 填充 ready wave，显式传递已确认模型、推理程度与 `fork_turns: "none"`，并把真实 agent ID/规范任务名写入 checkpoint；派发后回读 runtime evidence，且 prompt 必须包含完整五段 packet。`hierarchical` 的任务线程使用相同规则创建 Subagent，每个下游单元也必须有五段 packet。单个 Subagent 失败或 evidence 错配只隔离对应 `task_key`。
 
 ## 实现并发与收敛通道
 
-- `implementation_inflight` 受 `max_inflight` 约束；同一仓库和 target branch 的 `convergence_inflight` 默认上限为 1。
+- `implementation_admitted_inflight` 受 `implementation_target_cap`/`resolved_max_inflight` 约束；同一仓库和 target branch 的 `convergence_inflight` 默认上限为 1，且不改变任何实现 cap 或 actual。
 - 任务在实现完成、初步验证通过且已有 PR candidate 时申请通道；取得通道后才对 latest target branch 做一次 rebase/current-head refresh，并完成最终验证、review、hosted CI、PR 元数据回读与 `PR_READY`。
 - 等待通道的任务继续无冲突实现，但不因其他 PR 合并而逐次 rebase、重测或上报。main 多次前进时只保留最新 base，取得通道后一次消费。
-- 只有目标分支、共享合同、carrier 与 merge surface 相互独立时，Owner 才能提高 `convergence_inflight`；理由和 resolved cap 写入 checkpoint。
+- 收敛通道只影响 merge/closeout 的排队状态；不得用它阻塞无冲突的 implementation admission，也不得提高、降低或重写 resolved cap。
 - 通道由 `convergence_generation` 标识。PR merge/closeout、任务撤回/失败，或无法在当前 Owner 回合解决的 `BLOCKED` / `NEEDS_OWNER` 都必须释放；可立即解决的 Owner 动作完成后可保留。
 - 释放后按 `convergence_requested_at` 和 GitHub 优先级选择下一项；Heartbeat 发现 owner task 已结束、暂停或 wake condition 失效时回收通道，避免永久占用。
 
@@ -50,12 +58,12 @@ owner_thread_id
 scope
 execution_mode
 task_key -> threadId/agentId -> status
-task_key -> clientThreadId -> dispatch_generation
+task_key -> clientThreadId -> dispatch_generation -> host_slot_status
 task_key -> contract_revision/digest/owner_runtime_lock/runtime_lock_revision/ack_message_id/release_message_id/release_ack_message_id/status
 task_key -> workspace_entry
 task_key -> runtime_evidence_locator/status/target
-wave_id / ready_task_keys / selected_wave / actual_wave_width / resolved_max_inflight / not_selected_reason / single_task_justification / last_capacity_failure
-implementation_inflight / convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
+wave_id / ready_task_keys / selected_wave / actual_wave_width / host_cap / user_cap / resolved_max_inflight / implementation_target_cap / implementation_admitted_inflight / host_inflight / read_only_inflight / admission_pending / not_selected_reason / dependency_locator / last_capacity_failure
+convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 event_key -> local_recorded | delivery_pending | delivered | owner_verified | consumed
 依赖与下一解锁条件
 最近 wait/read cursor
@@ -93,8 +101,8 @@ updated_at
 
 1. 识别旧 Heartbeat/合同中的无界并发、完整项目快照、逐 checkpoint 汇报或纯 ACK；停止新派发，读取活动任务的真实 thread/workspace/head 和当前 revision。
 2. 发送 migration hold，允许任务完成当前原子写入/命令后在安全边界停止，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态；回读后封存旧 revision，保留已有 worktree/branch 结果。
-3. 原地更新同一 Heartbeat：改为绑定当前 Owner 的唤醒机制，加入稳定 owner_handoff 模板、`max_inflight`、`convergence_inflight=1`、上行门禁、事件去重、禁止向任务回纯 ACK 和 Heartbeat 单条结果；移除完整项目状态、无界并发和逐 checkpoint 汇报。保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权，不创建第二个 Automation。
-4. 递增 `handoff_revision` 与 `contract_revision`，重新执行完整合同、合同 ACK、release ACK 与 `STARTED` admission。封存后的旧 revision 消息只读合并到 pending_delta，不驱动动作；新合同显式接管 cutover head。所有活动任务完成新 revision admission 后恢复派发。
+3. 原地更新同一 Heartbeat：改为绑定当前 Owner 的唤醒机制，加入稳定 owner_handoff 模板、`resolved_max_inflight` 的 host/user 来源、六项并发统计、`convergence_inflight=1`、上行门禁、事件去重、禁止向任务回纯 ACK 和 Heartbeat 单条结果；移除完整项目状态、无界并发、动态降 cap 和逐 checkpoint 汇报。保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权，不创建第二个 Automation。
+4. 递增 `handoff_revision` 与 `contract_revision`，重新执行完整合同、合同 ACK、release ACK 与 `STARTED` admission。封存后的旧 revision 消息只读合并到 pending_delta，不驱动动作；旧 task goal 为 `blocked`/`idle` 时，在新 revision admission 完成前不得声称继续实施。新合同显式接管 cutover head；所有活动任务完成新 revision admission 后才恢复派发。
 
 ## 策略违规
 

@@ -20,4 +20,7 @@
 - Luna/max sender 以锁定的 Sol/high 唤醒并回读目标 `turn_context` 只在本地合同证据齐全时标记 `verified`；缺锁、旧 revision、参数省略或 runtime 漂移必须 fail closed。
 - runtime evidence 依赖宿主公开 thread/spawn/details metadata；公开字段缺失时只能使用 allowlisted、只读本地证据补齐路由字段，当前不新增 inspector，也不依赖本地 JSONL 私有结构。public/local 不一致、同一目标存在无法消歧的多条记录、缺失或 cwd/worktree/head 错配都 fail closed。
 - runtime evidence 只在目标 turn、`owner_runtime_lock` revision 和 execution epoch 上核验；不声称长期 Owner 的所有 `turn_context` 全局唯一。checkpoint 只保留 evidence locator/status/target，不保存 prompt、env、token 或完整 rollout。
+- `resolved_max_inflight` 是由 host/user cap 的 `min` 唯一决定的硬边界；Owner、Task、Heartbeat 和故障反馈不能自行降低或动态减半。治理记录必须同时消费 `host_inflight`、`read_only_inflight`、`admission_pending`、`implementation_target_cap`、`implementation_admitted_inflight` 和 `resolved_max_inflight`，并以 evidence locator 区分 target 与 actual。
+- `task_key` 在首次 admission 后不可变且只对应一个 issue、FR、milestone 或紧密 batch。身份/目标漂移必须隔离旧线程并新建 task_key；bootstrap、hold、pending contract、blocked、idle 和 goal blocked 不得计为 implementation active。
+- `BOOTSTRAP_READBACK` 后每个控制周期必须进入完整合同 admission、释放 implementation slot 并记录 blocker/wake condition，或结束 bootstrap 释放 host slot；不得无限 execution hold。
 - review 合同将 requested sandbox/permission 与 observed sandbox/permission 分开；只有 observed sandbox 为 `read-only` 才能称 enforced read-only。宿主放宽时的低风险 behavioral fallback 必须精确比较 repo/worktree/artifact 前后状态并报告 residual risk；前后状态不能证明家目录、临时目录或外部系统无副作用。

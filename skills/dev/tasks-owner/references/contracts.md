@@ -54,6 +54,56 @@ Automation
 - <可验证条件>
 ```
 
+## 真实并发与稳定身份合同
+
+`resolved_max_inflight` 是唯一全局实现上限，且只能按
+`min(host_cap, user_cap)` 解析；一方缺失取另一方，两方均缺失为 8。该值
+只有在用户修改 user cap 或宿主提供可验证 cap 变化时才能改变。Owner、Task、
+Heartbeat 以及风险、依赖、ownership、授权、admission、容量、dispatch rate
+或 resource failure 都不能降低、动态减半或覆盖它；这些因素只能令具体
+`task_key` 保持 `ready`、`pending_contract`、`blocked`、`idle`、`goal blocked`
+或其他不可 admission 状态，并附 evidence locator/wake condition。
+
+合同和 checkpoint 必须同时记录并在汇报中区分：
+
+```text
+host_inflight
+read_only_inflight
+admission_pending
+implementation_target_cap
+implementation_admitted_inflight
+resolved_max_inflight
+```
+
+`implementation_target_cap` 必须等于当前 `resolved_max_inflight`，是本周期要
+填充的目标而不是实际数量。`implementation_admitted_inflight` 只统计具备真实
+task thread、稳定 `task_key`、正式 branch/worktree、完整合同、已核验
+contract ACK/release ACK/STARTED 和写 ownership 的 `admitted/active` task。
+只读任务、`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、
+`clientThreadId`、`idle`、`blocked`、`goal blocked` 一律不计入 implementation
+actual；目标 cap、已创建线程、host 槽或等待 admission 都不得冒充 actual。
+
+`task_key` 在首次 admission 后永久绑定一个 GitHub issue、FR、milestone 或紧密
+batch；不得跨目标、branch 或写 ownership 复用线程。目标或身份错配时封存旧
+线程并保留其成果，为新目标创建新的 `task_key` 和新线程。迁移后旧 task goal
+为 `blocked`/`idle` 且新 revision 尚未完成 admission 时，旧线程只能报告迁移
+状态，不能声称继续实施。
+
+## Ready wave 填充与任务级理由
+
+Owner 先完整回读 `ready_task_keys`，再按硬依赖、具体写入/公共合同冲突、防重
+或用户 hold 选择波次。`selected_wave` 必须填到
+`implementation_target_cap - implementation_admitted_inflight` 的所有可用槽，
+直到没有额外可 admission 的 ready task。每个空槽和未选 task 都必须写精确的
+任务级 reason、dependency/冲突 locator、容量证据或 wake condition；同仓库、
+同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎和 Owner 偏好
+都不是理由。已关闭依赖解除后后继 task 继续 ready；局部冲突只阻塞冲突 task，
+不改写 cap，也不阻塞其他 ready task。
+
+目标与 actual 必须分别汇报：`implementation_target_cap`、
+`implementation_admitted_inflight`、`resolved_max_inflight` 和各自 evidence
+locator。不得把目标写成“并发已提升”，不得以任何目标/计划数代称 actual。
+
 Owner authority 来自用户委任、Owner 契约、适用 `AGENTS.md` 和外部动作边界，不来自 Heartbeat prompt。外部可见或不可逆动作仍须按既有明确授权执行；Heartbeat 不能扩权，也不能削弱 Owner 合同。Heartbeat 只是绑定 `owner_thread_id` 的周期唤醒机制。
 
 ## canonical owner runtime lock（回显锁）
@@ -138,6 +188,19 @@ Owner: read_thread + GitHub truth 核验 → admitted → Owner 可结束回合�
 
 Owner 从该回报构造 `workspace_entry = task_thread_id + branch + absolute_worktree + head`，回读后只存入 Owner checkpoint/App 运行态；除非适用的 `AGENTS.md` 明确要求，不写入 GitHub 或仓库。它不是宿主原生字段。
 
+`BOOTSTRAP_READBACK` 返回并唤醒 Owner 后，按以下优先级处理：
+
+1. branch、正式 worktree、`workspace_entry`、合同构造或只读 runtime/GitHub 核验等
+   Owner 合同内可完成的缺口，必须在本控制周期修复，随后发送完整合同并继续
+   `contract_ack → execution_release_ack → STARTED` admission；
+2. 只有当前回合无法在既有授权、宿主能力或真实外部条件内解除时，才记录具体
+   blocker、evidence locator 和 wake condition，并释放 implementation slot；
+3. bootstrap 已无用或重复时才结束该 bootstrap，释放 host slot。
+
+不得无限停留在 `execution_hold`，不得把 bootstrap、readback、`clientThreadId`
+或 pending contract 计为 active/implementation actual；不得把 Owner 可自行完成的
+admission 前置动作包装成 blocker。
+
 ## output contract：下游任务线程合同
 
 bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。第一行仍写入主 Owner 的真实线程 ID，并包含：
@@ -212,7 +275,7 @@ runtime_lock_revision
 
 新建、恢复、模式切换、模型覆盖或 runtime lock revision 变化都要重新进入 hold，并固定按以下顺序推进：Owner→Task `contract`；Task 先在自身会话写 `contract_ack` 的 `local_recorded`，再以锁定的 `model`/`thinking` 调用 `send_message_to_thread` 投递 Owner；Owner 用 `read_thread` 和 GitHub truth 核验后记录 `contract_ack_message_id` 与 `contract_status: acknowledged`；Owner→Task 发送同 revision/digest 的 `execution_release`；Task 同样投递 `execution_release_ack`，失败则 `RELEASE_ACK_PENDING_DELIVERY` 且仍为 `pending_contract`；Owner 回读并记录 `release_message_id`、`release_ack_message_id` 与 `contract_status: released`；Owner→Task 发送 `START` control；Task 下一回合先主动投递回显同 revision/digest/runtime_lock_revision 的 `STARTED`，随后可继续执行而不等待纯 ACK；Owner 再次 `read_thread` + GitHub truth 核验后标记 `admitted/active` 并可结束当前回合。缺失、错配、不可验证或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
 
-迁移 cutover 时，hold 允许任务完成当前原子写入/命令后停在安全边界，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态。Owner 回读并封存旧 revision 后才发送新合同；封存后的旧 revision 消息不再驱动动作，但已有 worktree/branch 结果保留并由新合同显式接管，不因协议切换丢弃。
+迁移 cutover 时，hold 允许任务完成当前原子写入/命令后停在安全边界，并回报 `sealed_revision`、`cutover_head` 与 worktree 状态。Owner 回读并封存旧 revision 后才发送新合同；封存后的旧 revision 消息不再驱动动作，但已有 worktree/branch 结果保留并由新合同显式接管，不因协议切换丢弃。旧 task goal 若为 `blocked`/`idle`，在新 revision 完成 admission 前只能保持迁移状态，不能声称继续实施。
 
 修复错配时先从当前 canonical contract 重新计算唯一权威 digest：若合同内容变化则递增 revision，再完整重发 hold/contract/ACK/release；不得只要求任务接受某个已有 digest。
 

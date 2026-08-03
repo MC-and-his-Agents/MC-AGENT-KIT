@@ -68,8 +68,8 @@ owner_handoff:
 `task_key` 使用 GitHub issue URL 或稳定 issue 编号，是查重键而非新的状态库。
 
 1. 一次性读取已有线程并用 `read_thread` 验证 task_key、项目、目标和状态。
-2. 每次恢复都重新计算并记录完整 `ready_task_keys`、`resolved_max_inflight`、`selected_wave`、`actual_wave_width`；对未选项写硬依赖 locator、具体写入/公共合同冲突、容量、防重或用户 hold 的精确理由。`max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时初始为 8；活动与待创建任务都计入。ready>1 且有容量默认多选，单选必须有 `single_task_justification`；`dynamic_ready_wave` 只在硬上限内选择依赖满足且写入不冲突的任务。
-3. `clientThreadId` 记为待创建并占用槽位；本轮不立即重试，其他独立任务不受影响。
+2. 每次恢复都重新计算并记录完整 `ready_task_keys`、六项并发统计、`resolved_max_inflight`、`selected_wave`、`actual_wave_width`；对每个空槽/未选项写任务级硬依赖 locator、具体写入/公共合同冲突、合同/授权缺口、容量证据、防重或用户 hold 的精确理由。`resolved_max_inflight = min(host_cap, user_cap)`；任一缺失取另一，均缺失时为 8。只有用户修改 user cap 或宿主可验证 cap 变化才重算；Heartbeat 不得自行降低或动态缩减。`implementation_target_cap` 等于 resolved cap，`implementation_admitted_inflight` 只统计完整 admission 且有写 ownership 的 `admitted/active` task；bootstrap、hold、pending contract、clientThreadId、只读、idle、blocked、goal blocked 不计 actual。
+3. `clientThreadId` 只记为待创建并占用 host/admission 槽（若宿主确实占用），不计实现 actual；本轮不立即重试，其他独立任务不受影响。
 4. 波次提交后统一回读真实 `threadId`、host/project、目标、branch/worktree 和 task_key。
 5. 下一次运行仍无法解析某个待创建任务时，允许用相同 task_key 做一次补偿重试并记录 `dispatch_generation`；不得无限重试。
 6. Owner checkpoint 记录 task_key、threadId/clientThreadId/agentId、dispatch_generation、status、cursor、依赖、合同 ACK、workspace_entry、完整 `owner_runtime_lock`/revision/status、Luna 门禁、`next_actor`、`next_action`、`wake_condition`、`last_event_key`、事件交付状态和 pending_delta；实质变化同时更新 owner_handoff。

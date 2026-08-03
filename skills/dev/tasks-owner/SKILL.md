@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.10.0"
+  version: "0.11.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -48,9 +48,18 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 
 让用户确认范围、价值、非目标、验收、调度单元、依赖、写入权、模式、并发和模型。默认以可独立 closeout 的 issue 为单元；紧密 issue 可组成 FR batch。
 
-默认 `dynamic_ready_wave`，但必须受 `max_inflight` 硬上限、依赖、写入冲突和 `task_key` 防重约束；无宿主/用户上限时初始上限为 8。每次波次都记录完整 ready 集合、选中波次、实际宽度和未选原因；ready>1 且有容量时默认多选，单选必须写 `single_task_justification`。算法见 [operations.md](references/operations.md)。防重是 best-effort，不声称 exactly-once。
+默认 `dynamic_ready_wave`，但 `resolved_max_inflight` 只能是
+`min(host_cap, user_cap)`；一方缺失取另一方，两方均缺失才为 8。Owner、Task
+和 Heartbeat 都不能自行降低、动态减半或覆盖这个值。每次波次都记录完整
+`ready_task_keys`、`selected_wave`、`actual_wave_width`、六项并发统计和每个
+空槽/未选任务的任务级证据；波次会填到 cap，直到没有额外可 admission 的
+ready task。目标 cap 不是实际并发，用户汇报必须同时列 target 与 actual 及
+证据定位。算法见 [operations.md](references/operations.md)。
 
-实现可并行，但同一仓库和 target branch 默认只有一条 merge/closeout 收敛通道；等待收敛的任务不因每次 main 前进而反复 rebase。调度细节见 [operations.md](references/operations.md#实现并发与收敛通道)。
+实现可并行，但同一仓库和 target branch 默认只有一条 merge/closeout 收敛通道；
+收敛通道不改变 implementation target 或 admitted actual。等待收敛的任务不因
+每次 main 前进而反复 rebase。调度细节见
+[operations.md](references/operations.md#实现并发与收敛通道)。
 
 `flat` 的独立审查由 Owner 创建同级 review 任务；执行任务不得自审。`direct`、`flat`、`hierarchical` 的局部五段 implementation packet、风险化 fresh exact-head review 和实际隔离判定见 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)。
 
@@ -74,3 +83,13 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 - Automation 不可用：继续手动 Owner，不创建替代 cron。
 - 状态重复、越权衍生 Subagent 或证据脱节：隔离相关 `task_key`，暂停其后续动作并报告；无冲突任务继续推进。
 - Luna 门禁未通过：按 [受控回退流程](references/luna-subagents.md) 处理。
+- `task_key` 在首次 admission 后永久绑定一个 issue、FR、milestone 或紧密 batch；
+  目标漂移时封存旧线程并保留成果，为新目标创建新的 `task_key` 和线程，不复用身份。
+- `BOOTSTRAP_READBACK` 返回并唤醒 Owner 后，若缺口是 Owner 合同内可完成的 branch、
+  worktree、workspace、合同或只读核验动作，本控制周期必须先修复并继续完整 admission；
+  只有当前回合无法在既有授权/能力内解除的真实 blocker 才能记录 wake condition 并释放
+  implementation slot。无用或重复 bootstrap 才结束并释放 host slot；`execution_hold`、
+  bootstrap、blocked、idle 和 goal blocked 均不是 implementation active。
+- 迁移后旧 task goal 为 blocked/idle 且尚未完成新 revision admission 时，不得声称
+  继续实施；风险、依赖、ownership、授权、admission 或容量故障只改变具体任务
+  status/admissibility，不得改写全局 cap。
