@@ -56,6 +56,16 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，
 - 通道由 `convergence_generation` 标识。PR merge/closeout、任务撤回/失败，或无法在当前 Owner 回合解决的 `BLOCKED` / `NEEDS_OWNER` 都必须释放；可立即解决的 Owner 动作完成后可保留。
 - 释放后按 `convergence_requested_at` 和 GitHub 优先级选择下一项；Heartbeat 发现 owner task 已结束、暂停或 wake condition 失效时回收通道，避免永久占用。
 
+## 收口后 cleanup lane
+
+Owner 得到 `closeout_verified` 后按 [cleanup.md](cleanup.md) 派发专用清理 Subagent。cleanup lane
+按仓库串行，和 implementation/convergence 分开计数；它可占宿主槽，但不计入
+`implementation_admitted_inflight`，不降低 `implementation_target_cap` 或
+`resolved_max_inflight`。任务线程、hierarchical 下游和 Heartbeat 都不得创建或执行清理；
+Heartbeat 只能唤醒 Owner 恢复 `cleanup_pending/partial/blocked`。清理完成后 Owner 必须独立
+回读 worktree、local ref、remote ref、target head、PR/issue 与稳定 checkout，再决定
+`cleanup_verified`、`preserved` 或阻塞。
+
 ## Checkpoint、handoff 与恢复
 
 checkpoint 至少包含：
@@ -71,6 +81,7 @@ task_key -> workspace_entry
 task_key -> runtime_evidence_locator/status/target
 wave_id / ready_task_keys / selected_wave / actual_wave_width / host_cap / user_cap / resolved_max_inflight / implementation_target_cap / implementation_admitted_inflight / host_inflight / read_only_inflight / admission_pending / not_selected_reason / dependency_locator / last_capacity_failure
 convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
+cleanup_policy / cleanup_authority_locator / cleanup_inflight / cleanup_key / cleanup_generation / cleanup_status / cleanup_evidence_locator
 event_key -> local_recorded | delivery_pending | delivered | owner_verified | consumed
 依赖与下一解锁条件
 最近 wait/read cursor
@@ -88,7 +99,7 @@ updated_at
 
 `owner_handoff` 是已存在 Heartbeat prompt 中的紧凑恢复索引；只有主 Owner 写入。它至少按 [automation.md](automation.md#owner_handoff) 模板保留 handoff revision、Owner 合同/范围 locator、next actor/action、wake condition、活动任务 locator、收敛 owner/generation、未决决定和最近实质事件 locator，不写完整项目状态、所有 head、普通 CI/push/review 或用户材料。runtime evidence 只写 locator/status/target；不得写 prompt、env、token、配置正文或完整 rollout 日志。
 
-无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout/下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
+无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout、cleanup 派发/部分成功/阻塞/验收、下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
 
 恢复或 Heartbeat 唤醒时，从 `owner_handoff`、Owner checkpoint、线程 cursor 和实时 GitHub truth 重建运行视图；Heartbeat 不是权威事实来源，冲突时以实时事实为准并刷新 handoff。若 `wake_condition` 满足、`next_actor=owner` 且 `next_action` 在 Owner 合同及用户授权范围内，Owner 当前回合必须直接执行，不只报告“可继续”、写 `owner_action_required` 或等待再次唤醒。只有 `next_actor=user`、动作超出合同、缺少真实授权/事实或存在真实 blocker 才请求用户；Heartbeat 回合若由 task/external 继续，则更新 locator、不执行额外动作，但仍输出一条 `DONT_NOTIFY`；普通非 Heartbeat Owner 回合无动作时可静默结束，不向任务或用户发送纯 ACK。
 

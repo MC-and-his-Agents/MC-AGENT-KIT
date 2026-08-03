@@ -50,6 +50,11 @@ Automation
 - 通知策略：<策略>
 - owner_handoff：<handoff_revision / updated_at>
 
+收口后清理
+- cleanup_policy：<分别列 local_worktree/local_branch/remote_branch 的 delete | preserve>
+- verified_rewritten_merge_delete：<allow | forbid>
+- cleanup_authority：<用户确认 locator / revision>
+
 完成条件
 - <可验证条件>
 ```
@@ -303,11 +308,18 @@ Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，�
 
 ## Closeout contract
 
-任务只能报告 `PR_READY` 或局部交付完成。Owner 仅在回读适用证据后发出 `COMPLETED`：目标验收通过；PR 已合并或明确无需 PR；merge commit 与 target branch 可验证；GitHub issue 状态已同步；适用 `AGENTS.md` 要求的 repo carrier/current pointer 已同步；外部状态与仓内事实一致。缺项时保持 `NEEDS_OWNER` 或 `BLOCKED`，不得把 PR/head 当作最终完成。
+任务只能报告 `PR_READY` 或局部交付完成。Owner 回读以下证据后先记为 `closeout_verified`：目标验收通过；PR 已合并或明确无需 PR；merge commit 与 target branch 可验证；GitHub issue 状态已同步；适用 `AGENTS.md` 要求的 repo carrier/current pointer 已同步；外部状态与仓内事实一致。缺项时保持 `NEEDS_OWNER` 或 `BLOCKED`，不得把 PR/head 当作最终完成。
+
+`closeout_verified` 后按 [现场清理合同](cleanup.md) 执行：任一资产为 `delete` 时由 Owner 直接创建专用清理 Subagent；全部为 `preserve` 时保留用户选择和残余资产证据。只有 Owner 独立回读得到 `cleanup_verified`，或用户明确选择全部 `preserve`，才发出最终 `COMPLETED`。`cleanup_pending`、`cleanup_partial`、`cleanup_blocked` 都不能冒充完成。
+
+## Post-closeout cleanup contract
+
+清理合同必须绑定 `cleanup_key`、generation、task/PR、repo/remote、base/target、merge commit、PR exact head OID、绝对 worktree、local/remote ref 与 expected OID、逐项授权和授权 locator。清理 Subagent 由 Owner 直接创建，使用 `fork_turns: "none"` 和已通过门禁的默认 Luna/max，不得衍生下级；它不使用任务线程 admission，也不得修改代码、GitHub truth、tag、default/base/target/protected branch 或合同外资产。完整门禁、执行顺序、回读和恢复见 [cleanup.md](cleanup.md)。
 
 ## rollback boundary
 
 - 派发前：可直接撤回调度建议，不产生任务状态。
 - 已创建未写入：暂停或归档对应任务，并在 Owner checkpoint 标记取消原因。
 - 已产生 branch/PR：停止继续写入，保留 branch/PR 作为可审计证据；是否关闭或删除必须由 Owner 按仓库规则确认。
+- 已进入现场清理：保存每个 ref 删除前的 exact OID；成功删除的资产不自动重建，阻塞或部分成功时保留未删资产和恢复命令建议，交由 Owner/用户决定。
 - 已执行外部可见或不可逆动作：不承诺自动回滚，立即停止并交由用户决定。
