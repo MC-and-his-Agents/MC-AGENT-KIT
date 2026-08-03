@@ -56,7 +56,7 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 - `flat`：Owner → 任务线程；有界任务无需内部并行，禁止任务衍生 Subagent。
 - `hierarchical`：Owner → 任务线程 → Subagent；调度单元内部仍需并行。
 
-模式按批次生效，切换前重新确认。Owner 默认 `gpt-5.6-sol/high`（可提升）；任务线程和 Subagent 默认 `gpt-5.6-luna/max`。用户可覆盖。创建 Subagent 前执行 [Luna 门禁](references/luna-subagents.md)，不得静默替换。
+模式按批次生效，切换前重新确认。Owner 默认 `gpt-5.6-sol/high`（可提升）；任务线程和 Subagent 默认 `gpt-5.6-luna/max`。用户可覆盖。创建 Subagent 前执行 [Luna 门禁](references/luna-subagents.md)：先消费当前进程能力并直接原生验证，缺少既有冒烟证据不等于必须重启；不得静默替换模型。
 
 ## 范围、调度与派发
 

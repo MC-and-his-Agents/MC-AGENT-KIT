@@ -13,7 +13,7 @@ owner_reasoning_effort: <默认 high，可提升为 xhigh / max>
 owner_runtime_lock: <完整 canonical lock；model/reasoning_effort/revision/authority:user>
 owner_runtime_lock_status: <verified | unverified>
 execution_mode: <direct / flat / hierarchical>
-luna_subagent_status: <supported / fallback / pending_restart / unverified>
+luna_subagent_status: <supported / probe_ready / fallback / pending_restart / unverified>
 
 项目与范围
 - GitHub 项目：<project>
