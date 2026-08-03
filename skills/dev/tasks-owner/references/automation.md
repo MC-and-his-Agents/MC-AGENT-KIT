@@ -54,7 +54,7 @@ owner_handoff:
 1. 从 owner_handoff、Owner checkpoint、线程 cursor 和实时 GitHub truth 恢复并校验状态；Heartbeat 不是权威事实来源，发生漂移时以实时事实为准并刷新 handoff。
 2. 若 wake_condition 满足、next_actor=owner 且 next_action 位于既有 Owner 合同和用户授权范围内，在本回合直接执行；不得只报告“可以推进”、写 owner_action_required 或等待下一次唤醒。
 3. 仅当 next_actor=user、动作超出 Owner 合同、缺少真实授权/事实或存在真实 blocker 时请求用户；next_actor=task/external 时更新必要 locator，不执行额外动作，但仍按第 5 条输出唯一 heartbeat 结果。
-4. BLOCKED、NEEDS_OWNER、PR_READY 通过宿主线程消息工具投递到真实 owner_thread_id，携带 task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和证据 locator；任务只记录宿主投递结果/message locator 并结束。Owner 收到消息或恢复回读后验证任务线程与 GitHub truth，再把已验证 locator 写入自己的 checkpoint/handoff。投递不可验证时使用 <EVENT>_PENDING_DELIVERY，不得虚报成功；Owner/Heartbeat 恢复时回读任务线程与 GitHub truth 补消费。
+4. BLOCKED、NEEDS_OWNER、PR_READY 通过宿主线程消息工具投递到真实 owner_thread_id，携带 event、task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和证据 locator；消息先给结论、影响/风险和下一步的自然语言摘要，末尾再放最小 `<control>`，不得转发完整日志、证据清单或完整 SHA 集合。任务只记录宿主投递结果/message locator 并结束。Owner 收到消息或恢复回读后验证任务线程与 GitHub truth，再把已验证 locator 写入自己的 checkpoint/handoff。投递不可验证时使用 <EVENT>_PENDING_DELIVERY，不得虚报成功；Owner/Heartbeat 恢复时回读任务线程与 GitHub truth 补消费。
 5. 每次 Heartbeat 回合在当前 Owner 任务中只输出一条简短结果：无可执行变化输出 `DONT_NOTIFY` 并说明 next_actor/next_action 或当前等待方；需要用户决定或真实风险输出 `NOTIFY`。不得展开逐任务 head/push/CI/review，不发送纯“已回读/继续等待”ACK，不发送多条阶段播报；该结果是运行记录，不是任务线程 ACK。
 6. 继续按既有 Owner 合同执行 ready wave、单收敛通道、事件去重和 pending_delta；不要由 Heartbeat 自行扩权或另建 Automation。
 

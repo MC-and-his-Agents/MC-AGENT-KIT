@@ -54,6 +54,33 @@ Automation
 
 Owner authority 来自用户委任、Owner 契约、适用 `AGENTS.md` 和外部动作边界，不来自 Heartbeat prompt。外部可见或不可逆动作仍须按既有明确授权执行；Heartbeat 不能扩权，也不能削弱 Owner 合同。Heartbeat 只是绑定 `owner_thread_id` 的周期唤醒机制。
 
+## 双层消息与人类可读性
+
+除纯 ACK、hold、release、`STARTED` 等内部握手外，Owner↔任务线程的消息都采用双层格式：先写一段简短自然语言摘要，末尾再放最小 `<control>` 控制块。摘要在删除控制块后仍应让读者知道发生了什么或结论、为什么/影响或风险，以及下一步由谁做什么；没有实际相关项时不硬凑句子。
+
+控制块只保存路由、防重和恢复所需字段。事件上行通常使用 `event`、`task_key`、`execution_generation`、`event_key`、`next_actor`、`next_action`、`wake_condition` 和 `evidence_locator`；不相关字段省略。`contract_digest`、完整 SHA 和 `execution_generation` 只在 admission、迁移、错配消歧或控制块确实需要时出现，普通任务指令和摘要不堆这些字段。完整测试日志、证据清单和完整哈希集合留在任务线程、PR 或证据载体；跨线程只带结论、风险、下一步和 evidence locator。
+
+可复制示例（删除 `<control>` 后仍可读）：
+
+```text
+阻塞：本地测试已通过，但 hosted CI 仍失败，当前不能进入合并。
+影响：PR #456 的合并门禁被阻塞；完整日志留在任务线程，Owner 只需查看下方证据定位。
+下一步：Owner 回读 CI run #789，决定修复或重跑；任务线程继续保留原始日志。
+
+<control>
+event: BLOCKED
+task_key: #123
+execution_generation: r4
+event_key: #123:r4:BLOCKED:abc123
+next_actor: owner
+next_action: 回读 CI run #789 并决定修复或重跑
+wake_condition: Owner 选择路径或新 CI 结果可用
+evidence_locator: PR #456 / CI run #789
+</control>
+```
+
+`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、`COMPLETED` 以及 Owner→task 的普通指令都必须有人话层；握手可保持短机器格式并只留在任务/Owner 内部。给用户的 Owner final 不展示控制块或协议握手字段，除非用户明确要求底层诊断；只报告结果、影响、阻塞/风险和下一步。
+
 ## Bootstrap hold
 
 新任务的初始消息只用于建立执行现场，必须包含主 Owner ID、`task_key`、目标摘要和 `execution_hold: true`，要求任务保持只读、只回报真实 `task_thread_id`、branch/worktree/head、模型与推理程度后结束当前回合。恢复、模式切换或模型覆盖时先发送同样的 hold。
@@ -62,7 +89,7 @@ Owner 从该回报构造 `workspace_entry = task_thread_id + branch + absolute_w
 
 ## output contract：下游任务线程合同
 
-bootstrap 完成后发送的完整合同第一行写入主 Owner 的真实线程 ID，并包含：
+bootstrap 完成后发送的完整合同，先用一段简短自然语言说明本任务的目标、范围和下一步，再在其后放 admission contract 字段；这些字段只服务于 admission，不是普通任务摘要或用户 final。第一行仍写入主 Owner 的真实线程 ID，并包含：
 
 ```text
 主 owner 线程 ID: <真实 threadId>
@@ -100,7 +127,7 @@ execution_hold: true
 - 上行汇报门禁：除合同 ACK、release ACK 和一次 `STARTED` 外，只在 `BLOCKED`、`NEEDS_OWNER` 或最终 `PR_READY` 时直接汇报
 - 普通 head、push、CI、review 和实现 checkpoint 只留在任务线程；以最新事实覆盖一个 `pending_delta`，并入下一次允许的上行汇报
 - `PR_READY` 必须绑定 exact head，且任务负责的验证、review、hosted CI 和 PR 元数据均已终态；否则不发送候选/等待 checkpoint
-- 允许的上行汇报包含：状态、交付物、命令与结果、PR/head、审查、GitHub 与适用 carrier 同步状态、风险、下一解锁条件
+- 允许的上行汇报包含：双层摘要中的状态、交付物、结论/影响或风险、下一步与 evidence locator；PR/head、验证和审查只带结论，完整命令、日志、证据清单和哈希集合留在任务线程、PR 或证据载体
 - 收到本合同时重新计算并核对 digest，只回报 `contract_ack: <revision>`、`contract_digest`、线程/工作区/模型事实和 `contract_status: acknowledged`，然后结束当前回合；不得写入
 ```
 
@@ -111,6 +138,7 @@ execution_hold: true
 任务的 `BLOCKED`、`NEEDS_OWNER`、`PR_READY` 必须通过宿主线程消息工具投递到真实 `owner_thread_id`，消息至少携带：
 
 ```text
+event
 task_key
 execution_generation
 event_key
@@ -120,7 +148,7 @@ wake_condition
 evidence_locator
 ```
 
-任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK。Owner 收到消息或恢复回读后验证任务线程和实时 GitHub truth，再把已验证 locator 写入自己的 checkpoint 和已有 `owner_handoff`。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，并在自身 final 中保留同一结构化事件；Owner/Heartbeat 恢复时必须回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
+消息正文必须遵守[双层消息与人类可读性](#双层消息与人类可读性)：先给结论/影响或风险/下一步的自然语言摘要，再给上述字段组成的 `<control>`；不得把完整测试日志、证据清单或完整 SHA 集合直接转发。任务只记录宿主投递结果或 message locator 并结束，不等待 Owner 纯 ACK。Owner 收到消息或恢复回读后验证任务线程和实时 GitHub truth，再把已验证 locator 写入自己的 checkpoint 和已有 `owner_handoff`。若投递不可验证，任务不得虚报“已上行”，而是标记 `<EVENT>_PENDING_DELIVERY`，并在自身 final 中保留同一结构化事件；Owner/Heartbeat 恢复时必须回读任务线程和实时 GitHub truth，补消费漏投事件。不得引入数据库、文件 registry 或无限重试。
 
 ## 合同投递与 admission gate
 
