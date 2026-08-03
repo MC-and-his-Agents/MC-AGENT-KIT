@@ -51,6 +51,20 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
+## Tasks Owner workflow
+
+[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) turns the current Codex App
+conversation into the long-running Owner of a GitHub project. It gates Work Items on
+Issue readiness, selects `direct`, `flat`, or `hierarchical` execution, fills each
+dependency-ready wave up to the confirmed concurrency limit, verifies cross-thread
+delivery and exact-head review, and serializes merge/closeout convergence.
+
+After closeout is verified, the Owner can dispatch a dedicated Luna/max Subagent to
+remove only the explicitly authorized worktree, local branch, and remote branch. Exact
+path/ref/OID checks protect dirty, active, drifted, default, target, base, and protected
+assets. A blocked cleanup must preserve the disputed asset and present evidence, impact,
+options, and a recommended next action before requesting a user decision.
+
 ## Agent Plugins
 
 Plugin-contained skills stay inside their plugin and are distributed only through that plugin. They are not standalone entries in the `npx skills` catalog.
