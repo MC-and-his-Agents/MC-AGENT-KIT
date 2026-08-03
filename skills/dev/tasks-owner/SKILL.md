@@ -1,8 +1,8 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，先用独立的 Work Item Issue readiness 门禁整理目标，再选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查、收口和获授权的现场清理。Issue readiness 可独立运行，不硬依赖其他 Skill；仅当用户明确委任当前对话承担项目总负责时使用，评审、讨论、修改、测试或引用本 Skill 不激活。
+description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，以 Work Item readiness 和持续 scope integrity 门禁校验目标、合同、实际 change set 与相邻 ownership，再选择 direct、flat 或 hierarchical 模式调度、纠偏、审查、收口和执行获授权的现场清理。Issue readiness 可独立运行，不硬依赖其他 Skill；仅当用户明确委任当前对话承担项目总负责时使用，评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.13.1"
+  version: "0.14.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -38,9 +38,10 @@ FR/milestone 只保留轻量规划关系。
 4. 过程数据只留在 Owner 对话和 App 运行态；标题、摘要和消息不能替代事实回读。
 5. App 任务线程使用 [协作式 admission 协议](references/contracts.md#合同投递与-admission-gate)；当前没有宿主原生写入锁，不得把协议声称为能力隔离。
 6. Heartbeat 只是绑定当前 `owner_thread_id` 的周期唤醒机制，不是第二个 Owner、独立 Agent 或权限主体；它不扩大也不削弱 Owner 合同。
-7. `task final` 只是任务线程的本地记录，不是跨线程交付；任何 `next_actor=owner` 的握手或执行事件都必须用宿主 `send_message_to_thread` 投递到真实 `owner_thread_id` 并唤醒 Owner，至少包括 `contract_ack`、`release_ack`/`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 和合同/权限异常；投递状态、去重和恢复按 [contracts.md](references/contracts.md#跨线程交付状态机) 执行。
+7. `task final` 只是任务线程的本地记录，不是跨线程交付；任何 `next_actor=owner` 的握手或执行事件都必须用宿主 `send_message_to_thread` 投递到真实 `owner_thread_id` 并唤醒 Owner，至少包括 `contract_ack`、`release_ack`/`execution_release_ack`、`STARTED`、`SCOPE_DELTA`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 和合同/权限异常；投递状态、去重和恢复按 [contracts.md](references/contracts.md#跨线程交付状态机) 执行。
 8. Owner 初始化并锁定用户授权的 canonical `owner_runtime_lock`（回显锁）；缺锁、错配、不可验证或运行时漂移时 fail closed，不猜测发送、不继续调度。
 9. 派发后及接受任务/审查结果前，先回读真实 runtime evidence；公开 metadata 缺字段时仅用 allowlisted、只读本地证据补齐，字段缺失、冲突或 `cwd`/worktree/head 错配时 fail closed。实现包、fresh exact-head review 与 requested/observed isolation 按 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md) 执行。
+10. `contract_digest` 只证明合同完整性，不证明目标正确。Owner 在首次 admission、合同语义修订、material scope delta、同类 blocker 重复，以及授予收敛通道或接受 `PR_READY` 前执行 [scope integrity review](references/operations.md#持续语义纠偏与-scope-integrity)；未得到当前事实对应的 `aligned` 结论时 fail closed。
 
 Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最小 `<control>` 控制块”双层格式；摘要删除控制块后仍须可读，完整日志和哈希集合留在任务线程或证据载体。交付状态、控制块字段、可复制示例和用户 final 隐藏规则见 [contracts.md](references/contracts.md#双层消息与人类可读性)。
 
@@ -77,6 +78,12 @@ ready task。目标 cap 不是实际并发，用户汇报必须同时列 target 
 
 `flat` 的独立审查由 Owner 创建同级 review 任务；执行任务不得自审。`direct`、`flat`、`hierarchical` 的局部五段 implementation packet、风险化 fresh exact-head review 和实际隔离判定见 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)。
 
+## 持续语义纠偏
+
+Owner 不是事件路由器。它持续比较 GitHub 目标/非目标/依赖和领域归属、当前合同、实际文件与 commit、新增生产边界及相邻 Work Item ownership。新增未声明的生产子系统，跨越 native/build/signing/security boundary，触碰另一 Work Item 的文件或领域，或明显扩大实现面时，任务必须发送 `SCOPE_DELTA` 并暂停相关写入；测试、文档、fixture 和声明范围内的薄 adapter/同域实现不因新增文件本身触发。
+
+同一已分类根因经过两次有证据的定向修复/验证仍失败，或相邻 Work Item 重复受到同类阻塞时，Owner 停止局部补丁并重新分类。下游因当前 change set 的写 ownership 被阻塞也必须反查上游是否越界。语义不一致时只允许收缩、拆分、退回正确 Work Item 或请求必要决策；更新合同、摘要、标题、测试或 CI 不能把漂移合法化。完整判据、低噪音 checkpoint 和恢复动作见 [operations.md](references/operations.md#持续语义纠偏与-scope-integrity)。
+
 ## 收口后现场清理
 
 Owner 回读并完成 GitHub/仓内 closeout 后，按已确认的 `cleanup_policy` 直接创建专用 Subagent，
@@ -105,6 +112,7 @@ cleanup lane。清理不计入实现并发，也不改变 cap；只有 Owner 独
 - 只返回 `clientThreadId`：记为待创建并回读，不虚报成功。
 - Automation 不可用：继续手动 Owner，不创建替代 cron。
 - 状态重复、越权衍生 Subagent 或证据脱节：隔离相关 `task_key`，暂停其后续动作并报告；无冲突任务继续推进。
+- `SCOPE_DELTA`、重复 blocker 或下游 ownership 冲突触发 scope integrity review：受影响任务保持 hold；结论为 `aligned` 才恢复，否则收缩、拆分或退回权威 Work Item。不得让原任务自行批准范围扩张。
 - Luna 门禁未通过：按 [受控回退流程](references/luna-subagents.md) 处理。
 - 现场清理遇到脏 worktree、未消费提交、ref 漂移、活动引用、受保护目标、权限不足或自身 cwd 命中目标：先在既有授权内安全纠正；仍阻塞时标记 `cleanup_blocked`，向用户说明事实、影响、选项和最优建议后再请求决定，不 stash/reset/强制移除/猜测目标；其他无冲突实现继续推进。
 - `task_key` 在首次 admission 后永久绑定一个 issue、FR、milestone 或紧密 batch；

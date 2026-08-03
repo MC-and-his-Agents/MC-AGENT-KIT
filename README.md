@@ -47,7 +47,7 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
 | [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
-| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.13.1 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，先用独立的 Work Item Issue readiness 门禁整理目标，再选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查、收口和获授权的现场清理。 |
+| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.14.0 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，以 Work Item readiness 和持续 scope integrity 门禁校验目标、合同、实际 change set 与相邻 ownership，再选择 direct、flat 或 hierarchical 模式调度、纠偏、审查、收口和执行获授权的现场清理。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
@@ -55,9 +55,10 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 
 [`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) turns the current Codex App
 conversation into the long-running Owner of a GitHub project. It gates Work Items on
-Issue readiness, selects `direct`, `flat`, or `hierarchical` execution, fills each
+Issue readiness, continuously compares GitHub truth, execution contracts, actual change
+sets, and adjacent ownership, selects `direct`, `flat`, or `hierarchical` execution, fills each
 dependency-ready wave up to the confirmed concurrency limit, verifies cross-thread
-delivery and exact-head review, and serializes merge/closeout convergence.
+delivery and exact-head review, and blocks semantically drifted work before convergence.
 
 After closeout is verified, the Owner can dispatch a dedicated Luna/max Subagent to
 remove only the explicitly authorized worktree, local branch, and remote branch. Exact

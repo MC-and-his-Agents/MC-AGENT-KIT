@@ -1,0 +1,27 @@
+{
+  "hotcp_drift": {
+    "work_item": "Connector/OAuth 成熟能力吸收与薄 Host adapter",
+    "non_goals": ["credential broker", "Host IPC", "Desktop Host 产品化"],
+    "observed_changes": [
+      "native credential broker",
+      "broker build script",
+      "Host IPC parent-chain binding"
+    ],
+    "adjacent_ownership": {
+      "credential_helper": "#213",
+      "desktop_host": "#200"
+    },
+    "expected_status": "reassign"
+  },
+  "thin_adapter": {
+    "work_item": "Connector/OAuth 成熟能力吸收与薄 Host adapter",
+    "observed_changes": [
+      "Provider declaration",
+      "request adapter",
+      "response mapping",
+      "targeted tests"
+    ],
+    "boundary_changes": [],
+    "expected_status": "aligned"
+  }
+}

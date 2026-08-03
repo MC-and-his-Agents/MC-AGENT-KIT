@@ -5,6 +5,7 @@ GitHub truth、admission、`owner_runtime_lock`、依赖、消息交付或 close
 
 - [Runtime evidence gate](#runtime-evidence-gate)
 - [五段局部 implementation packet](#五段局部-implementation-packet)
+- [Scope integrity evidence](#scope-integrity-evidence)
 - [Fresh exact-head review](#fresh-exact-head-review)
 - [Requested vs observed isolation](#requested-vs-observed-isolation)
 
@@ -84,6 +85,24 @@ GAPS: <未完成项、歧义或 none>
 仍须按既有流程回读 diff、文件范围、workspace/head 和必要验证，并遵守依赖、消息交付、
 admission 与 closeout。
 
+## Scope integrity evidence
+
+Scope integrity 是独立语义门禁，不由 runtime、digest、exact head、测试、CI 或 code review 代替。Owner 在规定触发点保存以下最小证据：
+
+```text
+semantic_scope_checkpoint: <revision>
+semantic_scope_trigger: admission | contract_revision | scope_delta | repeat_blocker | downstream_conflict | convergence
+planning_truth_locator: <Issue/FR/milestone 与相邻 ownership>
+contract_scope_locator: <合同 revision>
+observed_change_locator: <planned files 或 PR/diff/head>
+semantic_scope_status: aligned | shrink | split | reassign | user_decision
+semantic_scope_evidence: <逐项比较结论>
+```
+
+证据必须回答：实际 change set 是否仍服务目标与验收、是否进入非目标、是否新增合同未声明的生产/运行/安全边界、是否占用另一 Work Item 的领域或 locator、是否反向阻塞 ready 下游。`aligned` 只在这些问题均有可回读答案时成立。普通测试、文档、fixture 或既有 ownership 内不改变公共/安全/运行边界的薄 adapter/同域 helper 可以继续，不因文件新增本身 fail closed。
+
+独立 reviewer 可以验证当前 head 的 scope evidence，但 Owner 仍负责最终归属决定。change set、合同语义、GitHub truth 或相邻 ownership 任一变化都会使旧 checkpoint 过期；纯提交元数据、普通 CI 状态或未改变语义的文档证据更新不使其过期。
+
 ## Fresh exact-head review
 
 对需要独立审查的 `direct`、`flat` 或 `hierarchical` 交付统一使用：
@@ -94,10 +113,11 @@ reviewed_files: <被审 change set 的准确文件清单>
 review_write_scope: empty
 diff_locator: <完整 diff/PR/commit 定位>
 verdict: ship | fix-first | rethink
+semantic_scope_status: aligned | drift
 ```
 
-审查请求必须绑定 `reviewed_head`、`reviewed_files`、空写入范围和完整 diff locator；reviewer 只能基于该
-快照返回 `ship`、`fix-first` 或 `rethink`。之后被审查 change set 的 diff 或 head
+审查请求必须绑定 `reviewed_head`、`reviewed_files`、空写入范围、完整 diff locator 和 scope integrity evidence；reviewer 只能基于该
+快照返回 `ship`、`fix-first` 或 `rethink`，并分别给出 `semantic_scope_status`。之后被审查 change set 的 diff 或 head
 发生变化都会让旧 verdict 立即失效，修复或 rebase 后必须重新派发 fresh review。reviewer 不得实现自己的
 修复；Owner 负责判断 findings、决定修复并重新派发。
 
