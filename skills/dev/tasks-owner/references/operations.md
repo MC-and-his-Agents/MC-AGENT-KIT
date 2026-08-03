@@ -12,7 +12,8 @@
 6. 在模式确认前执行 [luna-subagents.md](luna-subagents.md) 的兼容性门禁，并记录 `luna_subagent_status` 与用户选择。
 7. 新建、恢复、模式切换、模型覆盖或 runtime lock revision 变化先进入 hold；按 [contracts.md](contracts.md) 构造 workspace_entry、完整 `owner_runtime_lock` 与 digest。固定依次执行 Owner→Task contract、Task→Owner `contract_ack`、Owner→Task execution_release、Task→Owner `execution_release_ack`、Owner→Task START control、Task→Owner `STARTED`；每个 `next_actor=owner` 事件都必须 `send_message_to_thread` 到真实 Owner 并记录投递状态，Owner 用 `read_thread` + GitHub truth 核验后才 admitted。
 8. 写入 admission gate 还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 `workspace_entry`，以及任务线程模型/推理策略与已确认合同一致；缺任一项只保持只读。
-9. 启动或恢复 Heartbeat 时只确认 Automation 可用、创建/更新已获授权、绑定当前 `owner_thread_id`，以及间隔/范围、通知策略和必要运行参数；不得把 Heartbeat 当作额外权限来源。
+9. 派发后和接受任务/审查结果前，按 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#runtime-evidence-gate) 先回读公开 thread/spawn/details metadata，核对实际 thread/agent、角色或任务类型、model、effort、cwd、正式 worktree、当前/目标 head；custom agent 还要核对实际 config/profile locator。公开 metadata 缺字段时才使用 allowlisted、只读本地证据；public/local 同时存在必须一致，字段缺失、同一目标存在无法消歧的多条记录、矛盾或错配立即 fail closed。不要把发送方 runtime 当作 Owner lock 或接受证据。
+10. 启动或恢复 Heartbeat 时只确认 Automation 可用、创建/更新已获授权、绑定当前 `owner_thread_id`，以及间隔/范围、通知策略和必要运行参数；不得把 Heartbeat 当作额外权限来源。
 
 ## Ready wave 与防重
 
@@ -29,7 +30,7 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，
 9. 发现重复时保留已验证的权威线程，暂停该 `task_key` 后续派发并报告；不得用归档代替事实确认。
 10. Owner 可在既有授权内自主调整自设并发、重试和调用预算；只有扩大成本、隐私、外部发送、权限或不可逆动作边界才询问用户。
 
-`direct` 使用稳定 `task_name` 和原生 `spawn_agent` 填充 ready wave，显式传递已确认模型、推理程度与 `fork_turns: "none"`，并把真实 agent ID/规范任务名写入 checkpoint。`hierarchical` 的任务线程使用相同规则创建 Subagent。单个 Subagent 失败只隔离对应 `task_key`。
+`direct` 使用稳定 `task_name` 和原生 `spawn_agent` 填充 ready wave，显式传递已确认模型、推理程度与 `fork_turns: "none"`，并把真实 agent ID/规范任务名写入 checkpoint；派发后回读 runtime evidence，且 prompt 必须包含完整五段 packet。`hierarchical` 的任务线程使用相同规则创建 Subagent，每个下游单元也必须有五段 packet。单个 Subagent 失败或 evidence 错配只隔离对应 `task_key`。
 
 ## 实现并发与收敛通道
 
@@ -52,6 +53,7 @@ task_key -> threadId/agentId -> status
 task_key -> clientThreadId -> dispatch_generation
 task_key -> contract_revision/digest/owner_runtime_lock/runtime_lock_revision/ack_message_id/release_message_id/release_ack_message_id/status
 task_key -> workspace_entry
+task_key -> runtime_evidence_locator/status/target
 wave_id / ready_task_keys / selected_wave / actual_wave_width / resolved_max_inflight / not_selected_reason / single_task_justification / last_capacity_failure
 implementation_inflight / convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 event_key -> local_recorded | delivery_pending | delivered | owner_verified | consumed
@@ -69,7 +71,7 @@ pending_delta
 updated_at
 ```
 
-`owner_handoff` 是已存在 Heartbeat prompt 中的紧凑恢复索引；只有主 Owner 写入。它至少按 [automation.md](automation.md#owner_handoff) 模板保留 handoff revision、Owner 合同/范围 locator、next actor/action、wake condition、活动任务 locator、收敛 owner/generation、未决决定和最近实质事件 locator，不写完整项目状态、所有 head、普通 CI/push/review 或用户材料。
+`owner_handoff` 是已存在 Heartbeat prompt 中的紧凑恢复索引；只有主 Owner 写入。它至少按 [automation.md](automation.md#owner_handoff) 模板保留 handoff revision、Owner 合同/范围 locator、next actor/action、wake condition、活动任务 locator、收敛 owner/generation、未决决定和最近实质事件 locator，不写完整项目状态、所有 head、普通 CI/push/review 或用户材料。runtime evidence 只写 locator/status/target；不得写 prompt、env、token、配置正文或完整 rollout 日志。
 
 无论回合由用户、任务事件、Owner 主动操作、迁移还是 Heartbeat 触发，只要发生任务 admission/暂停/完成、BLOCKED/NEEDS_OWNER/PR_READY、next actor/action/wake condition 变化、收敛通道取得/释放/转交、merge/closeout/下一批派发、Owner 合同/范围/模式/授权变化或 handoff drift，Owner 都必须在结束回合前更新 checkpoint，并原地更新既有 Automation prompt、递增 `handoff_revision`、保留 automation id/RRULE/间隔/通知策略并回读。普通 head/push/CI/review 仅在改变 next actor/action/wake condition 时触发更新。Automation 未启用或不可用时只维护 checkpoint，不创建替代 cron。
 
@@ -77,7 +79,7 @@ updated_at
 
 ## 下游阶段事件与上行投递
 
-任务内可以记录 `HEAD_CHANGED`、`CI_TERMINAL` 和 `REVIEW_TERMINAL`，但不得逐条上行。所有 `next_actor=owner` 的控制握手（`contract_ack`、`execution_release_ack`、`STARTED`）及需要立即处理的 `BLOCKED` / `NEEDS_OWNER` / `PR_READY`、合同拒绝/漂移/锁权限异常，都必须主动投递真实 Owner；`COMPLETED` 仅由 Owner 在满足 [closeout contract](contracts.md#closeout-contract) 后发出。每个事件按 `local_recorded → delivery_pending → delivered → owner_verified → consumed` 记录，`task final` 不推进 Owner 状态。
+任务内可以记录 `HEAD_CHANGED`、`CI_TERMINAL` 和 `REVIEW_TERMINAL`，但不得逐条上行。所有 `next_actor=owner` 的控制握手（`contract_ack`、`execution_release_ack`、`STARTED`）及需要立即处理的 `BLOCKED` / `NEEDS_OWNER` / `PR_READY`、合同拒绝/漂移/锁权限异常，都必须主动投递真实 Owner；`COMPLETED` 仅由 Owner 在满足 [closeout contract](contracts.md#closeout-contract) 后发出。每个事件按 `local_recorded → delivery_pending → delivered → owner_verified → consumed` 记录，`task final` 不推进 Owner 状态。审查需要独立 review 时，按 exact reviewed head、被审 change set 的文件清单、空写入范围和完整 diff locator 绑定 verdict；后续 diff/head 立即作废，修复后 fresh review。
 
 `event_key = task_key + execution_generation + event + head/status`；App 任务线程的 `execution_generation` 为 contract revision/digest，direct 为 spawn/dispatch generation。相同 key、旧 head、被较新事实覆盖或没有改变 `next_actor/next_action/wake_condition` 的事件直接静默丢弃。非紧急变化写入任务内唯一 `pending_delta`，新事实覆盖旧事实，下一次允许上行时一次带出。
 

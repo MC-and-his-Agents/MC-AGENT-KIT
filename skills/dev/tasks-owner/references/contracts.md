@@ -1,6 +1,6 @@
 # Tasks Owner 与下游任务合同
 
-只在激活 Owner 或创建独立任务线程时读取本文件。发送前必须根据已回读的 GitHub 事实填写完整合同，不保留占位符。
+只在激活 Owner 或创建独立任务线程时读取本文件。发送前必须根据已回读的 GitHub 事实填写完整合同，不保留占位符。派发后和接受结果前的 runtime evidence、五段局部实现包、fresh exact-head review 及隔离判定见 [runtime-and-review-evidence.md](runtime-and-review-evidence.md)。
 
 ## Owner 契约
 
@@ -75,6 +75,8 @@ owner_runtime_lock:
 发送前发现锁缺失、格式错误、revision/`contract_digest` 不匹配或值不受支持时，不得省略参数或猜测发送；事件记为 `<EVENT>_PENDING_DELIVERY`，等待 Heartbeat/用户修复。消息送达后由 Owner 核对实际 `turn_context`：一致时才把锁状态记为 `verified` 并消费事件；不一致或无法回读时记为 `unverified` 并 fail closed，只读核验并通知用户，暂停调度、派发、merge、closeout 和其他外部动作。
 
 能力门禁只在有证据时标记 `verified`：Luna/max sender 必须显式以锁中 `model=gpt-5.6-sol`、`reasoning_effort=high`（工具 `thinking=high`）唤醒，目标 `turn_context` 仍须为 Sol/high；省略参数、使用 sender 自身 Luna/max 或旧 revision 均为负向场景，不得宣称宿主已强制回显。
+
+`owner_runtime_lock` 只约束 Owner 回显发送参数；runtime evidence 是独立的消费门禁。派发后及接受任务/审查结果前，Owner 必须先回读真实 thread/agent、角色或任务类型、model、effort、cwd、正式 worktree、当前/目标 head，以及 custom agent 的实际 config/profile locator；公开 metadata 缺字段时才可使用 allowlisted、只读本地证据。字段缺失、同一目标存在无法消歧的多条记录、冲突或错配均不得把锁标为可消费，详见 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#runtime-evidence-gate)。
 
 ## 双层消息与人类可读性
 
@@ -176,6 +178,7 @@ execution_hold: true
 完成与汇报
 - 目标完成条件
 - 验证和独立审查要求
+- 局部 implementation packet：按 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#五段局部-implementation-packet) 原样包含 `OBJECTIVE`、`FILES AND OWNERSHIP`、`INTERFACES`、`CONSTRAINTS`、`VERIFICATION`；每条验证有准确命令/检查和 concrete success criterion
 - 上行汇报门禁：除合同 ACK、release ACK 和一次 `STARTED` 外，只在 `BLOCKED`、`NEEDS_OWNER` 或最终 `PR_READY` 时直接汇报
 - 普通 head、push、CI、review 和实现 checkpoint 只留在任务线程；以最新事实覆盖一个 `pending_delta`，并入下一次允许的上行汇报
 - `PR_READY` 必须绑定 exact head，且任务负责的验证、review、hosted CI 和 PR 元数据均已终态；否则不发送候选/等待 checkpoint
@@ -205,7 +208,7 @@ runtime_lock_revision
 
 ## 合同投递与 admission gate
 
-这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、完整 `owner_runtime_lock`、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
+这是协作式协议，不是宿主原生写权限锁。Owner 对以下规范字段的 canonical JSON（UTF-8、key 排序、紧凑分隔符、不含 digest 自身）计算 SHA-256：revision、Owner/task ID、task_key、范围与验收、依赖、workspace_entry、完整 `owner_runtime_lock`、完整五段 implementation packet、模型、写入边界、Subagent 策略、上行汇报门禁和收敛通道；结果为 `contract_digest`。
 
 新建、恢复、模式切换、模型覆盖或 runtime lock revision 变化都要重新进入 hold，并固定按以下顺序推进：Owner→Task `contract`；Task 先在自身会话写 `contract_ack` 的 `local_recorded`，再以锁定的 `model`/`thinking` 调用 `send_message_to_thread` 投递 Owner；Owner 用 `read_thread` 和 GitHub truth 核验后记录 `contract_ack_message_id` 与 `contract_status: acknowledged`；Owner→Task 发送同 revision/digest 的 `execution_release`；Task 同样投递 `execution_release_ack`，失败则 `RELEASE_ACK_PENDING_DELIVERY` 且仍为 `pending_contract`；Owner 回读并记录 `release_message_id`、`release_ack_message_id` 与 `contract_status: released`；Owner→Task 发送 `START` control；Task 下一回合先主动投递回显同 revision/digest/runtime_lock_revision 的 `STARTED`，随后可继续执行而不等待纯 ACK；Owner 再次 `read_thread` + GitHub truth 核验后标记 `admitted/active` 并可结束当前回合。缺失、错配、不可验证或 release ACK 前写入均视为协议违规，立即隔离且不采用其输出。
 
@@ -223,11 +226,15 @@ Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，�
 
 ## Direct Subagent 合同
 
-`direct` 由主 Owner 使用原生 `spawn_agent` 创建 Subagent，并显式设置 `fork_turns: "none"`、`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；门禁失败时使用用户确认的回退模型。它没有独立 App 任务线程，因此不使用 hold/release；Owner 在 spawn 前以 `owner_thread_id + branch + absolute_worktree + head` 构造 direct workspace_entry，完成 GitHub truth、模型和写入权门禁，并把完整合同原子地放入 spawn prompt。创建后回读真实 agent ID。Subagent 不得继续衍生下级；多个 Subagent 并行时只允许一个写入者，其余保持只读。
+`direct` 由主 Owner 使用原生 `spawn_agent` 创建 Subagent，并显式设置 `fork_turns: "none"`、`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；门禁失败时使用用户确认的回退模型。它没有独立 App 任务线程，因此不使用 hold/release；Owner 在 spawn 前以 `owner_thread_id + branch + absolute_worktree + head` 构造 direct workspace_entry，完成 GitHub truth、模型和写入权门禁，并把完整五段局部 implementation packet 原子地放入 spawn prompt。创建后回读真实 agent ID 及 runtime evidence；接受结果前再次回读，缺失或错配时 fail closed。Subagent 不得继续衍生下级；多个 Subagent 并行时只允许一个写入者，其余保持只读。
+
+## Hierarchical 下游 Subagent 合同
+
+`hierarchical` 任务线程向下游 Subagent 派发时，除任务线程已有 admission 合同外，必须为每个下游单元附完整五段 implementation packet，并绑定自己的文件 ownership、接口、约束和逐项验证判据。Owner/任务线程在派发后和接受结果前回读实际 agent/thread、角色或任务类型、model、effort、cwd、正式 worktree、当前/目标 head 及 custom config/profile locator；runtime evidence 缺失、矛盾或错配时隔离该下游单元，不采用其输出。下游不得把 packet 当作 GitHub truth、Owner lock 或 closeout 的替代品。
 
 ## Flat 独立审查合同
 
-`flat` 执行任务不得自审。Owner 创建同级只读 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。review 任务同样设置 `subagent_policy: forbidden`。
+`flat` 执行任务不得自审。Owner 创建同级 review 任务，`task_key` 使用 `<执行 task_key>:review:<head_sha>`，写入范围为空，只能回读当前 head、验收标准和验证证据并返回 findings。需要独立审查的 `direct`、`flat`、`hierarchical` 交付统一要求 `reviewed_head`、被审 change set 的准确 `reviewed_files`、`review_write_scope: empty`、完整 `diff_locator` 和 `ship | fix-first | rethink` verdict；任何后续 diff/head 变化立即使旧 verdict 失效，修复后必须 fresh review。reviewer 不得实现修复；Owner 负责判断和重新派发。review 还要分别记录 requested/observed sandbox 与 permission；只有 observed sandbox 真为 `read-only` 才能称 enforced read-only，低风险放宽时按前后状态核验和 residual risk 规则继续，详见 [runtime-and-review-evidence.md](runtime-and-review-evidence.md#fresh-exact-head-review)。review 任务仍设置 `subagent_policy: forbidden`，但不强制所有微小 carrier/closeout 使用 Sol reviewer。
 
 ## Closeout contract
 

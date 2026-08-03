@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查与收口。仅当用户明确委任当前对话承担项目总负责时使用；仅评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.9.0"
+  version: "0.10.0"
 ---
 
 # 让当前对话成为项目总负责
@@ -26,12 +26,13 @@ metadata:
 6. Heartbeat 只是绑定当前 `owner_thread_id` 的周期唤醒机制，不是第二个 Owner、独立 Agent 或权限主体；它不扩大也不削弱 Owner 合同。
 7. `task final` 只是任务线程的本地记录，不是跨线程交付；任何 `next_actor=owner` 的握手或执行事件都必须用宿主 `send_message_to_thread` 投递到真实 `owner_thread_id` 并唤醒 Owner，至少包括 `contract_ack`、`release_ack`/`execution_release_ack`、`STARTED`、`BLOCKED`、`NEEDS_OWNER`、`PR_READY` 和合同/权限异常；投递状态、去重和恢复按 [contracts.md](references/contracts.md#跨线程交付状态机) 执行。
 8. Owner 初始化并锁定用户授权的 canonical `owner_runtime_lock`（回显锁）；缺锁、错配、不可验证或运行时漂移时 fail closed，不猜测发送、不继续调度。
+9. 派发后及接受任务/审查结果前，先回读真实 runtime evidence；公开 metadata 缺字段时仅用 allowlisted、只读本地证据补齐，字段缺失、冲突或 `cwd`/worktree/head 错配时 fail closed。实现包、fresh exact-head review 与 requested/observed isolation 按 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md) 执行。
 
 Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最小 `<control>` 控制块”双层格式；摘要删除控制块后仍须可读，完整日志和哈希集合留在任务线程或证据载体。交付状态、控制块字段、可复制示例和用户 final 隐藏规则见 [contracts.md](references/contracts.md#双层消息与人类可读性)。
 
 ## 启动门禁
 
-取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；排查 Owner 冲突；确认 Automation 可用、已获创建/更新授权且绑定正确。缺少能力、事实或授权时保持只读。完整步骤见 [operations.md](references/operations.md)。
+取得真实 `threadId` 和工具能力；回读适用 `AGENTS.md`、GitHub 规划、依赖、branch/worktree、PR/head；排查 Owner 冲突；确认 Automation 可用、已获创建/更新授权且绑定正确。派发后和接受结果前追加 runtime evidence 回读；缺少能力、事实、证据或授权时保持只读。完整步骤见 [operations.md](references/operations.md)。
 
 ## 执行模式与模型
 
@@ -51,11 +52,11 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 
 实现可并行，但同一仓库和 target branch 默认只有一条 merge/closeout 收敛通道；等待收敛的任务不因每次 main 前进而反复 rebase。调度细节见 [operations.md](references/operations.md#实现并发与收敛通道)。
 
-`flat` 的独立审查由 Owner 创建同级只读 review 任务；执行任务不得自审。
+`flat` 的独立审查由 Owner 创建同级 review 任务；执行任务不得自审。`direct`、`flat`、`hierarchical` 的局部五段 implementation packet、风险化 fresh exact-head review 和实际隔离判定见 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)。
 
 ## 运行态与 Automation
 
-所有来源回合发生控制面实质变化时，Owner 必须在结束前更新 compact checkpoint，并原地递增既有 Heartbeat prompt 的 `owner_handoff`；普通 head、push、CI、review 仅在改变 `next_actor`、`next_action` 或 `wake_condition` 时更新 handoff。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
+所有来源回合发生控制面实质变化时，Owner 必须在结束前更新 compact checkpoint，并原地递增既有 Heartbeat prompt 的 `owner_handoff`；普通 head、push、CI、review 仅在改变 `next_actor`、`next_action` 或 `wake_condition` 时更新 handoff。checkpoint 只保留 runtime evidence locator/status/target，不存 prompt 或完整日志。恢复、事件去重和 `COMPLETED` 前置条件见 [operations.md](references/operations.md)。
 
 创建或更新 Heartbeat 只确认启用、间隔/范围、通知和必要参数，验证 Automation 可用、已获创建/更新授权并绑定 Owner；不可用仍 checkpoint、不建 cron。见 [automation.md](references/automation.md)。Heartbeat 从 handoff、checkpoint、cursor 和实时 GitHub truth 恢复；满足 `wake_condition`、`next_actor=owner` 且动作在合同及授权内时当前回合直接执行。每个 Heartbeat 回合只输出一条 `DONT_NOTIFY`/`NOTIFY`，不发送纯 ACK。
 
@@ -63,7 +64,7 @@ Owner 与任务线程的非纯 ACK 消息采用“自然语言摘要 + 末尾最
 
 汇报激活状态、真实线程/项目、规划真相、范围与验收、调度方案、门禁、任务/PR/head、Heartbeat 状态与 `owner_handoff` revision 和剩余风险。
 
-契约见 [contracts.md](references/contracts.md)。维护和回归时使用 `evals/`，证据写入 `reports/`；生命周期、`output contract`、`rollback boundary`、`trust report` 与 `missing evidence` 见 [governance.md](references/governance.md)。这些材料不在普通激活时加载。
+契约见 [contracts.md](references/contracts.md)；runtime evidence、局部实现包和独立 review 见 [runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)。维护和回归时使用 `evals/`，证据写入 `reports/`；生命周期、`output contract`、`rollback boundary`、`trust report` 与 `missing evidence` 见 [governance.md](references/governance.md)。这些材料不在普通激活时加载。
 
 ## 失败处理
 
