@@ -44,8 +44,9 @@ cleanup_authority_locator / revision
 5. local ref 和 remote ref 仍等于合同 expected OID；本地没有 PR head 之后的新提交，远程没有
    closeout 后漂移。无法证明提交已被 exact merged PR 消费时停止。
 
-任一检查不成立即 `cleanup_blocked`；只报告具体资产、当前/期望身份、证据定位和需要谁决定，
-不得放宽目标或改用相似名称。
+任一检查不成立即 `cleanup_blocked`；记录具体资产、当前/期望身份、证据定位和需要谁决定，
+不得放宽目标或改用相似名称。若可在既有合同和授权内安全纠正，例如改从稳定 cwd 重新派发，
+Owner 应直接纠正并重跑门禁，不把可执行动作转交用户。
 
 ## 执行顺序与删除边界
 
@@ -82,5 +83,8 @@ Subagent 返回 pre/post locator、删除前 OID、每项状态、执行结果�
 - GitHub PR/issue 和 repo carrier 仍保持 closeout 状态。
 
 全部授权目标为 `removed/already_absent/preserved` 且无身份漂移时记为 `cleanup_verified`。
-脏数据、活动引用、权限失败或强制动作超出策略时保持 `cleanup_blocked`/`cleanup_partial`，由
-Owner 请求用户决定；不能用清理失败降低实现并发或阻塞其他无冲突任务。
+脏数据、活动引用、权限失败或强制动作超出策略时保持 `cleanup_blocked`/`cleanup_partial`。
+Owner 先完成只读诊断；需要用户决定时必须给出：阻塞事实与证据、对完成状态和数据的影响、
+可选路径及风险/可逆性、明确的最优建议与理由、所需精确授权、未回复时的安全默认动作和
+`wake_condition`。默认建议保留有争议或身份漂移的资产；只有证据证明目标和恢复边界且用户
+明确授权时才建议丢弃数据或扩大删除权限。不能用清理失败降低实现并发或阻塞其他无冲突任务。

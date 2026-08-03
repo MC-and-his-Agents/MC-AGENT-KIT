@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，先用独立的 Work Item Issue readiness 门禁整理目标，再选择 direct、flat 或 hierarchical 模式，调度任务线程与 Subagent，管理依赖、审查、收口和获授权的现场清理。Issue readiness 可独立运行，不硬依赖其他 Skill；仅当用户明确委任当前对话承担项目总负责时使用，评审、讨论、修改、测试或引用本 Skill 不激活。
 metadata:
-  version: "0.13.0"
+  version: "0.13.1"
 ---
 
 # 让当前对话成为项目总负责
@@ -106,7 +106,7 @@ cleanup lane。清理不计入实现并发，也不改变 cap；只有 Owner 独
 - Automation 不可用：继续手动 Owner，不创建替代 cron。
 - 状态重复、越权衍生 Subagent 或证据脱节：隔离相关 `task_key`，暂停其后续动作并报告；无冲突任务继续推进。
 - Luna 门禁未通过：按 [受控回退流程](references/luna-subagents.md) 处理。
-- 现场清理遇到脏 worktree、未消费提交、ref 漂移、活动引用、受保护目标、权限不足或自身 cwd 命中目标：标记 `cleanup_blocked`，不 stash/reset/强制移除/猜测目标；其他无冲突实现继续推进。
+- 现场清理遇到脏 worktree、未消费提交、ref 漂移、活动引用、受保护目标、权限不足或自身 cwd 命中目标：先在既有授权内安全纠正；仍阻塞时标记 `cleanup_blocked`，向用户说明事实、影响、选项和最优建议后再请求决定，不 stash/reset/强制移除/猜测目标；其他无冲突实现继续推进。
 - `task_key` 在首次 admission 后永久绑定一个 issue、FR、milestone 或紧密 batch；
   目标漂移时封存旧线程并保留成果，为新目标创建新的 `task_key` 和线程，不复用身份。
 - `BOOTSTRAP_READBACK` 返回并唤醒 Owner 后，若缺口是 Owner 合同内可完成的 branch、
