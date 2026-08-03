@@ -51,6 +51,18 @@ npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills -
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
+## Tasks Owner 工作流
+
+[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) 将当前 Codex App 对话设为 GitHub
+项目的长期 Owner。它在 admission 前执行 Issue readiness 门禁，选择 `direct`、`flat` 或
+`hierarchical` 模式，将每个依赖就绪波次填充到已确认的并发上限，并核验跨线程投递、
+exact-head review，串行管理 merge/closeout 收敛。
+
+closeout 验证完成后，Owner 可派出专用 Luna/max Subagent，只清理由用户精确授权的
+worktree、本地分支和远程分支。exact path/ref/OID 门禁会保护脏、仍在使用、发生漂移、
+default、target、base 和 protected 资产。清理受阻时默认保留有争议资产，并在请求用户决定前
+给出证据、影响、可选路径和最优建议。
+
 ## Agent Plugins
 
 Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx skills` catalog。
