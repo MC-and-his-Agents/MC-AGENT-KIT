@@ -1,13 +1,13 @@
 # Output Quality Scorecard
 
-This v0.8 scorecard compares static without-skill and with-skill outputs using assertion grading.
+This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `27`
+- Cases: `69`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `27`
+- Blind A/B pairs: `69`
 - Gate pass: `True`
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
@@ -25,6 +25,8 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | direct-mode-contract | 0.0 | 100.0 | 100.0 | with_skill | None |
 | luna-v1-consent | 0.0 | 100.0 | 100.0 | with_skill | None |
 | luna-adjustment | 0.0 | 100.0 | 100.0 | with_skill | None |
+| luna-effective-v2-no-restart | 0.0 | 100.0 | 100.0 | with_skill | None |
+| luna-config-reload-required | 0.0 | 100.0 | 100.0 | with_skill | None |
 | existing-task-contract-gate | 0.0 | 100.0 | 100.0 | with_skill | None |
 | inspection-owner-action-required | 0.0 | 100.0 | 100.0 | with_skill | None |
 | stale-release-rejected | 0.0 | 100.0 | 100.0 | with_skill | None |
@@ -44,6 +46,46 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | owner-handoff-drift | 0.0 | 100.0 | 100.0 | with_skill | None |
 | pr-ready-pending-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
 | owner-handoff-continuous-maintenance | 0.0 | 100.0 | 100.0 | with_skill | None |
+| final-only-not-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
+| admission-active-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
+| runtime-lock-echo-gate | 0.0 | 100.0 | 100.0 | with_skill | None |
+| ready-wave-single-without-reason | 0.0 | 100.0 | 100.0 | with_skill | None |
+| convergence-not-implementation-lane | 0.0 | 100.0 | 100.0 | with_skill | None |
+| target-cap-not-actual | 0.0 | 100.0 | 100.0 | with_skill | None |
+| bootstrap-not-implementation | 0.0 | 100.0 | 100.0 | with_skill | None |
+| blocked-idle-goal-blocked-not-active | 0.0 | 100.0 | 100.0 | with_skill | None |
+| task-key-drift-isolated | 0.0 | 100.0 | 100.0 | with_skill | None |
+| owner-cannot-lower-cap | 0.0 | 100.0 | 100.0 | with_skill | None |
+| dependency-closed-local-conflict | 0.0 | 100.0 | 100.0 | with_skill | None |
+| human-readable-two-layer-message | 0.0 | 100.0 | 100.0 | with_skill | None |
+| runtime-routing-workspace-head-mismatch | 0.0 | 100.0 | 100.0 | with_skill | None |
+| runtime-public-local-conflict | 0.0 | 100.0 | 100.0 | with_skill | None |
+| implementation-packet-interface-verification | 0.0 | 100.0 | 100.0 | with_skill | None |
+| fresh-review-head-invalidated | 0.0 | 100.0 | 100.0 | with_skill | None |
+| requested-observed-isolation | 0.0 | 100.0 | 100.0 | with_skill | None |
+| reviewer-mutated-files | 0.0 | 100.0 | 100.0 | with_skill | None |
+| issue-readiness-standalone | 0.0 | 100.0 | 100.0 | with_skill | None |
+| issue-readiness-goal-enhancement | 0.0 | 100.0 | 100.0 | with_skill | None |
+| issue-readiness-blocks-dispatch | 0.0 | 100.0 | 100.0 | with_skill | None |
+| issue-output-no-runtime-leak | 0.0 | 100.0 | 100.0 | with_skill | None |
+| parent-fr-light-structure | 0.0 | 100.0 | 100.0 | with_skill | None |
+| issue-readiness-legacy-no-capability | 0.0 | 100.0 | 100.0 | with_skill | None |
+| post-closeout-cleanup-success | 0.0 | 100.0 | 100.0 | with_skill | None |
+| cleanup-dirty-worktree-blocked | 0.0 | 100.0 | 100.0 | with_skill | None |
+| cleanup-ref-drift-protected-blocked | 0.0 | 100.0 | 100.0 | with_skill | None |
+| cleanup-subagent-cwd-target-blocked | 0.0 | 100.0 | 100.0 | with_skill | None |
+| cleanup-partial-idempotent | 0.0 | 100.0 | 100.0 | with_skill | None |
+| semantic-scope-hotcp-drift | 0.0 | 100.0 | 100.0 | with_skill | None |
+| semantic-scope-thin-adapter | 0.0 | 100.0 | 100.0 | with_skill | None |
+| semantic-scope-gate-matrix | 0.0 | 100.0 | 100.0 | with_skill | None |
+| semantic-scope-circuit-breaker | 0.0 | 100.0 | 100.0 | with_skill | None |
+| semantic-scope-downstream-reverse-signal | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-worktree-without-task | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-heartbeat-owner-action | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-post-closeout-wave | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-legitimate-task-wait | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-direct-agent-wait | 0.0 | 100.0 | 100.0 | with_skill | None |
+| liveness-pending-fills-host-cap | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 

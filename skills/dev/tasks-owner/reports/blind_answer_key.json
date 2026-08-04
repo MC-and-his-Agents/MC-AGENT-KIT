@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "seed": "yao-output-eval-blind-v1",
   "summary": {
-    "pair_count": 27,
-    "with_skill_expected_count": 27,
+    "pair_count": 69,
+    "with_skill_expected_count": 69,
     "baseline_expected_count": 0
   },
   "answers": [
@@ -76,6 +76,24 @@
       "variant_b_role": "with_skill",
       "expected_winner_role": "with_skill",
       "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "luna-effective-v2-no-restart",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "luna-config-reload-required",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
       "score_winner_role": "with_skill",
       "delta": 100.0
     },
@@ -247,6 +265,366 @@
       "variant_b_role": "baseline",
       "expected_winner_role": "with_skill",
       "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "final-only-not-delivery",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "admission-active-delivery",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "runtime-lock-echo-gate",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "ready-wave-single-without-reason",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "convergence-not-implementation-lane",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "target-cap-not-actual",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "bootstrap-not-implementation",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "blocked-idle-goal-blocked-not-active",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "task-key-drift-isolated",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "owner-cannot-lower-cap",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "dependency-closed-local-conflict",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "human-readable-two-layer-message",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "runtime-routing-workspace-head-mismatch",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "runtime-public-local-conflict",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "implementation-packet-interface-verification",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "fresh-review-head-invalidated",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "requested-observed-isolation",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "reviewer-mutated-files",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "issue-readiness-standalone",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "issue-readiness-goal-enhancement",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "issue-readiness-blocks-dispatch",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "issue-output-no-runtime-leak",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "parent-fr-light-structure",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "issue-readiness-legacy-no-capability",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "post-closeout-cleanup-success",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "cleanup-dirty-worktree-blocked",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "cleanup-ref-drift-protected-blocked",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "cleanup-subagent-cwd-target-blocked",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "cleanup-partial-idempotent",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "semantic-scope-hotcp-drift",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "semantic-scope-thin-adapter",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "semantic-scope-gate-matrix",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "semantic-scope-circuit-breaker",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "semantic-scope-downstream-reverse-signal",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-worktree-without-task",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-heartbeat-owner-action",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-post-closeout-wave",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-legitimate-task-wait",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-direct-agent-wait",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "liveness-pending-fills-host-cap",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
       "score_winner_role": "with_skill",
       "delta": 100.0
     }

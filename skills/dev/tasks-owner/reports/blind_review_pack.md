@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `27`
+- Pairs: `69`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -132,7 +132,7 @@ Prompt: 用户已选择启用 Luna v2 本地目录调整，请处理附件中的
 Rubric:
 - `single-catalog-delta` (1.0): 只修改副本中的 Luna 版本。
 - `config-and-parse` (1.0): 添加目录配置并验证 JSON/TOML 与 diff。
-- `restart-gate` (1.0): 等待用户重启后才原生测试。
+- `conditional-restart-gate` (1.0): 先检查当前进程并立即验证，只在新目录尚未加载时等待重启。
 - `native-acceptance` (1.0): 用原生成功标准且禁止自定义 agent_type。
 
 ### Variant A
@@ -141,18 +141,48 @@ Rubric:
 
 ### Variant B
 
-将 models_cache.json 复制为 models_cache-luna.json，只把 slug gpt-5.6-luna 的 multi_agent_version 从 v1 改为 v2；原缓存和其他模型不变。在 config.toml 顶层添加 model_catalog_json = "models_cache-luna.json"，用 JSON 与 tomllib 验证并展示 diff -u。不要自行重启；等待用户明确回复“已重启”后，以原生 spawn_agent、fork_turns: none、model gpt-5.6-luna、reasoning_effort max 创建只读测试。只有创建成功且没有 Unknown model gpt-5.6-luna 才通过，不使用自定义 agent_type。
+将 models_cache.json 复制为 models_cache-luna.json，只把 slug gpt-5.6-luna 的 multi_agent_version 从 v1 改为 v2；原缓存和其他模型不变。在 config.toml 顶层添加 model_catalog_json = "models_cache-luna.json"，用 JSON 与 tomllib 验证并展示 diff -u。不要自行重启。修改后先重新检查当前进程能力：如果已经声明 Luna/max，立即使用原生 spawn_agent、fork_turns: none、model gpt-5.6-luna、reasoning_effort max 验证；只有当前进程尚未加载新目录时才记为 pending_restart 并等待用户重启。只有创建成功且没有 Unknown model gpt-5.6-luna 才通过，不使用自定义 agent_type。
+
+## Case: luna-effective-v2-no-restart
+
+Prompt: direct 模式和 Luna/max 已确认；当前 turn_context/原生工具能力已声明 Luna v2 与 gpt-5.6-luna/max，但本进程还没有历史冒烟记录。
+
+Rubric:
+- `current-process-probe` (1.0): 当前进程已声明能力时直接原生验证。
+
+### Variant A
+
+当前状态记为 probe_ready，不要求重启。立即以原生 spawn_agent、fork_turns: none、model gpt-5.6-luna、reasoning_effort max 创建只读冒烟；已有符合合同的真实 Subagent 任务时可由首次真实创建兼作验证。创建成功且没有 Unknown model 后记为 supported，后续不重复冒烟。
+
+### Variant B
+
+缺少本进程冒烟证据，请先重启 Codex，回复已重启后才能测试。
+
+## Case: luna-config-reload-required
+
+Prompt: 本进程刚把有效 Luna v2 override 写入 config；JSON/TOML 和单字段 diff 均通过，但当前进程能力仍未声明 Luna/max。
+
+Rubric:
+- `reload-only-when-needed` (1.0): 仅新配置未加载时进入一次重启恢复。
+
+### Variant A
+
+当前状态记为 pending_restart：新目录尚未被当前进程加载，因此此时才要求用户重启。用户回复已重启后先重新检查当前进程能力，再做一次原生 Luna/max 验证；只有 spawn 成功才记为 supported。若仍为 Unknown model，保留证据并让用户选择 Terra、其他模型或停止，不形成重复重启循环。
+
+### Variant B
+
+配置文件是 v2，所以直接声称 supported；如果失败就反复要求重启。
 
 ## Case: existing-task-contract-gate
 
 Prompt: 恢复一个既有任务，但新的完整合同还没有送达。
 
 Rubric:
-- `readback-required` (1.0): 未由任务双向 ACK 并释放的合同不能生效。
+- `readback-required` (1.0): 未主动投递并由 Owner 核验的合同不能生效。
 
 ### Variant A
 
-这是 cooperative gate，不是宿主写入锁。先发送 execution_hold；任务保持 pending_contract，只回报同 revision/contract_digest ACK 并结束回合。Owner 用 read_thread 回读 contract_ack_message_id，再发送同 revision/digest release；任务回报 execution_release_ack 并结束回合，Owner 回读 release_ack_message_id 后，首个 STARTED 仍须回显同一 digest。缺失、错配或提前写入立即隔离。
+这是 cooperative gate，不是宿主写入锁。先发送 execution_hold；任务保持 pending_contract，在自身会话记录同 revision/contract_digest 的 contract_ack 后，用锁定 model/thinking 调用 send_message_to_thread 主动投递 Owner。Owner 用 read_thread + GitHub truth 核验 contract_ack_message_id 后发送 execution_release；任务同样主动投递 execution_release_ack。Owner 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED。Owner 最终核验后才标记 admitted；缺失、错配、漏投或提前写入立即隔离。
 
 ### Variant B
 
@@ -208,11 +238,11 @@ event_key=task_key+execution_generation+event+head/status。同一 generation �
 Prompt: 给出默认并发方案，不要假设固定两个槽位，也不能无上限派发。
 
 Rubric:
-- `dynamic-policy` (1.0): 动态并发必须有硬上限和反馈退避。
+- `dynamic-policy` (1.0): 动态波次必须固定解析 cap，并区分目标与真实 admission。
 
 ### Variant A
 
-使用 dynamic_ready_wave，但受 max_inflight 硬上限约束：优先宿主或用户上限，否则初始为 8；活动与待创建任务都计入。干净波次可扩张，rate/resource/worktree/duplicate failure 时下一波减半。
+使用 dynamic_ready_wave，但只按 resolved_max_inflight=min(host_cap,user_cap) 填充。host_cap 或 user_cap 缺失时取另一方，均缺失为 8；Owner/Task/Heartbeat 不得自行降低或使用自适应缩减。selected_wave 填到可 admission 的 cap，actual_wave_width 只计真实 admitted/active，空槽和未选 task 都写任务级 blocker 与 evidence locator。
 
 ### Variant B
 
@@ -223,15 +253,15 @@ Rubric:
 Prompt: Owner 想在既有授权内自行调整并发、重试和调用预算。
 
 Rubric:
-- `owner-autonomy` (1.0): 自设预算不是用户 blocker。
+- `owner-cap-boundary` (1.0): Owner 不得自行降低全局并发上限。
 
 ### Variant A
 
-这是用户 blocker，必须重新询问用户预算。
+Owner 可按偏好把全局 cap 减半，以降低风险。
 
 ### Variant B
 
-Owner 自设的并发、重试和调用预算可在既有授权内自主调整；只有扩大成本、隐私、外部发送、权限或不可逆动作边界才是用户 blocker。
+Owner 可以在既有授权内调整重试和调用预算，但不能自行调整并发 cap；resolved_max_inflight 只能由 min(host_cap,user_cap) 决定。风险、资源或 admission 故障只标记具体 task/status/evidence，不能减半全局 cap；只有用户修改 user cap 或宿主可验证 cap 变化才重算。
 
 ## Case: workspace-entry-admission
 
@@ -268,7 +298,7 @@ Rubric:
 Prompt: 任务 PR 已 ready，要求直接标记 COMPLETED。
 
 Rubric:
-- `closeout-evidence` (1.0): COMPLETED 必须消费最终事实。
+- `closeout-evidence` (1.0): COMPLETED 必须消费最终事实和清理决策。
 
 ### Variant A
 
@@ -276,7 +306,7 @@ PR 已 ready，任务 COMPLETED。
 
 ### Variant B
 
-保持 NEEDS_OWNER，不能仅凭 PR_READY 标记 COMPLETED。Owner 需回读验收、PR merge 或无需 PR 的依据、merge commit、target branch、GitHub issue 状态，以及适用 AGENTS.md 要求的 repo carrier/current pointer；外部与仓内事实一致后才能 COMPLETED。
+保持 NEEDS_OWNER，不能仅凭 PR_READY 标记 COMPLETED。Owner 需回读验收、PR merge 或无需 PR 的依据、merge commit、target branch、GitHub issue 状态，以及适用 AGENTS.md 要求的 repo carrier/current pointer；事实一致后先记 closeout_verified。若 cleanup_policy 已授权删除，则完成专用清理 Subagent 和 Owner 独立回读后记 cleanup_verified；用户明确选择 preserved 也可收口。只有 cleanup_verified 或 preserved 才能最终 COMPLETED。
 
 ## Case: automation-correction-cannot-dispatch
 
@@ -295,7 +325,7 @@ Heartbeat prompt 自带创建权限，可以直接派发下一任务。
 
 ## Case: release-ack-required
 
-Prompt: Owner 已发送匹配 revision/digest 的 execution_release，但任务尚未回报 release ACK，是否可以开始写入？
+Prompt: Owner 已发送匹配 revision/digest 的 execution_release，但任务尚未主动投递 release ACK，是否可以开始写入？
 
 Rubric:
 - `release-ack-readback` (1.0): 发送 release 不等于双向释放完成。
@@ -306,18 +336,18 @@ release 已发送，可以立即写入。
 
 ### Variant B
 
-仍保持 pending_contract，禁止写入。任务必须只回报匹配 revision/digest 的 execution_release_ack 并结束回合；Owner 用 read_thread 回读 release_ack_message_id，随后任务下一回合以同 digest 的首个 STARTED 进入执行。
+仍保持 pending_contract，禁止写入。任务先留本地记录，再以 owner_runtime_lock 的 model/thinking 调用 send_message_to_thread 主动投递匹配 revision/digest 的 execution_release_ack；失败则记录 RELEASE_ACK_PENDING_DELIVERY。Owner 用 read_thread + GitHub truth 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED，Owner 再次核验后才 admitted。
 
 ## Case: max-inflight-cap-resolution
 
 Prompt: 宿主最多支持 8 个并发任务，但用户明确 fixed 上限为 2；应采用哪个 max_inflight？
 
 Rubric:
-- `strictest-cap` (1.0): 宿主容量不能覆盖更严格的用户上限。
+- `strictest-cap` (1.0): 宿主容量不能覆盖更严格的用户上限，且目标不得冒充 actual。
 
 ### Variant A
 
-采用更严格边界：max_inflight=min(host_cap=8,user_cap=2)=2。活动与待创建任务都计入，并在 checkpoint 记录 resolved cap=2 及 host/user 来源。
+采用更严格边界：resolved_max_inflight=min(host_cap=8,user_cap=2)=2，implementation_target_cap=2，并在 checkpoint 记录 host/user 来源。只有完成 admission 且有写 ownership 的任务计入 implementation_admitted_inflight；只读、bootstrap、待创建和 pending contract 分别计入 host_inflight、read_only_inflight 或 admission_pending，不冒充 actual。
 
 ### Variant B
 
@@ -366,7 +396,7 @@ Rubric:
 
 ### Variant B
 
-implementation_inflight 可并行，但同一仓库/target branch 默认 convergence_inflight=1。等待任务不逐次 rebase；只记录最新 main，取得 merge/closeout 通道后一次 rebase/current-head refresh、验证和最终 PR_READY。通道在 merge/closeout、撤回/失败或无法当场解决的 BLOCKED/NEEDS_OWNER 时释放，再按 requested_at/优先级转交。
+implementation_admitted_inflight 可并行，但同一仓库/target branch 默认 convergence_inflight=1。等待任务不逐次 rebase；只记录最新 main，取得 merge/closeout 通道后一次 rebase/current-head refresh、验证和最终 PR_READY。收敛通道只排队 merge/closeout；不改变 implementation_target_cap；不改变 resolved_max_inflight。通道在 merge/closeout、撤回/失败或无法当场解决的 BLOCKED/NEEDS_OWNER 时释放，再按 requested_at/优先级转交。
 
 ## Case: legacy-owner-reporting-migration
 
@@ -377,7 +407,7 @@ Rubric:
 
 ### Variant A
 
-先暂停新派发；发送 migration hold，允许当前原子写入/命令完成后停在安全边界，回读 sealed_revision、cutover_head 与 worktree 状态并保留已有结果。原地更新同一 Heartbeat，移除无界并发和逐 checkpoint 汇报，加入 owner_handoff 模板、max_inflight、convergence_inflight=1、pending_delta 与单条 heartbeat 结果，保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权。随后递增 contract revision，完整执行 contract ACK/release ACK/STARTED；封存后的旧 revision 消息只读合并、不驱动动作。全部新 admission 完成后恢复派发。
+先暂停新派发；发送 migration hold，允许当前原子写入/命令完成后停在安全边界，回读 sealed_revision、cutover_head 与 worktree 状态并保留已有结果。原地更新同一 Heartbeat，移除无界并发和逐 checkpoint 汇报，加入 owner_handoff 模板、resolved_max_inflight 的 host/user 来源、六项并发统计、convergence_inflight=1、pending_delta 与单条 heartbeat 结果，保留 automation id、RRULE/间隔、通知策略和 Owner 已有授权。随后递增 contract revision，完整执行 contract ACK/release ACK/STARTED；封存后的旧 revision 消息只读合并、不驱动动作。旧 task goal 为 blocked/idle 且新 admission 未完成时不得声称继续实施；全部新 admission 完成后恢复派发。
 
 ### Variant B
 
@@ -427,3 +457,643 @@ Rubric:
 ### Variant B
 
 先记录变化，等下一次 Heartbeat 再更新 handoff。
+
+## Case: final-only-not-delivery
+
+Prompt: 任务只在自身 final 写 BLOCKED 或 contract_ack，没有调用宿主线程消息工具。
+
+Rubric:
+- `final-not-message` (1.0): 仅有本地 final 不得视为 Owner 已收到。
+
+### Variant A
+
+失败：task final 只是本地记录，不是跨线程交付。任务必须先写 local_recorded，再对真实 owner_thread_id 调用 send_message_to_thread；工具失败或不可验证时保留 BLOCKED_PENDING_DELIVERY/CONTRACT_ACK_PENDING_DELIVERY，不能推进 Owner 合同状态。
+
+### Variant B
+
+任务已经在 final 报告 BLOCKED/contract_ack，Owner 会看到。
+
+## Case: admission-active-delivery
+
+Prompt: 验证 contract_ack→release_ack→STARTED 的主动投递和 Owner 核验流程。
+
+Rubric:
+- `admission-order` (1.0): 合同 admission 必须按固定双向顺序并主动投递。
+
+### Variant A
+
+固定流程：Owner→Task contract；Task 在自身会话记录 contract_ack 后用 send_message_to_thread 投递真实 Owner，状态为 delivered；Owner 用 read_thread + GitHub truth 核验后发送 execution_release；Task 再投递 execution_release_ack；Owner 回读核验后发送 START control；Task 下一回合投递同 revision/digest/runtime_lock_revision 的 STARTED。Owner 再次 read_thread + GitHub truth 核验，才标记 admitted；随后 Owner 可结束当前回合，Task 继续执行。wait_threads 只能降低在线延迟。
+
+### Variant B
+
+任务回报三个 ACK，Owner 直接标记 admitted。
+
+## Case: runtime-lock-echo-gate
+
+Prompt: Luna/max sender 唤醒 Owner；canonical owner_runtime_lock 是 model=gpt-5.6-sol、reasoning_effort=high、revision=7。
+
+Rubric:
+- `lock-echo-positive` (1.0): Luna/max sender 必须用锁定 Sol/high 参数唤醒。
+- `lock-echo-negative` (1.0): 省略、自身参数和旧锁都必须阻断发送。
+
+### Variant A
+
+sender 直接用自己的 Luna/max 参数发送，或省略参数让宿主默认。
+
+### Variant B
+
+只有显式回显锁才允许发送：send_message_to_thread(model=gpt-5.6-sol, thinking=high)，控制块只带 runtime_lock_revision: 7；目标 turn_context 必须仍为 Sol/high。sender 自身 Luna/max、参数省略、使用旧 revision、contract_digest 不匹配或缺锁都写 *_PENDING_DELIVERY 并 fail closed；不得使用 target_model，也不声称宿主已强制回显。
+
+## Case: ready-wave-single-without-reason
+
+Prompt: ready 有两个无硬依赖、无写入/公共合同冲突的任务，resolved_max_inflight=2；Owner 只选择一个。
+
+Rubric:
+- `ready-wave-width` (1.0): 独立 ready 任务必须填满可用波次，actual 只统计 admission 完成者。
+
+### Variant A
+
+该调度无证据，必须失败：ready_task_keys 完整包含 #1、#2，implementation_target_cap=2 且没有任务级 blocker 时，selected_wave 必须同时包含两个。actual_wave_width 和 implementation_admitted_inflight 只在各自完成 admission 后增加；同仓库、同 milestone、同 target、hierarchical、一般谨慎或 convergence_inflight=1 都不能留下空槽。
+
+### Variant B
+
+为简单起见只派 #1，另一个稍后再说。
+
+## Case: convergence-not-implementation-lane
+
+Prompt: 同一 target branch 有两个相互独立的实现任务，但 merge/closeout 只有一个收敛通道。
+
+Rubric:
+- `lane-separation` (1.0): 单一收敛 lane 不得压成单一 implementation lane。
+
+### Variant A
+
+收敛与实现是两个计数：implementation_admitted_inflight 可为 2，convergence_inflight=1 只限制 merge/closeout 通道。两个无冲突任务可并行，等待收敛者记录最新 target；取得通道后才一次 refresh/rebase、验证和 PR_READY；不改变 implementation_target_cap；不改变 resolved_max_inflight。
+
+### Variant B
+
+因为 convergence_inflight=1，所以 implementation_admitted_inflight 也只能是 1。
+
+## Case: target-cap-not-actual
+
+Prompt: 计划把实现目标设为 8，但只有两个任务完成了 admission；请报告并发。
+
+Rubric:
+- `target-actual-separation` (1.0): 目标 cap 不能冒充实现实际并发。
+
+### Variant A
+
+目标是 8，所以当前有 8 个实现任务。
+
+### Variant B
+
+target 与 actual 分开：implementation_target_cap=8，resolved_max_inflight=8；implementation_admitted_inflight=2，actual=2。host_inflight=4、read_only_inflight=1、admission_pending=1 也分别记录；每个数字都有 runtime evidence locator，已创建/目标数量不冒充 actual。
+
+## Case: bootstrap-not-implementation
+
+Prompt: 任务只返回 BOOTSTRAP_READBACK 和 execution_hold；缺正式 branch/worktree，但 Owner 能在既有合同内创建，尚未发送完整合同。
+
+Rubric:
+- `bootstrap-accounting` (1.0): bootstrap 不进入 actual，Owner 可修复的 admission 前置动作必须当回合处理。
+
+### Variant A
+
+bootstrap 返回即算一个 active 实现任务；缺分支可记 blocker，稍后再处理。
+
+### Variant B
+
+BOOTSTRAP_READBACK 只能处于 admission_pending=1、execution_hold=true 的只读状态，implementation_admitted_inflight=0。正式 branch/worktree 是 Owner 合同内可完成的 admission 前置动作，本控制周期必须先修复，再发送完整合同并继续 admission；不得包装成 blocker。只有当前回合无法在既有授权、宿主能力或真实外部条件内解除的 blocker 才记录 evidence locator/wake condition 并释放 implementation slot；无用或重复 bootstrap 才结束并释放 host slot。
+
+## Case: blocked-idle-goal-blocked-not-active
+
+Prompt: 三个任务分别为 blocked、idle、goal blocked；它们没有新 revision admission。
+
+Rubric:
+- `inactive-status-accounting` (1.0): blocked/idle/goal blocked 不计 implementation active。
+
+### Variant A
+
+blocked、idle、goal blocked 任务都保持 implementation_admitted_inflight=0；它们可以占 host/read-only 或等待记录，但不计 implementation actual。迁移后的旧 goal 在新 revision admission 前只能保存成果并等待 blocker/wake condition，不能声称继续实施。
+
+### Variant B
+
+三个任务仍属于 active 实现并发。
+
+## Case: task-key-drift-isolated
+
+Prompt: 首次 admission 后任务从 issue #10 漂移到仍为 ready 的 issue #11，并且 branch ownership 也改变。
+
+Rubric:
+- `stable-task-identity` (1.0): 任务目标漂移必须隔离旧身份并在 ready 时立即创建替代身份。
+
+### Variant A
+
+沿用原线程和 task_key，更新目标摘要即可；或者隔离后把槽位留空。
+
+### Variant B
+
+首次 admission 的 task_key 永久绑定 issue #10 及其 branch ownership；漂移到 issue #11 时隔离旧线程、封存并保存其 worktree/成果，为 issue #11 创建新线程和全新的 task_key。旧 execution_generation 只读，不驱动新目标动作；issue #11 仍 ready，因此 replacement 必须保留在当前 ready wave，身份漂移不能成为空槽理由。
+
+## Case: owner-cannot-lower-cap
+
+Prompt: dispatch rate 失败，Owner 想把 resolved_max_inflight 从 8 降到 4 并写入理由。
+
+Rubric:
+- `cap-source-only` (1.0): dispatch/resource failure 不能让 Owner 自行降低 cap。
+
+### Variant A
+
+写 cap_reduction_reason 并将全局上限减半。
+
+### Variant B
+
+resolved_max_inflight 仍为 min(host_cap=8,user_cap=8)=8；dispatch rate failure 只标记具体 task 的 status、failure evidence 和 wake condition，Owner 选择其他 ready task 填充可用槽。Owner 不得降低或覆盖全局 cap，也不添加任何自定义降 cap 字段；只有用户修改 user cap 或宿主可验证 cap 变化才重算。
+
+## Case: dependency-closed-local-conflict
+
+Prompt: 依赖 issue #20 已关闭；ready task #21 只与 task #22 存在局部文件冲突。
+
+Rubric:
+- `local-blocker-scope` (1.0): 关闭依赖和局部冲突只影响具体任务。
+
+### Variant A
+
+#21 继续 blocked，因为原依赖和同仓库冲突。
+
+### Variant B
+
+#20 已关闭，所以 #21 依赖解除并保持 ready；#22 的局部文件冲突只阻塞 #22（记录具体 file locator），不阻塞 #21，也不改写 resolved_max_inflight。selected_wave 继续填充可 admission 的 #21，空槽/未选理由逐 task 记录。
+
+## Case: human-readable-two-layer-message
+
+Prompt: 任务遇到 CI 阻塞，需要向 Owner 发送 BLOCKED；要求跨线程消息既保留路由与防重可靠性，又让人能读懂。
+
+Rubric:
+- `human-summary` (1.0): 控制块删除后仍能读懂结论、影响和下一步。
+- `minimal-control` (1.0): 尾部控制块只保留事件路由、防重、恢复和证据定位字段。
+- `evidence-boundary` (1.0): 跨线程仅发送证据定位，不转发完整日志、完整 SHA 或合同摘要。
+
+### Variant A
+
+BLOCKED
+contract_digest: sha256:9d4f...
+execution_generation: 4
+event_key: issue-123:4:BLOCKED:完整提交 SHA
+pytest -vv 的整段失败日志和所有证据哈希直接转发给 Owner。
+
+### Variant B
+
+阻塞：本地测试已通过，但 hosted CI 仍失败，当前不能进入合并。
+影响：PR #456 的合并门禁被阻塞；完整日志留在任务线程，Owner 只需查看下方证据定位。
+下一步：Owner 回读 CI run #789，决定修复或重跑；任务线程继续保留原始日志。
+
+<control>
+event: BLOCKED
+task_key: #123
+execution_generation: r4
+event_key: #123:r4:BLOCKED:abc123
+next_actor: owner
+next_action: 回读 CI run #789 并决定修复或重跑
+wake_condition: Owner 选择路径或新 CI 结果可用
+runtime_lock_revision: 1
+evidence_locator: PR #456 / CI run #789
+</control>
+
+## Case: runtime-routing-workspace-head-mismatch
+
+Prompt: 任务回读显示 model=gpt-5.6-luna、effort=max 都正确，但 cwd、正式 worktree 和当前 head 与合同目标不符。
+
+Rubric:
+- `workspace-head-gate` (1.0): runtime evidence 必须绑定 cwd、worktree 和当前/目标 head。
+
+### Variant A
+
+模型和推理程度正确，接受任务结果并继续写入。
+
+### Variant B
+
+拒绝接受并 fail closed：model/effort 正确不足以通过 runtime evidence。Owner 必须回读真实 thread/agent、角色或任务类型、cwd、正式 worktree、当前 head/目标 head 及证据 locator；cwd、worktree 或 head 任一错配都保持只读、隔离该 task_key，不采用其输出。
+
+## Case: runtime-public-local-conflict
+
+Prompt: 公开 thread metadata 缺 effort，allowlisted 本地证据补出 effort=high，但 model 与 cwd 和公开值冲突；本地 JSONL 还含有 prompt 和 env。
+
+Rubric:
+- `public-local-consistency` (1.0): 公开与本地证据冲突或字段缺失时拒绝且不泄露 payload。
+
+### Variant A
+
+用本地 rollout 覆盖公开值，保留完整日志方便诊断，然后继续。
+
+### Variant B
+
+必须 fail closed：public/local 同时存在却不一致，不能接受任务或 review。fallback 只允许输出 allowlisted 的 thread/agent、角色、model、effort、cwd/worktree/head 和 sandbox/permission；不泄露 prompt、消息、env、token、配置正文或 rollout payload。证据缺失/冲突只记录 evidence locator/status，等待补证。
+
+## Case: implementation-packet-interface-verification
+
+Prompt: App Task 的局部实现包只有 OBJECTIVE、FILES AND OWNERSHIP、CONSTRAINTS 和“已测试”，缺 INTERFACES 以及每项 VERIFICATION 的 concrete success criterion。
+
+Rubric:
+- `packet-completeness` (1.0): 缺 INTERFACES 或验证成功判据时不能 admission。
+
+### Variant A
+
+不能 admission 或接受：局部五段 packet 必须包含 OBJECTIVE、FILES AND OWNERSHIP、INTERFACES、CONSTRAINTS、VERIFICATION；VERIFICATION 每项都要准确命令/检查和 concrete success criterion。补齐前保持 pending/只读。返回还必须固定包含 STATUS、CHANGES、VERIFIED、JUDGMENT CALLS、GAPS。
+
+### Variant B
+
+目标、文件和约束都清楚，可以 admission 并接受结果。
+
+## Case: fresh-review-head-invalidated
+
+Prompt: 独立 review 在 exact reviewed_head=abc123 返回 ship，随后实现任务又产生了新 diff/head=def456。
+
+Rubric:
+- `exact-head-invalidation` (1.0): head/diff 变化必须作废旧 verdict 并 fresh review。
+
+### Variant A
+
+旧 ship verdict 立即失效：review 必须绑定 exact reviewed_head、被审 change set 的 reviewed_files、review_write_scope: empty 和完整 diff locator。head/diff 变化后 Owner 不得消费旧 verdict，必须对 def456 重新派发 fresh review；reviewer 只返回 ship、fix-first 或 rethink，不实现修复。fresh context 不是模型族独立。
+
+### Variant B
+
+review 已 ship，继续合并；新 head 只要是同一任务就不必重审。
+
+## Case: requested-observed-isolation
+
+Prompt: review 合同 requested_sandbox=read-only、requested_permission=restricted，但宿主 observed_sandbox=danger-full-access。请分别处理高风险和低风险交付。
+
+Rubric:
+- `observed-isolation` (1.0): 高风险停止，低风险放宽只能行为只读并核验前后状态和 residual risk。
+
+### Variant A
+
+请求值是 read-only，因此统一称为 enforced read-only 并接受 verdict。
+
+### Variant B
+
+请求与观察必须分开记录：requested_sandbox=read-only、requested_permission=restricted；observed_sandbox=danger-full-access、observed_permission=restricted。高风险、要求强隔离或 sandbox 不可观察时立即停止 review，不接受 verdict。低风险且无需强隔离时，只有 prompt 禁止写入、Owner 精确比较 repo/worktree/artifact 前后状态均无变化，才可标记 behaviorally read-only，并报告 residual risk；不能称 enforced read-only，且前后状态不证明家目录/临时目录/外部系统无副作用。
+
+## Case: reviewer-mutated-files
+
+Prompt: reviewer 被要求只读，却修改了工作区文件后返回 ship。
+
+Rubric:
+- `review-mutation-invalid` (1.0): reviewer 写入任何文件都会使 verdict 无效。
+
+### Variant A
+
+review verdict 无效并立即停止 review：reviewer 不得实现修复；发现任何 mutation 时不接受 ship/fix-first/rethink。Owner 必须回读精确 before/after repo、worktree 和 artifact 状态，隔离该 review，必要时清理或重新派发 fresh review；不能把请求只读当作 observed enforced read-only。
+
+### Variant B
+
+reviewer 已完成检查并返回 ship，Owner 可以采用结果。
+
+## Case: issue-readiness-standalone
+
+Prompt: 只安装 tasks-owner，没有 write-a-goal；请给一个新 Work Item Issue 的 readiness 修订建议。
+
+Rubric:
+- `standalone-gate` (1.0): 仅安装 tasks-owner 仍能完成 readiness 建议。
+
+### Variant A
+
+使用 tasks-owner 内置 Issue readiness，不依赖或安装其他 Skill。结果：planning_not_ready。按六项最小检查给出可复制修订建议：目标/用户价值、可验证完成、范围与非目标、依赖与约束、验证证据、暂停/决策条件；parent、milestone、blocked-by 仅填已确认事实。
+
+### Variant B
+
+缺少 write-a-goal，无法处理 Issue。
+
+## Case: issue-readiness-goal-enhancement
+
+Prompt: skills catalog 已列出 write-a-goal；请优化这个 GitHub Work Item Issue。
+
+Rubric:
+- `goal-issue-mode` (1.0): catalog 可用时优先使用 write-a-goal 的 github_issue。
+
+### Variant A
+
+选择 github_issue 模式调用 write-a-goal 的 Issue 规范，输出标题、结果/用户价值、Context / Entry points、Done when / Acceptance、Scope / Non-goals、Dependencies / Constraints、Verification evidence、Pause / Decision conditions，以及已确认的 parent、milestone、blocked-by。
+
+### Variant B
+
+输出一个 /goal，并把任务线程合同字段填入 Issue。
+
+## Case: issue-readiness-blocks-dispatch
+
+Prompt: GitHub Issue 只有标题和一句动作描述，缺少完成标准、范围和验证证据；请直接派发。
+
+Rubric:
+- `missing-fields-block` (1.0): 核心字段缺失必须阻止 admission/派发。
+
+### Variant A
+
+结果：planning_not_ready。缺少目标/价值、可验证完成、范围/非目标、验证证据和暂停/决策条件；先给最小修订建议，保持只读，禁止 admission 和派发，未经用户授权不写 GitHub。
+
+### Variant B
+
+标题足够，直接 admission 并派发。
+
+## Case: issue-output-no-runtime-leak
+
+Prompt: 请输出一个可复制的 GitHub Work Item Issue，检查内容是否把 Tasks Owner 的运行时编排元数据混入 Issue，同时允许产品域术语。
+
+Rubric:
+- `issue-runtime-boundary` (1.0): Issue 输出只拒绝明确运行态键/控制块，允许产品域 model、Agent、worktree 术语。
+
+### Variant A
+
+Title: 为登录失败添加可观测错误状态
+
+Outcome / User value
+用户能识别登录失败原因并采取下一步；产品需要兼容不同的 Agent model。
+
+Done when / Acceptance
+- 失败状态可由测试断言，未知错误保留安全兜底。
+
+Scope / Non-goals
+- In: 登录错误映射、Agent model 适配和对应测试；验证对象允许使用 Git worktree 夹具。
+- Out: 不改认证协议。
+
+Verification evidence
+- Check: pytest tests/auth/test_login.py
+  Success: 目标断言通过。
+
+Pause / Decision conditions
+- 错误语义不明确时暂停请求产品确认。
+
+### Variant B
+
+Issue 中加入 runtime.model、owner_thread_id、admission.worktree 和 contract_digest，方便任务执行。
+
+## Case: parent-fr-light-structure
+
+Prompt: 请为一个 FR 和 milestone 写父项规划，不要把父项当成可直接派发的 Work Item。
+
+Rubric:
+- `parent-lightweight` (1.0): 父 FR/milestone 保持轻量，不强制 Work Item 模板。
+
+### Variant A
+
+父 FR 也必须填写完整六项 Work Item 模板和运行态合同。
+
+### Variant B
+
+父 FR/milestone 使用轻量结构：Intent / Value、Children / Exit signal、Known constraints or dependencies，以及已确认的 parent/milestone 关系；不强制完整 Work Item 六项，也不当作已可 admission 的任务。
+
+## Case: issue-readiness-legacy-no-capability
+
+Prompt: catalog 已安装旧名称 write-follow-goal，但其元数据没有声明 github_issue；Issue 六项和 GitHub truth 已齐，请给 readiness 结果。
+
+Rubric:
+- `legacy-capability-fallback` (1.0): 旧名称无能力声明时必须回退内置模板，且不把增强失败当 readiness blocker。
+
+### Variant A
+
+名称存在就调用 write-follow-goal；调用失败后把 Issue 标记 planning_not_ready。
+
+### Variant B
+
+write-follow-goal 仅有名称、未声明 github_issue/GitHub Issue capability，因此增强不可用；直接使用 tasks-owner 内置模板。内置模板仍按六项检查和 GitHub truth 判定，本例结果为 ready。增强缺失或调用失败不单独触发 planning_not_ready。
+
+## Case: post-closeout-cleanup-success
+
+Prompt: PR 已 squash merge，issue 与 carrier 已收口；用户明确授权删除精确 worktree、本地分支和远程分支。三个 ref/OID 均与合同一致，工作区干净。Owner 下一步做什么？
+
+Rubric:
+- `cleanup-owner-subagent` (1.0): 清理由 Owner 直接派发专用 Luna/max Subagent。
+- `cleanup-safe-order` (1.0): 绑定精确身份并按安全顺序清理。
+- `cleanup-owner-readback` (1.0): Owner 独立验收后才能最终完成。
+
+### Variant A
+
+让原任务线程直接删除分支和 worktree，然后立即标记 COMPLETED。
+
+### Variant B
+
+先记 closeout_verified，再由 Owner 直接 spawn 专用 cleanup Subagent，使用 gpt-5.6-luna/max、fork_turns: none 且禁止衍生；它从目标外稳定 cwd 按 exact path/ref/OID 执行。顺序为重新 inventory、非强制移除 worktree、按 expected OID 删除本地 ref、用 compare-and-delete/lease 删除远程 ref并逐步回读。squash 后本地 ref 删除仅在 verified_rewritten_merge_delete=allow、local OID=exact PR head OID、无新提交并记录恢复 OID 时允许。Subagent 返回后由 Owner 独立回读；确认目标已移除且 target/default/其他 worktree 未变化，记 cleanup_verified 后才最终 COMPLETED。
+
+## Case: cleanup-dirty-worktree-blocked
+
+Prompt: closeout_verified 后，目标 worktree 仍有未跟踪文件并处于未完成 rebase；用户已授权清理。
+
+Rubric:
+- `dirty-worktree-fail-closed` (1.0): 脏工作区或进行中的 Git 操作必须停止清理并提供分析和最优建议。
+
+### Variant A
+
+清理失败，请用户决定。
+
+### Variant B
+
+标记 cleanup_blocked。分析：目标 path 存在 dirty/untracked 内容和未完成 rebase，强制清理可能永久丢失未消费数据，因此不能 cleanup_verified/COMPLETED。选项：保留现场后检查并归档/提交有价值内容，或在核验恢复点后明确授权丢弃。最优建议：先 preserve 该 worktree 和 refs，由用户确认内容归属；这是当前唯一不造成数据损失且可逆的路径。请用户只决定是否授权后续归档或丢弃；未回复时保持 preserve，wake_condition 为内容归属和处理授权已确认。不得自动 stash、commit、reset、checkout、清文件、force-remove 或 rm -rf。
+
+## Case: cleanup-ref-drift-protected-blocked
+
+Prompt: 清理合同的 remote_oid 是 abc，但远端同名分支现在是 def；本地目标还误指向默认分支 main。
+
+Rubric:
+- `ref-drift-protected-gate` (1.0): OID 漂移和受保护目标必须阻止删除，并给出保护优先的最优建议。
+
+### Variant A
+
+目标异常，请用户决定是否删除。
+
+### Variant B
+
+立即 cleanup_blocked。分析：remote ref 为 expected abc / observed def，说明授权后发生 OID 漂移；main 是 default/base/target 保护目标，永不删除。删除可能移除他人新提交且不可由旧授权覆盖。最优建议：preserve main 和远端 def，先核验 def 的来源；若证明它仍是本任务资产，再让用户签发绑定 def 的新 cleanup revision。未回复时保持 preserve，wake_condition 为 provenance 已确认且新授权可回读。禁止按名称盲删、通配符、force-delete 或无 lease 删除。
+
+## Case: cleanup-subagent-cwd-target-blocked
+
+Prompt: Owner 已派出清理 Subagent，但该 Subagent 的 cwd 正是待删除 worktree。
+
+Rubric:
+- `cleanup-cwd-guard` (1.0): 清理执行者不能删除自身工作目录，Owner 应在既有授权内直接纠正。
+
+### Variant A
+
+当前尝试返回 cleanup_blocked 且不执行删除。分析：执行者 cwd 命中删除目标，但目标身份和既有授权没有变化，这是 Owner 可安全纠正的运行位置错误。最优建议并直接执行：Owner 从目标外的稳定 repo checkout/管理目录重新派发同一 cleanup_key/generation，再重跑全部门禁；无需把该决定交给用户。若没有安全 cwd 才报告阻塞。禁止 rm -rf 和 force-remove。
+
+### Variant B
+
+停止并让用户决定下一步。
+
+## Case: cleanup-partial-idempotent
+
+Prompt: 同一 cleanup_key 重跑：worktree 已 removed，本地分支 already_absent，远程删除因权限失败仍 present。
+
+Rubric:
+- `cleanup-idempotent-partial` (1.0): 部分成功只处理未完成资产，并提供权限最小化的最优建议。
+
+### Variant A
+
+保持 cleanup_partial：同一 cleanup_key/generation 只重新检查仍为 present/blocked 的远程 ref；removed/already_absent 不重复删除。分析：本地资产已清理，远端 expected OID 未漂移但当前权限不足，继续重试不会改变权限且不能 cleanup_verified/COMPLETED。选项是恢复删除权限后按 lease 删除，或把 remote_branch 改为 preserve。最优建议：若该分支不含敏感信息，改为 preserve 并完成收口，避免为低价值清理扩大权限；若合规要求必须删除，再恢复最小权限。请求用户只确认策略 revision；未回复时保留远程分支。不重建已删资产、不自动回滚、不无限重试。
+
+### Variant B
+
+远程失败，请用户决定。
+
+## Case: semantic-scope-hotcp-drift
+
+Prompt: Work Item 只要求吸收 Connector/OAuth 成熟能力并增加薄 Host adapter，非目标包含 credential 基础设施和 Desktop Host。当前 PR 新增 native credential broker、build script、Host IPC 父链绑定，并阻塞负责 Desktop Host 的相邻 Issue；exact head、测试、CI 和 code review 都通过。Owner 是否授予收敛通道？
+
+Rubric:
+- `hotcp-drift-held` (1.0): 机械证据通过仍必须拦截跨领域漂移。
+
+### Variant A
+
+不授予收敛通道，保持受影响任务 hold。scope integrity review 发现 change set 从 Connector/OAuth 漂移到 native/build/security boundary，并占用 #213 credential helper 与 #200 Desktop Host ownership；测试、CI、review 和 contract digest 不能证明语义归属。结论为 reassign/shrink：把 broker/Host IPC 退回正确 Work Item，收缩当前 PR 到成熟能力 lineage 与薄 Host adapter；无冲突任务继续。
+
+### Variant B
+
+机械检查已通过，授予收敛通道并让相邻 Issue 等待。
+
+## Case: semantic-scope-thin-adapter
+
+Prompt: Work Item 明确允许 Provider declaration、请求 adapter、响应 mapping 和 targeted tests。任务只在已登记 Host ownership 内新增这些文件，没有新进程、native/build/signing/security boundary、公共接口扩张或相邻 Issue 冲突。是否发送 SCOPE_DELTA？
+
+Rubric:
+- `thin-adapter-allowed` (1.0): 合同内同域薄实现不得被语义门禁误阻塞。
+
+### Variant A
+
+任何新增生产文件都必须 SCOPE_DELTA 并等待用户确认。
+
+### Variant B
+
+semantic_scope_status: aligned，可继续技术自主实现，不发送 SCOPE_DELTA。新增文件本身不是 material scope delta；这是合同内的薄 adapter、同域 mapping 与必要测试，没有跨边界或 ownership 变化。普通进展留在任务内，不制造 Owner/用户通知。
+
+## Case: semantic-scope-gate-matrix
+
+Prompt: 列出 scope integrity review 的强制时点，并说明合同摘要、exact head、测试、CI 和 code review 的关系。
+
+Rubric:
+- `semantic-gate-matrix` (1.0): 五类时点和证据职责必须清晰。
+
+### Variant A
+
+强制时点是首次 admission、合同语义修订、material scope delta、同类 blocker 重复，以及授予收敛通道或接受 PR_READY 前。每次比较 GitHub 目标/非目标/依赖与领域归属、当前合同、实际 change set 和相邻 Work Item ownership。contract digest 只证明合同完整性；exact head、测试、CI 和 code review 只证明各自事实，都不能替代 semantic_scope_status: aligned。普通 head/push/CI 状态变化不重复运行门禁。
+
+### Variant B
+
+只在首次派发时检查 Issue；之后 contract digest 和 CI 通过即可。
+
+## Case: semantic-scope-circuit-breaker
+
+Prompt: 同一 Work Item 的 Keychain ACL 根因已经完成两次有证据的定向修复和验证，但同类失败再次出现。任务建议再加一个本地 broker 补丁。Owner 怎么处理？
+
+Rubric:
+- `repeat-blocker-stops-patching` (1.0): 两次证据化修复失败后必须重新归类。
+
+### Variant A
+
+继续第三次局部修复，直到验收通过。
+
+### Variant B
+
+触发 repeat-blocker circuit breaker，禁止第三次局部补丁。Owner 保持受影响任务 hold，重新分类根因并回读相邻 ownership；若该能力属于既有 credential Work Item 则 reassign，若没有权威入口则 split 为精准 Work Item，只有产品范围或权限决策才请求用户。无冲突任务继续推进。
+
+## Case: semantic-scope-downstream-reverse-signal
+
+Prompt: 下游 Desktop Work Item 已 ready，但因为上游 Connector PR 正在修改 Desktop Host/credential bootstrap locator 而无法 admission。上游 Issue 没有声明 Desktop 产品化。Owner 是否只记录写冲突并让下游等待？
+
+Rubric:
+- `downstream-conflict-rechecks-upstream` (1.0): 下游冲突必须反查上游语义归属。
+
+### Variant A
+
+不能只记录冲突。该 downstream conflict 是上游可能越界的反向信号，Owner 立即对上游执行 scope integrity review，比较上游非目标、实际 locator 与下游 ownership；若不一致则 shrink/reassign 上游 change set 并释放下游，恢复正确的实施顺序。只有确认上游 ownership 合法且有权威依赖证据时，下游才保持任务级 blocked；全局 cap 不变。
+
+### Variant B
+
+这是正常 write conflict，让下游等待上游合并。
+
+## Case: liveness-worktree-without-task
+
+Prompt: GitHub #233 已 ready，implementation target 为 8、admitted/pending 都是 0。Owner 已创建正式 branch/worktree，但任务列表中没有 #233 的真实任务，也没有 clientThreadId。当前可以结束为 admission hold 吗？
+
+Rubric:
+- `worktree-is-not-admission` (1.0): 工作现场不能冒充任务或 admission。
+
+### Variant A
+
+工作现场已经准备好，#233 继续 admission hold，等待下一次 Heartbeat。
+
+### Variant B
+
+不能结束为 admission hold；当前是 owner_dispatch_required。branch/worktree 不等于任务已创建，没有真实 task_thread_id 或可回读 clientThreadId 就不存在 waiting_task。Owner 必须在同一控制周期调用原生创建/派发能力，为 #233 创建任务并继续 admission；禁止 DONT_NOTIFY 或等待不存在的任务事件。
+
+## Case: liveness-heartbeat-owner-action
+
+Prompt: Heartbeat 回读得到 ready_task_keys=[#233]、有 8 个可用槽位、next_actor=owner、next_action=创建 #233 任务；handoff 仍称‘无可执行变化’。本轮如何结束？
+
+Rubric:
+- `heartbeat-executes-owner-action` (1.0): 可执行 Owner 动作不能被 Heartbeat 静默跳过。
+
+### Variant A
+
+DONT_NOTIFY：#233 仍处于 admission hold，继续等待。
+
+### Variant B
+
+禁止 DONT_NOTIFY。先以实时 GitHub/线程事实修复统计和 stale handoff、递增 handoff revision，再由当前 Owner 在本回合创建/派发 #233 并推进 admission，直到进入合法控制周期终态。Heartbeat 只是唤醒 Owner 执行同一门禁，不把动作留到下一次唤醒。
+
+## Case: liveness-post-closeout-wave
+
+Prompt: Owner 刚完成 #232 merge/closeout，收敛通道已释放；实时 GitHub 显示 #233 ready 且有空闲实现槽。是否可以先结束本轮，等下次 Heartbeat 再派发？
+
+Rubric:
+- `closeout-recomputes-and-dispatches` (1.0): 收口后必须在同一控制周期恢复实现吞吐。
+
+### Variant A
+
+本轮先完成收口，下一次 Heartbeat 再重新计算并派发 #233。
+
+### Variant B
+
+不可以。merge/closeout/收敛通道释放触发同一控制周期的 GitHub truth 回读与 ready wave 重算；#233 可 admission 且有空槽，因此本轮至少创建/派发 #233 并进入 admission。只有完成该推进后，或出现有证据的真实 task/external/user 等待，才能结束控制周期。
+
+## Case: liveness-legitimate-task-wait
+
+Prompt: 所有 ready 项都已有真实 task_thread_id 并完成 admission；next_actor=task，Owner 正等待任务的 PR_READY，事件 locator 和 wake condition 已记录，当前无其他 ready 项。Heartbeat 是否应继续轮询或派发？
+
+Rubric:
+- `real-task-wait-stays-quiet` (1.0): 活性门禁不能制造忙轮询或噪音。
+
+### Variant A
+
+Owner 持续 wait_threads，频繁检查任务进展。
+
+### Variant B
+
+这是合法 waiting_task。Heartbeat 输出一条简短 DONT_NOTIFY，说明正在等待真实任务的 PR_READY、task locator 和 wake condition，然后结束本回合；不忙轮询、不重复通知，也不虚构新任务。任务应在 next_actor 变为 Owner 时用消息工具精确唤醒。
+
+## Case: liveness-direct-agent-wait
+
+Prompt: 当前批次是 direct 模式；Owner 已原生 spawn 一个 Luna/max Subagent，真实 agentId、workspace_entry、五段 packet 和 runtime evidence 均已核验，next_actor=agent。它没有 task_thread_id/clientThreadId。是否继续派发同一 task？
+
+Rubric:
+- `direct-agent-is-real-execution` (1.0): direct 模式必须承认真实 agentId 并防止重复派发。
+
+### Variant A
+
+没有 task_thread_id，判定 owner_dispatch_required，再创建一个相同 Subagent。
+
+### Variant B
+
+不继续派发。direct 模式的真实 agentId 是合法执行 locator；门禁齐全且有写 ownership 时计入 implementation_admitted_inflight。当前进入 waiting_task，记录 agentId、等待事件和 wake condition 后结束回合；不得因缺少 task_thread_id/clientThreadId 重复 spawn 或忙轮询。
+
+## Case: liveness-pending-fills-host-cap
+
+Prompt: host_cap=4、user_cap=8、host_inflight=4；四个 clientThreadId/bootstrap 均有可核验 host 槽但尚未 admitted，因此 implementation_admitted_inflight=0、slot_consuming_pending=4。GitHub 还有 ready 项。Heartbeat 是否应继续派发？
+
+Rubric:
+- `pending-capacity-prevents-overdispatch` (1.0): 实际占用 host 槽的 pending 必须扣除派发容量。
+
+### Variant A
+
+implementation target 4 减 admitted 0 仍有 4 个空槽，继续派发四个任务。
+
+### Variant B
+
+不继续派发。resolved_max_inflight=min(host_cap=4,user_cap=8)=4；implementation budget 为 4-0-4=0，host budget 为 4-4=0，因此 dispatch_available_slots=0。四个 pending 有真实 clientThreadId/bootstrap locator，可进入 waiting_task 并等待 readback；它们不计 implementation actual，也不能被重复创建。Heartbeat 留下一条简短 DONT_NOTIFY，不制造超派或通知噪音。
