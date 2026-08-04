@@ -34,19 +34,44 @@ Owner 是唯一派发者；一个 Owner 只维护一个绑定它的 Heartbeat，
    - `read_only_inflight`：只读探索、review 或无写 ownership 的在途任务。
    - `admission_pending`：`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、ACK/release/STARTED 未核验或 `clientThreadId` 待创建的任务。
    - `implementation_target_cap`：本控制周期要填充的实现目标，必须等于 `resolved_max_inflight`，不是实际活跃数。
-   - `implementation_admitted_inflight`：只有真实 `task_thread_id`、正式 branch/worktree、稳定 `task_key`、完整合同、ACK/release/STARTED 已核验且存在写 ownership 的 `admitted/active` 任务。
+   - `implementation_admitted_inflight`：App 任务必须有真实 `task_thread_id`、正式 branch/worktree、稳定 `task_key`、完整合同、ACK/release/STARTED 与写 ownership；`direct` 必须有真实 `agentId`、workspace_entry、五段 packet、已核验 runtime evidence 与写 ownership。两者只有 `admitted/active` 才计 actual。
    - `resolved_max_inflight`：唯一全局实现上限，按第 2 条求得。
    `read_only_inflight`、`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、`clientThreadId`、`idle`、`blocked` 和 `goal blocked` 均不计入 `implementation_admitted_inflight`；目标数量或已创建数量不得冒充 actual。
-4. 完整计算 `ready_task_keys` 后，从可 admission 的 ready task 按优先级填充 `selected_wave`，直到 `implementation_target_cap - implementation_admitted_inflight` 没有空槽，或没有额外可 admission 的 ready task。`actual_wave_width` 只记录本波真实完成 admission 的任务数。每个空槽和每个未选 `task_key` 必须有精确、任务级 `not_selected_reason` 及 `dependency_locator`、具体冲突定位、授权/合同缺口、容量证据或 wake condition；不得用同仓库、同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎或 Owner 偏好作理由。
+   另记录两个派生量：`slot_consuming_pending` 只统计已有可核验 host 槽、但尚未成为 implementation actual 的 `clientThreadId`、bootstrap/pending task 或 direct runtime readback；`dispatch_available_slots = max(0, min(resolved_max_inflight - implementation_admitted_inflight - slot_consuming_pending, host_cap - host_inflight))`。`host_cap` 缺失时忽略第二项。不得重复扣除同一执行单元，也不得把没有 host locator 的计划计入 pending。
+4. 完整计算 `ready_task_keys` 后，从可 admission 的 ready task 按优先级填充 `selected_wave`，直到 `dispatch_available_slots == 0`，或没有额外可 admission 的 ready task。`actual_wave_width` 只记录本波真实完成 admission 的任务数。每个空槽和每个未选 `task_key` 必须有精确、任务级 `not_selected_reason` 及 `dependency_locator`、具体冲突定位、授权/合同缺口、容量证据或 wake condition；不得用同仓库、同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎或 Owner 偏好作理由。
 5. 若 ready task 数量多于可用槽位，按可验证的硬依赖、具体写入/公共合同冲突、防重或用户 hold 选择；这些原因只阻塞具体 task，不改变 cap。已关闭依赖不再阻塞后继 task；局部文件/接口冲突只阻塞相冲突的 task，其余 ready task 继续填充。`selected_wave` 少于可用槽位时必须留下每个空槽对应的精确 task-level blocker。
 6. 一个 task 默认只绑定一个可独立 closeout 的 issue，或一个紧密 FR batch/implementation PR。跨多个连续 PR 的 milestone 超级任务必须拆成各自稳定身份；不得把项目级调度隐藏进 hierarchical 任务内部。
 7. 对选中且已通过 Issue readiness 的任务并发执行非阻塞创建；GitHub 仓库默认使用独立 worktree。返回 `clientThreadId` 时只占 `host_inflight`/`admission_pending`（若宿主已占槽），不能计入实现 actual，也不能当作真实线程 ID。派发后统一回读项目、模型、推理程度、目标、正式 branch/worktree、`workspace_entry`、真实 `threadId` 和 `task_key`；依次核验匹配 revision/digest/runtime lock 的合同 ACK、release ACK、`STARTED` 后，才将任务记为 `admitted/active`。`planning_not_ready` 任务不得进入此步骤。
 8. `BOOTSTRAP_READBACK` 返回并唤醒 Owner 后按固定优先级处理：若缺口是 Owner 合同内可完成的 branch、worktree、workspace_entry、合同构造或只读 runtime/GitHub 核验，本控制周期必须先完成这些动作并继续发送完整合同进入 admission，不得把流程前置条件写成 blocker。只有当前回合无法在既有授权、宿主能力或真实外部条件内解除的 blocker，才记录 evidence locator/wake condition 并释放 implementation slot；bootstrap 无用或重复时才结束并释放 host slot。不得无限保持 `execution_hold`，不得将 bootstrap/hold 计为 active。
 9. rate、resource、worktree、duplicate 或 dispatch failure 只在具体 task 上记录 `status`、failure evidence 和 wake condition；可选择其他 ready task 填充空槽。失败不得触发全局 cap 变化、动态减半或自动降档；同一 task 的补偿重试必须保持 `task_key` 不变并记录新的 `dispatch_generation`，身份错配则隔离并新建 task_key。
-10. merge、依赖解除、收敛通道释放、任务完成或阻塞后，重新回读 GitHub truth 并重新计算 ready wave、六项统计、理由和宽度；旧波次记录只读，不沿用过期选择。
+10. merge、依赖解除、收敛通道释放、任务完成或阻塞后，在同一控制周期重新回读 GitHub truth、重新计算 ready wave、六项核心统计、两个派生槽位量、理由和宽度，并继续完成下一项可执行派发或落入下述合法等待终态；旧波次记录只读，不沿用过期选择。
 11. Owner 不得自行降低 cap，也不得以“并发提升/扩张”描述目标。只能报告 `implementation_target_cap`、`implementation_admitted_inflight`、`resolved_max_inflight` 和各自 evidence locator；只有用户修改 user cap 或宿主可验证 cap 变化才允许改变 resolved 值。
 
-`direct` 使用稳定 `task_name` 和原生 `spawn_agent` 填充 ready wave，显式传递已确认模型、推理程度与 `fork_turns: "none"`，并把真实 agent ID/规范任务名写入 checkpoint；派发后回读 runtime evidence，且 prompt 必须包含完整五段 packet。`hierarchical` 的任务线程使用相同规则创建 Subagent，每个下游单元也必须有五段 packet。单个 Subagent 失败或 evidence 错配只隔离对应 `task_key`。
+`direct` 使用稳定 `task_name` 和原生 `spawn_agent` 填充 ready wave，显式传递已确认模型、推理程度与 `fork_turns: "none"`，并把真实 agent ID/规范任务名写入 checkpoint；派发后回读 runtime evidence 和五段 packet，门禁齐全后计入 implementation actual。`hierarchical` 的任务线程使用相同规则创建 Subagent，每个下游单元也必须有五段 packet。单个 Subagent 失败或 evidence 错配只隔离对应 `task_key`。
+
+## 控制周期活性门禁
+
+Owner 每个控制周期只能以以下一种状态结束：
+
+- `progressed`：本周期完成了真实状态转换，重新计算后已没有可立即执行的 Owner 动作；
+- `waiting_task`：按模式存在真实 `task_thread_id`/`agentId`，或宿主已返回可回读的 `clientThreadId`，并记录等待事件与 locator；
+- `waiting_external`：存在当前回合无法解除的真实外部条件、证据定位和 wake condition；
+- `waiting_user`：确实需要用户决定产品、权限、风险或外部动作边界。
+
+若 `ready_task_keys` 非空、`dispatch_available_slots > 0`，且某个可 admission 的 ready task 没有
+对应模式的真实任务/agent 或待创建 locator，状态就是
+`owner_dispatch_required`：Owner 必须在本周期调用原生创建/派发能力并继续 admission。仅创建
+branch、worktree、workspace 或合同草稿不算任务已创建，也不能进入 `waiting_task`、admission hold
+或 `progressed` 终态。选中项存在真实任务级 blocker 时，将其附证据移出本轮选择，立即用其他
+ready task 填槽；所有 ready 项都有真实 blocker 时才可进入 `waiting_external`/`waiting_user`。
+
+结束前执行一次交叉校验：ready/selected、真实 task/agent locator、`admission_pending`、
+`implementation_admitted_inflight`、`slot_consuming_pending`、`dispatch_available_slots`、
+`next_actor`/`next_action` 与 handoff revision 必须
+相互一致。实时 GitHub、线程或 worktree 事实比 handoff 新时，先修复 checkpoint/handoff 并递增
+revision；统计矛盾、handoff 漂移或 `next_actor=owner` 且动作仍可执行都不是合法等待。Heartbeat
+遵守同一门禁；它负责唤醒 Owner 执行门禁，不产生另一套状态机。不得用持续 `wait_threads`、忙轮询
+或重复通知维持活性。
 
 ## 持续语义纠偏与 scope integrity
 
@@ -110,7 +135,7 @@ task_key -> clientThreadId -> dispatch_generation -> host_slot_status
 task_key -> contract_revision/digest/owner_runtime_lock/runtime_lock_revision/ack_message_id/release_message_id/release_ack_message_id/status
 task_key -> workspace_entry
 task_key -> runtime_evidence_locator/status/target
-wave_id / ready_task_keys / selected_wave / actual_wave_width / host_cap / user_cap / resolved_max_inflight / implementation_target_cap / implementation_admitted_inflight / host_inflight / read_only_inflight / admission_pending / not_selected_reason / dependency_locator / last_capacity_failure
+wave_id / ready_task_keys / selected_wave / actual_wave_width / host_cap / user_cap / resolved_max_inflight / implementation_target_cap / implementation_admitted_inflight / host_inflight / read_only_inflight / admission_pending / slot_consuming_pending / dispatch_available_slots / not_selected_reason / dependency_locator / last_capacity_failure
 convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 semantic_scope_checkpoint / semantic_scope_trigger / semantic_scope_status / semantic_scope_evidence / planning_truth_locator / contract_scope_locator / observed_change_locator / adjacent_ownership_locator
 cleanup_policy / cleanup_authority_locator / cleanup_inflight / cleanup_key / cleanup_generation / cleanup_status / cleanup_evidence_locator

@@ -83,15 +83,23 @@ admission_pending
 implementation_target_cap
 implementation_admitted_inflight
 resolved_max_inflight
+slot_consuming_pending
+dispatch_available_slots
 ```
 
 `implementation_target_cap` 必须等于当前 `resolved_max_inflight`，是本周期要
-填充的目标而不是实际数量。`implementation_admitted_inflight` 只统计具备真实
-task thread、稳定 `task_key`、正式 branch/worktree、完整合同、已核验
-contract ACK/release ACK/STARTED 和写 ownership 的 `admitted/active` task。
+填充的目标而不是实际数量。`implementation_admitted_inflight` 统计两类真实
+`admitted/active`：App task 具备真实 task thread、稳定 `task_key`、正式
+branch/worktree、完整合同、已核验 ACK/release/STARTED 和写 ownership；`direct`
+具备真实 `agentId`、workspace_entry、五段 packet、已核验 runtime evidence 和写 ownership。
 只读任务、`BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、
 `clientThreadId`、`idle`、`blocked`、`goal blocked` 一律不计入 implementation
 actual；目标 cap、已创建线程、host 槽或等待 admission 都不得冒充 actual。
+
+`slot_consuming_pending` 只统计已有可核验 host 槽但尚未成为 actual 的创建、
+bootstrap、pending contract 或 direct runtime readback。`dispatch_available_slots` 按
+[operations.md](operations.md#ready-wave并发统计与防重) 的公式计算；满 host cap 的 pending
+可以合法等待，不能重复创建或制造 Owner 动作。
 
 `task_key` 在首次 admission 后永久绑定一个 GitHub issue、FR、milestone 或紧密
 batch；不得跨目标、branch 或写 ownership 复用线程。目标或身份错配时封存旧
@@ -103,7 +111,7 @@ batch；不得跨目标、branch 或写 ownership 复用线程。目标或身份
 
 Owner 先完整回读 `ready_task_keys`，再按硬依赖、具体写入/公共合同冲突、防重
 或用户 hold 选择波次。`selected_wave` 必须填到
-`implementation_target_cap - implementation_admitted_inflight` 的所有可用槽，
+`dispatch_available_slots` 的所有可用槽，
 直到没有额外可 admission 的 ready task。每个空槽和未选 task 都必须写精确的
 任务级 reason、dependency/冲突 locator、容量证据或 wake condition；同仓库、
 同 milestone、同 target、`hierarchical`、单一收敛通道、一般谨慎和 Owner 偏好
@@ -195,6 +203,11 @@ Owner: read_thread + GitHub truth 核验 → admitted → Owner 可结束回合�
 ## Bootstrap hold
 
 新任务的初始消息只用于建立执行现场，必须包含主 Owner ID、`task_key`、目标摘要和 `execution_hold: true`，要求任务保持只读、只回报真实 `task_thread_id`、branch/worktree/head、模型与推理程度后结束当前回合。恢复、模式切换或模型覆盖时先发送同样的 hold。
+
+`execution_hold` 只存在于已创建的真实任务中。branch、worktree、workspace 或合同草稿已存在，
+但既没有真实 `task_thread_id` 也没有宿主返回的可回读 `clientThreadId` 时，状态必须是
+`owner_dispatch_required`，不是 bootstrap、admission hold、`waiting_task` 或 active；Owner 应在同一
+控制周期创建任务，而不是等待 Heartbeat、用户或不存在的任务事件。
 
 Owner 从该回报构造 `workspace_entry = task_thread_id + branch + absolute_worktree + head`，回读后只存入 Owner checkpoint/App 运行态；除非适用的 `AGENTS.md` 明确要求，不写入 GitHub 或仓库。它不是宿主原生字段。
 
@@ -294,7 +307,7 @@ runtime_lock_revision
 
 修复错配时先从当前 canonical contract 重新计算唯一权威 digest：若合同内容变化则递增 revision，再完整重发 hold/contract/ACK/release；不得只要求任务接受某个已有 digest。
 
-首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。任一项缺失都停在 `pending_contract`，不以标题、摘要或 `clientThreadId` 替代事实。
+首次写入还要求真实 `task_thread_id != owner_thread_id`、正式 branch/worktree、已回读的 workspace_entry，以及模型/推理策略一致。真实任务已创建但上述任一 admission 项缺失时停在 `pending_contract`；尚无真实任务/可回读 `clientThreadId` 时仍是 `owner_dispatch_required`，不得用 branch、worktree、标题、摘要或计划冒充 pending/admitted 事实。
 
 Owner 收到任务消息后，必须先 `read_thread` + GitHub truth 核验，再检查当前 trigger/合同/change set 的 semantic scope checkpoint，仅在 `next_actor=owner`、`semantic_scope_status: aligned` 且存在已授权动作时继续原动作；`SCOPE_DELTA` 或过期 checkpoint 则先纠偏。Owner 当前回合在线时可用 `wait_threads` 降低延迟，但不能替代投递或核验。普通非 Heartbeat Owner 回合若仍由 task/external 继续，可静默更新 checkpoint，不回复“已回读”“继续等待”或重复状态摘要。Heartbeat 只补 pending、漏投和漂移恢复，不承担正常 admission；Heartbeat 回合仍须留下唯一短 heartbeat 结果；用户只在主动询问、需要其决定、出现真实 blocker/风险、执行外部可见动作或完成 closeout 时收到状态。
 
