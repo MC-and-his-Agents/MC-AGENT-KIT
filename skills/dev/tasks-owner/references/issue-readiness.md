@@ -1,8 +1,9 @@
 # Work Item Issue readiness 门禁
 
-这是 `tasks-owner` 内置、可独立安装的规划门禁。它只判断 GitHub Work Item Issue 是否足以
+这是 `tasks-owner` 内置、可独立安装的规划质量门禁。它只判断 GitHub Work Item Issue 是否足以
 进入后续 Owner admission，不替代 GitHub truth、运行态合同、审查或 closeout。`write-a-goal`
-的 `github_issue` 是可选增强；缺失时本文件的模板仍必须可工作。
+的 `github_issue` 是可选增强；缺失时本文件的模板仍必须可工作。Owner 的控制循环、恢复门禁
+和合法等待终态以 [operations.md](operations.md) 为单一事实源。
 
 ## 门禁边界
 
@@ -15,6 +16,13 @@
   admission/派发。
 - readiness 为必要而非充分条件。即使结果为 `ready`，仍须完成 tasks-owner 的 branch、
   worktree、合同、ACK/release/STARTED、runtime evidence 和用户授权门禁。
+
+## Outcome-first shaping
+
+`planning_not_ready` 只阻止 implementation admission，不是目标级 external blocker；Owner 的
+控制循环、恢复门禁和合法等待终态以 [operations.md](operations.md) 为准。规划结果应优先形成最小、
+可独立 admission 的 Work Item，并保留真实 GitHub 归属、验收、范围和验证证据；不为填并发 cap 制造
+空 Issue。缺产品含义、优先级或风险决策时请求用户，缺事实时使用只读调查。
 
 ## 六项最小检查
 
@@ -85,7 +93,10 @@ Issue 草案和修订建议不得把 Tasks Owner/Codex 的运行时编排或 adm
 
 ## 结果处理
 
-- `planning_not_ready`：列出缺失项、事实定位和最小修订建议；保持只读，禁止 admission/派发。
+- `planning_not_ready`：列出缺失项、事实定位和最小修订建议；始终禁止该 Work Item 的
+  implementation admission/派发。若 `confirmed_owner_authority` 已明确包含 GitHub planning writes，
+  Owner 可把它归为 `owner_actionable`，直接修订/创建 Issue 后重跑本门禁；否则保持只读并请求相应
+  授权或产品决策。
 - `ready`：列出六项检查与 GitHub truth locator；把结果交给后续 runtime/admission gate，
   不把 ready 当作已派发或已获得写入权。
 - 任何“用户授权写 GitHub”的请求仍需单独回读目标、动作范围和可验证结果；readiness 本身

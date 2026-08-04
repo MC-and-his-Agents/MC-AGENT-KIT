@@ -47,17 +47,18 @@ npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills -
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
 | [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
-| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.15.0 | 将当前 Codex App 对话初始化为 GitHub 项目的长期总负责 Owner，负责读取 milestone、FR、issue 真相，以 Work Item readiness 和持续 scope integrity 门禁校验目标、合同、实际 change set 与相邻 ownership，再选择 direct、flat 或 hierarchical 模式调度、纠偏、审查、收口和执行获授权的现场清理。 |
+| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.16.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
 ## Tasks Owner 工作流
 
-[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) 将当前 Codex App 对话设为 GitHub
-项目的长期 Owner。它在 admission 前执行 Issue readiness 门禁，并持续比较 GitHub 真相、
-执行合同、实际 change set 与相邻 ownership，再选择 `direct`、`flat` 或 `hierarchical` 模式，
-将每个依赖就绪波次填充到已确认的并发上限，核验跨线程投递和 exact-head review，并在
-merge/closeout 收敛前拦截语义漂移。
+[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) 将当前 Codex App 对话设为结果负责的
+GitHub 项目 Owner。它同步实时事实，把差距分类为 `execution_ready`、`owner_actionable` 或
+`external_blocked`，在 `confirmed_owner_authority` 内形成或修订 Work Item，并在同一控制循环中推进
+派发、监督、收敛、closeout、cleanup 和后继规划。`planning_not_ready` 只阻止 implementation
+admission；目标未完成且没有 admitted/pending 工作时必须由 Owner recovery。`ready=0`、旧 handoff、
+branch 或 worktree 不能单独构成等待理由。
 
 closeout 验证完成后，Owner 可派出专用 Luna/max Subagent，只清理由用户精确授权的
 worktree、本地分支和远程分支。exact path/ref/OID 门禁会保护脏、仍在使用、发生漂移、

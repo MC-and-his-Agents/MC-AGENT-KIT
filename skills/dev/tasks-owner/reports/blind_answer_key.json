@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "seed": "yao-output-eval-blind-v1",
   "summary": {
-    "pair_count": 69,
-    "with_skill_expected_count": 69,
+    "pair_count": 79,
+    "with_skill_expected_count": 79,
     "baseline_expected_count": 0
   },
   "answers": [
@@ -621,6 +621,96 @@
     },
     {
       "case_id": "liveness-pending-fills-host-cap",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-recovery-shape-readiness-dispatch",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-owner-actionable-over-external",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-planning-not-ready-revise-authorized",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-handoff-external-reclassified",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-closeout-forms-successor",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-all-external-quiet",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-hotcp-heartbeat-recovery",
+      "variant_a_role": "with_skill",
+      "variant_b_role": "baseline",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "A",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "outcome-scorace-recovery-admission",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "execution-ready-before-runtime-bootstrap",
+      "variant_a_role": "baseline",
+      "variant_b_role": "with_skill",
+      "expected_winner_role": "with_skill",
+      "expected_winner_variant": "B",
+      "score_winner_role": "with_skill",
+      "delta": 100.0
+    },
+    {
+      "case_id": "heartbeat-owner-effectiveness-review",
       "variant_a_role": "baseline",
       "variant_b_role": "with_skill",
       "expected_winner_role": "with_skill",

@@ -2,16 +2,22 @@
 
 This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `69`
+- Cases: `79`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `69`
+- Blind A/B pairs: `79`
 - Gate pass: `True`
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
 Run output review adjudication after reviewer decisions are recorded; pending cases should stay pending rather than being counted as human agreement.
+
+## Evidence Boundary
+
+- The 79 results grade deterministic `recorded_fixture` assertions; they are not provider/model execution evidence.
+- Provider/model execution: `missing evidence`.
+- Human blind-review decisions: `missing evidence` (all pairs remain pending).
 
 ## Case Results
 
@@ -86,6 +92,16 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | liveness-legitimate-task-wait | 0.0 | 100.0 | 100.0 | with_skill | None |
 | liveness-direct-agent-wait | 0.0 | 100.0 | 100.0 | with_skill | None |
 | liveness-pending-fills-host-cap | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-recovery-shape-readiness-dispatch | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-owner-actionable-over-external | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-planning-not-ready-revise-authorized | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-handoff-external-reclassified | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-closeout-forms-successor | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-all-external-quiet | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-hotcp-heartbeat-recovery | 0.0 | 100.0 | 100.0 | with_skill | None |
+| outcome-scorace-recovery-admission | 0.0 | 100.0 | 100.0 | with_skill | None |
+| execution-ready-before-runtime-bootstrap | 0.0 | 100.0 | 100.0 | with_skill | None |
+| heartbeat-owner-effectiveness-review | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 

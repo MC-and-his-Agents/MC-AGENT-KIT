@@ -87,21 +87,19 @@ admission 与 closeout。
 
 ## Scope integrity evidence
 
-Scope integrity 是独立语义门禁，不由 runtime、digest、exact head、测试、CI 或 code review 代替。Owner 在规定触发点保存以下最小证据：
+Scope integrity 是独立语义门禁，不由 runtime、digest、exact head、测试、CI 或 code review 代替。
+唯一行为规则、强制时点、四面比较、material delta、结论枚举和 repeat/downstream 处理见
+[scope-integrity.md](scope-integrity.md)。本文件只记录 runtime/review 需要引用的最小 locator：
 
 ```text
 semantic_scope_checkpoint: <revision>
-semantic_scope_trigger: admission | contract_revision | scope_delta | repeat_blocker | downstream_conflict | convergence
-planning_truth_locator: <Issue/FR/milestone 与相邻 ownership>
-contract_scope_locator: <合同 revision>
-observed_change_locator: <planned files 或 PR/diff/head>
 semantic_scope_status: aligned | shrink | split | reassign | user_decision
-semantic_scope_evidence: <逐项比较结论>
+semantic_scope_evidence_locator: <scope-integrity checkpoint>
 ```
 
-证据必须回答：实际 change set 是否仍服务目标与验收、是否进入非目标、是否新增合同未声明的生产/运行/安全边界、是否占用另一 Work Item 的领域或 locator、是否反向阻塞 ready 下游。`aligned` 只在这些问题均有可回读答案时成立。普通测试、文档、fixture 或既有 ownership 内不改变公共/安全/运行边界的薄 adapter/同域 helper 可以继续，不因文件新增本身 fail closed。
-
-独立 reviewer 可以验证当前 head 的 scope evidence，但 Owner 仍负责最终归属决定。change set、合同语义、GitHub truth 或相邻 ownership 任一变化都会使旧 checkpoint 过期；纯提交元数据、普通 CI 状态或未改变语义的文档证据更新不使其过期。
+独立 reviewer 可以验证当前 head 的 scope evidence，但 Owner 仍负责最终归属决定；change set、合同语义、
+GitHub truth 或相邻 ownership 任一变化都会使旧 checkpoint 过期。普通提交元数据、CI 状态或未改变语义
+的文档证据更新不使其过期。
 
 ## Fresh exact-head review
 
