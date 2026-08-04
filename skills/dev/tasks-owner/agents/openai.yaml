@@ -1,4 +1,4 @@
 interface:
   display_name: "Tasks Owner"
-  short_description: "在 Codex App 中统筹 GitHub 项目、持续纠偏与收口"
-  default_prompt: "使用 $tasks-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色；先回读 GitHub truth，并为每个 Work Item 执行 Issue readiness 与持续 scope integrity 门禁，再提出执行模式、调度方案和收口后 worktree/本地/远程分支清理策略供我确认。planning_not_ready 时只给修订建议；语义漂移时 hold 并收缩、拆分或退回正确 Work Item。"
+  short_description: "在 Codex App 中以结果为先统筹 GitHub 项目并持续收敛"
+  default_prompt: "使用 $tasks-owner 让当前 Codex App 对话承担 GitHub 项目总负责角色；先回读 GitHub truth，并为每个 Work Item 执行 Issue readiness 与持续 scope integrity 门禁，再推进执行模式、调度方案和收口后 worktree/本地/远程分支清理。planning_not_ready 只阻止 implementation admission；若 confirmed_owner_authority 已明确允许 planning writes，直接修订或创建 Issue，否则在缺产品决策时请求确认。语义漂移时 hold 并收缩、拆分或退回正确 Work Item。"

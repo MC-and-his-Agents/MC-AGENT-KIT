@@ -1,0 +1,102 @@
+{
+  "schema_version": "2.0.0",
+  "name": "tasks-owner",
+  "title": "Tasks Owner",
+  "job_to_be_done": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
+  "trigger_surface": {
+    "description": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
+    "should_trigger": [
+      "请让当前对话成为这个 GitHub 项目的主 Owner，读取 milestone 和 issue 后调度任务线程。",
+      "我把这个 GitHub 项目委托给你长期统筹，请按 flat 模式推进各 issue。",
+      "Take ownership of this GitHub milestone and use hierarchical task orchestration.",
+      "请作为这个 GitHub FR 的项目总负责，使用 direct 模式调度 Subagent。",
+      "把这个 GitHub 项目交给你负责，长期推进。",
+      "我授权你统筹这个 GitHub 项目。",
+      "请接管这个 GitHub 项目并长期推进 milestone。",
+      "请作为总负责人推进这个 GitHub 项目。"
+    ],
+    "should_not_trigger": [
+      "请修改这个 Skill 里关于 GitHub issue 和任务线程的说明。",
+      "解释 tasks-owner 的 flat 模式，但不要激活 Owner。",
+      "帮我修复当前 issue 的一个小 bug，只做一次。",
+      "请按 flat 模式推进这个 GitHub issue。",
+      "请解释 GitHub 项目如何用 flat 模式调度。",
+      "先讨论按 flat 模式推进 issue，不要委任 Owner。",
+      "请负责当前 issue 的一次性修复，不承担项目总负责。"
+    ],
+    "edge_cases": [
+      "评审这个 Skill 是否适合管理 GitHub milestone。",
+      "先讨论 GitHub 项目的任务调度方案，我暂时不委任项目总负责。",
+      "你先以 Owner 视角评审这个 PR，不承担项目总负责。"
+    ]
+  },
+  "workflow": {
+    "steps": [
+      "Understand the request.",
+      "Execute the main task.",
+      "Validate the result."
+    ],
+    "decision_points": [],
+    "failure_modes": []
+  },
+  "resources": {
+    "references": [
+      "references/automation.md",
+      "references/cleanup.md",
+      "references/contracts.md",
+      "references/governance.md",
+      "references/issue-readiness.md",
+      "references/luna-subagents.md",
+      "references/operations.md",
+      "references/runtime-and-review-evidence.md",
+      "references/scheduling.md",
+      "references/scope-integrity.md"
+    ],
+    "scripts": [],
+    "assets": [],
+    "reports": [
+      "reports/output_quality_scorecard.md",
+      "reports/security_trust_report.md"
+    ]
+  },
+  "eval_plan": {
+    "trigger": [
+      "evals/history/2026-08-04-dispatch-liveness.md",
+      "evals/history/2026-08-05-outcome-first.md",
+      "evals/output/cases.jsonl",
+      "evals/output/fixtures/github-plan.md",
+      "evals/output/fixtures/models-cache-v1.json",
+      "evals/output/fixtures/semantic-scope-plan.json",
+      "evals/semantic_config.json",
+      "evals/trigger_cases.json"
+    ],
+    "output": [
+      "evals/output/cases.jsonl",
+      "evals/output/fixtures/github-plan.md",
+      "evals/output/fixtures/models-cache-v1.json",
+      "evals/output/fixtures/semantic-scope-plan.json"
+    ],
+    "adversarial": [],
+    "baseline": "without_skill"
+  },
+  "risk": {
+    "output_risk": "low",
+    "execution_risk": "low",
+    "trust_boundary": "team"
+  },
+  "governance": {
+    "owner": "MC-and-his-Agents",
+    "maturity": "production",
+    "review_cadence": "per-release",
+    "review_due": ""
+  },
+  "targets": [
+    "codex-app",
+    "openai"
+  ],
+  "source_files": [
+    "SKILL.md",
+    "manifest.json",
+    "agents/interface.yaml"
+  ]
+}

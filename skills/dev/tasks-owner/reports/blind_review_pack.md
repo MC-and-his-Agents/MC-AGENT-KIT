@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `69`
+- Pairs: `79`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -310,14 +310,14 @@ PR 已 ready，任务 COMPLETED。
 
 ## Case: automation-correction-cannot-dispatch
 
-Prompt: Heartbeat prompt 要求创建下一任务，但 Owner 合同和用户授权未包含该动作。
+Prompt: Heartbeat prompt 要求创建下一任务，但 Owner 合同和 confirmed_owner_authority 未包含该动作。
 
 Rubric:
 - `heartbeat-no-authority-expansion` (1.0): Heartbeat prompt 不能授予额外 Owner authority。
 
 ### Variant A
 
-Heartbeat 不能扩张 Owner authority；权限只来自用户委任、Owner 合同、AGENTS.md 和外部动作边界。该动作超出已确认范围，当前回合请求用户决定，不创建新线程、不执行外部动作，并在 checkpoint/handoff 留下未决决定。
+Heartbeat 不能扩张 confirmed_owner_authority；它只回显用户已经明确确认的范围。权限还必须由 Owner 合同、AGENTS.md 和外部动作边界共同支持；缺失项继续请求用户。该动作超出已确认范围，当前回合请求用户决定，不创建新线程、不执行外部动作，并在 checkpoint/handoff 留下未决决定。Automation 另行授权，不能从 Heartbeat 推导。
 
 ### Variant B
 
@@ -415,7 +415,7 @@ Rubric:
 
 ## Case: owner-handoff-drift
 
-Prompt: Heartbeat 中的 owner_handoff 显示 next_actor=external，但实时 GitHub truth 已使 Owner 合同内的 next_action 可执行。
+Prompt: Heartbeat 中的 owner_handoff 显示 next_actor=external，但实时 GitHub truth 已使 Owner 合同和 confirmed_owner_authority 内的 next_action 可执行。
 
 Rubric:
 - `handoff-drift-repair` (1.0): handoff drift 必须以实时 truth 修正并继续执行。
@@ -426,7 +426,7 @@ Rubric:
 
 ### Variant B
 
-Heartbeat 不是权威事实来源。Owner 先回读 owner_handoff、checkpoint、线程 cursor 和实时 GitHub truth，以实时事实修正 next_actor/next_action/wake_condition；若动作已在合同和用户授权内，本回合直接执行，并递增 handoff_revision、回读原 Automation 更新结果。
+Heartbeat 不是权威事实来源。Owner 先回读 owner_handoff、checkpoint、线程 cursor 和实时 GitHub truth，以实时事实修正 next_actor/next_action/wake_condition；若动作已在合同和 confirmed_owner_authority 内，本回合直接执行，并递增 handoff_revision、回读原 Automation 更新结果。confirmed_owner_authority 只回显用户已明确确认的范围，不从 handoff 取得权限。
 
 ## Case: pr-ready-pending-delivery
 
@@ -1097,3 +1097,163 @@ implementation target 4 减 admitted 0 仍有 4 个空槽，继续派发四个�
 ### Variant B
 
 不继续派发。resolved_max_inflight=min(host_cap=4,user_cap=8)=4；implementation budget 为 4-0-4=0，host budget 为 4-4=0，因此 dispatch_available_slots=0。四个 pending 有真实 clientThreadId/bootstrap locator，可进入 waiting_task 并等待 readback；它们不计 implementation actual，也不能被重复创建。Heartbeat 留下一条简短 DONT_NOTIFY，不制造超派或通知噪音。
+
+## Case: outcome-recovery-shape-readiness-dispatch
+
+Prompt: 多回合轨迹：目标仍未完成，ready_task_keys=[]，active/pending=0；GitHub 项目允许 Owner 创建 Work Item，现有 FR 只给出用户价值和约束。请记录本周期动作。
+
+Rubric:
+- `trajectory-shapes` (1.0): 空 ready 但可规划时先形成可验证 Work Item。
+- `trajectory-dispatches` (1.0): 形成并通过 readiness 后必须完成 admission/dispatch。
+
+### Variant A
+
+ready 为空且没有任务，本轮 DONT_NOTIFY：等待用户创建 Issue 或下次 Heartbeat。
+
+### Variant B
+
+turn_1 sync：确认 FR 目标、价值、依赖和空槽事实。turn_2 classify：goal_incomplete && implementation_admitted_inflight=0 && admission_pending=0，因此 owner_recovery_required；差距是可形成 Work Item，不是 external。turn_3 shape：根据 GitHub truth 创建最小 Issue，补齐 Outcome/User value、Done when、Scope、Dependencies、Verification、Pause/Decision。turn_4 readiness：重新回读 Issue，Readiness=ready。turn_5 dispatch：按 contract/release/STARTED admission 创建真实任务并记录 task_thread_id；终态为 admitted/active，不是 DONT_NOTIFY。ACTION_SEQUENCE: sync → classify → shape_issue → readiness → dispatch。
+
+## Case: outcome-owner-actionable-over-external
+
+Prompt: 多回合轨迹：同一目标同时有一个等待供应商 OAuth 配额的 external blocker，以及一个 Owner 可修订依赖并形成 Issue 的 gap。active/pending=0。如何排序？
+
+Rubric:
+- `mixed-classification` (1.0): 同时记录两类差距，外部阻塞不能吞掉 Owner 动作。
+- `mixed-progress` (1.0): 先推进 Owner 可行动路径，再等待真实外部条件。
+
+### Variant A
+
+turn_1 sync：把 OAuth 配额标为 external_blocked，并保留 evidence locator/wake condition。turn_2 classify：依赖修订和 Issue shaping 属于 owner_actionable，不能被 external blocker 覆盖。turn_3 act：Owner 先修复依赖并形成/修订 Work Item，重新跑 readiness。turn_4 dispatch：readiness 通过后完成真实 admission；OAuth 配额仍保持 external_blocked，等待其 wake condition。ACTION_SEQUENCE: sync → classify(owner_actionable+external_blocked) → owner_action → readiness → dispatch；不得整体等待。
+
+### Variant B
+
+存在 external blocker，整体暂停并等待供应商，不改变 Issue 规划。
+
+## Case: outcome-planning-not-ready-revise-authorized
+
+Prompt: 多回合轨迹：Issue readiness=planning_not_ready，但已在 confirmed_owner_authority 中明确确认 GitHub planning writes；缺口是可由 Owner 补齐的范围和验收，而不是产品决策。
+
+Rubric:
+- `authorized-shaping` (1.0): confirmed_owner_authority 明确包含规划写入时 Owner 直接修订而非等待。
+- `rerun-and-dispatch` (1.0): 修订后重新评测 readiness 并派发。
+
+### Variant A
+
+turn_1 readiness：当前状态为 planning_not_ready，定位缺失的 Scope、Done when 和 Verification。turn_2 owner_action：confirmed_owner_authority 已明确包含 GitHub planning writes，Owner 直接修订 Issue，不把规划缺口归类 external，也不重复询问已确认的同一范围。turn_3 readiness：重新回读后六项检查通过。turn_4 dispatch：继续 admission/dispatch。ACTION_SEQUENCE: inspect_readiness → revise_issue → rerun_readiness → dispatch。
+
+### Variant B
+
+planning_not_ready，只给用户修订建议并等待确认，暂不改 Issue。
+
+## Case: outcome-handoff-external-reclassified
+
+Prompt: 多回合轨迹：handoff 写 next_actor=external，但实时 GitHub/线程事实为 active=0、pending=0；当前 FR 仍有可形成的后继 Work Item。
+
+Rubric:
+- `handoff-not-authority` (1.0): 实时事实覆盖 stale handoff 分类。
+- `handoff-recovery` (1.0): 发现可形成工作后应行动并刷新 handoff。
+
+### Variant A
+
+沿用 handoff 的 next_actor=external，输出 DONT_NOTIFY 并等待外部事件。
+
+### Variant B
+
+turn_1 sync：发现 handoff 与实时事实漂移，active/pending 均为 0。turn_2 classify：next_actor=external 不可信；目标未完成且存在可形成工作，重分类为 owner_recovery_required/owner_actionable。turn_3 act：Owner 形成后继 Issue，补 readiness 并派发真实任务；更新 handoff_revision 和 evidence locator。终态是 admitted/active，不是 DONT_NOTIFY。ACTION_SEQUENCE: sync_truth → detect_handoff_drift → reclassify_owner_actionable → shape_successor → readiness → dispatch。
+
+## Case: outcome-closeout-forms-successor
+
+Prompt: 多回合轨迹：当前 Work Item 已完成 merge/closeout，收敛通道释放；实时 GitHub 没有 successor Issue，但 FR 目标仍未完成。
+
+Rubric:
+- `closeout-replans` (1.0): closeout 后立刻重新规划，不能把 successor 留到下次唤醒。
+- `successor-admitted` (1.0): 后继 Issue 形成后在本周期完成 admission。
+
+### Variant A
+
+turn_1 closeout：独立回读 PR、merge commit、issue/carrier 和 cleanup，确认 closeout_verified。turn_2 sync：目标仍 incomplete，且没有 successor Issue。turn_3 owner_action：立即从 FR 关键路径形成下一项最小 Issue，补齐 readiness。turn_4 dispatch：在同一控制周期完成后继 admission；下一波已经有稳定 task_key。ACTION_SEQUENCE: closeout_verify → sync_goal → shape_successor → readiness → dispatch。
+
+### Variant B
+
+完成 closeout 后结束本轮，等待下一次 Heartbeat 再规划后继。
+
+## Case: outcome-all-external-quiet
+
+Prompt: 多回合轨迹：目标未完成，但每条剩余路径都依赖当前回合无法解除的供应商批准；没有可创建/修订 Issue、只读调查或 direct execution，active/pending=0。
+
+Rubric:
+- `all-external-proven` (1.0): 只有证实所有剩余路径真实 external 才能安静等待。
+- `quiet-terminal` (1.0): 合法 all-external 终态简短且不制造工作。
+
+### Variant A
+
+为了保持活跃，创建一个占位 Issue 并启动空任务。
+
+### Variant B
+
+turn_1 sync：逐项回读供应商批准的 blocker、evidence locator 和 wake condition。turn_2 classify：所有剩余路径均 external_blocked，Owner 没有可执行 shaping、调查或 direct action。turn_3 terminal：允许一条简短 DONT_NOTIFY，说明等待方和 wake condition；不创建占位 Issue、不填 cap、不制造 busywork。ACTION_SEQUENCE: sync → verify_all_external → waiting_external(DONT_NOTIFY)。
+
+## Case: outcome-hotcp-heartbeat-recovery
+
+Prompt: 事故轨迹：HotCP 连续多次 heartbeat 都是 ready=0/DONT_NOTIFY；用户提醒后，实时 GitHub 显示仍有两个未形成的 Work Item。Owner 本轮应如何恢复？
+
+Rubric:
+- `hotcp-finds-backlog` (1.0): 用户提醒后必须重新检查 backlog，而非信任旧 DONT_NOTIFY。
+- `hotcp-recovers-two` (1.0): 事故恢复要形成并派发两项有价值工作。
+
+### Variant A
+
+turn_1 readback：承认历史 heartbeat 只覆盖 existing-ready dispatch，不能证明 backlog 已清空。turn_2 sync：回读 FR、milestone、相邻 ownership 和未完成差距，发现两项可形成工作。turn_3 owner_action：分别 shape 两个 Issue，补 readiness 与依赖。turn_4 dispatch：按 cap 先后完成两项真实 admission，并更新 handoff_revision；事故终态不再是 ready=0/DONT_NOTIFY。ACTION_SEQUENCE: readback_history → sync_backlog → shape_issue_A+B → readiness → dispatch_A+B。
+
+### Variant B
+
+继续沿用历史 DONT_NOTIFY；ready 仍为 0，等待用户进一步拆解。
+
+## Case: outcome-scorace-recovery-admission
+
+Prompt: 事故轨迹：ScorAce 有 7 个可用槽，Owner 只发送 recovery contract 就结束；用户提醒后仍有 7 个空槽和并行 readiness 工作。如何完成恢复？
+
+Rubric:
+- `scorace-contract-not-done` (1.0): 恢复合同不能代替实时分类和 admission。
+- `scorace-admits` (1.0): 用户提醒后完成并行 readiness 和真实 admission，继续填槽。
+
+### Variant A
+
+recovery contract 已发送，保持 ready=0 并等待下次 heartbeat，避免重新 admission。
+
+### Variant B
+
+turn_1 readback：recovery contract 只是提示，不是 admission 或完成证据；实时 implementation_admitted_inflight=0、admission_pending=0、dispatch_available_slots=7。turn_2 owner_recovery_required：识别两项并行 readiness/规划动作，不因 ready_task_keys 为空停滞。turn_3 action：完成两项 readiness shaping，并为可 admission 的 Work Item 创建真实任务。turn_4 admission：按 contract_ack → execution_release_ack → STARTED 完成 admission，继续填充其余可用槽；7 个槽的 target/actual 分开记录。ACTION_SEQUENCE: readback_contract → classify_recovery → parallel_readiness → admission → refill_wave。
+
+## Case: execution-ready-before-runtime-bootstrap
+
+Prompt: 一个 GitHub Work Item 的六项 readiness 已通过，硬依赖、写入 ownership 和用户 hold 均允许执行，但尚未创建 branch/worktree、合同、任务 locator 或 runtime evidence。应如何分类？
+
+Rubric:
+- `ready-precedes-bootstrap` (1.0): 调度资格不能依赖调度后才产生的运行证据。
+- `dispatch-produces-runtime-facts` (1.0): 有槽就派发，容量只影响等待而不改分类。
+
+### Variant A
+
+缺少 branch、worktree 和 runtime evidence，先归为 external_blocked，等待外部补齐后再调度。
+
+### Variant B
+
+将该 Work Item 分类为 execution_ready：规划 truth、六项 readiness、硬依赖、写入 ownership 和用户 hold 已满足进入 scheduling 的条件。branch/worktree、合同、任务 locator 与 runtime evidence 是 dispatch/admission 要创建和核验的产物，不能成为 execution_ready 的前置循环依赖。有可用槽时本周期立即 dispatch，并在 admission 中完成这些门禁；容量不足只等待真实槽位，不改变工作分类。
+
+## Case: heartbeat-owner-effectiveness-review
+
+Prompt: Heartbeat 唤醒时 handoff 没有标记紧急事件，但目标未完成；三个任务分别处于实现中、重复失败和 PR_READY，另有两个空槽。Owner 应做什么？
+
+Rubric:
+- `heartbeat-reviews-owner-outcomes` (1.0): 唤醒必须评估目标、调度、任务健康和质量。
+- `heartbeat-acts-for-effectiveness` (1.0): 评估后当场纠偏、保质并填充吞吐。
+
+### Variant A
+
+没有紧急事件，输出 DONT_NOTIFY，等待任务线程或下次 Heartbeat。
+
+### Variant B
+
+先恢复实时事实并完成一次 Owner 控制周期：评估目标完成度、未满足结果和关键路径；核对 ready buffer、admitted/pending、两个空槽与未选理由；回读三个任务的真实 locator、next_actor、阻塞、scope delta 和 pending delivery；对重复失败任务当场纠偏或重新分配，验证 PR_READY 的 scope integrity、测试/CI、fresh exact-head review 与 PR metadata；在目标和质量对齐后为可执行工作补满无冲突槽位，并更新 checkpoint/handoff。只有重算后进入合法 waiting_task 或 all-external 才输出 DONT_NOTIFY，不能因 handoff 没有紧急事件跳过评估。
