@@ -24,6 +24,21 @@
 可独立 admission 的 Work Item，并保留真实 GitHub 归属、验收、范围和验证证据；不为填并发 cap 制造
 空 Issue。缺产品含义、优先级或风险决策时请求用户，缺事实时使用只读调查。
 
+### 最小有效交付批次
+
+Issue readiness 评估的是可交付批次，不把每个小动作强行拆成 Issue。若候选共享写入 carrier、验证矩阵和
+closeout lane，默认合并为一个 tight batch；只有独立用户价值、风险/权限/数据边界、ownership、真实 hard
+dependency 或独立回滚证据才拆分。父 FR/milestone 不能替代可执行 batch，也不能扩大为 milestone 超级任务。
+
+依赖字段按 `hard`（不满足不能安全开始）、`soft`（只影响优先级/信息）、`convergence`（只阻最终 merge、
+认证或 closeout）填写；父子关系不会自动传播 blocker。blocked successor 可提前由 Owner/direct Subagent/共享
+只读 checkout 完成 readiness，但在 hard dependency merge 前不得建立正式 execution branch/worktree、完整
+contract 或 `START`；解除后由 Owner 立即 admission。
+
+首次调度、重大 closeout/replan 或用户效率复盘必须建立/刷新 acceptance/backlog matrix：
+`acceptance → Work Item/owner → hard/soft/convergence → shared carrier → parallel lane → closeout consumer`。
+矩阵缺行时不得声称 backlog 清空；矩阵只存 Owner checkpoint/运行态 locator 与短状态，不写 GitHub 或仓库运行数据。
+
 ## 六项最小检查
 
 Work Item 必须为每项提供短而可验证的证据；缺项标记 `planning_not_ready`，并输出最小修订建议：

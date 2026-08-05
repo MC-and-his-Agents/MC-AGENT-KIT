@@ -47,18 +47,20 @@ npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills -
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
 | [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
-| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.16.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
+| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.17.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以最小有效交付批次统筹结果，维护 acceptance/backlog matrix，分类依赖、并行调度、即时消费 Owner 事件并以前置 review preflight 收口；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
 ## Tasks Owner 工作流
 
 [`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) 将当前 Codex App 对话设为结果负责的
-GitHub 项目 Owner。它同步实时事实，把差距分类为 `execution_ready`、`owner_actionable` 或
-`external_blocked`，在 `confirmed_owner_authority` 内形成或修订 Work Item，并在同一控制循环中推进
-派发、监督、收敛、closeout、cleanup 和后继规划。`planning_not_ready` 只阻止 implementation
-admission；目标未完成且没有 admitted/pending 工作时必须由 Owner recovery。`ready=0`、旧 handoff、
-branch 或 worktree 不能单独构成等待理由。
+GitHub 项目 Owner。它以最小有效交付批次推进结果：共享写入 carrier、验证矩阵和 closeout lane 的候选默认
+合并，只有独立用户价值、风险/权限/数据边界、ownership、真实 hard dependency 或独立回滚证据才拆分。
+首次调度、重大 closeout/replan 和用户效率复盘时刷新 acceptance/backlog matrix；依赖区分 hard/soft/convergence，
+父子关系不会自动传播 blocker；Owner 事件必须即时投递、核验并消费，首次独立 review 前必须完成 acceptance-derived
+preflight，且 fix-first 后只允许一次有界 sibling/systemic 修复。它在同一控制循环中推进派发、监督、收敛、closeout、
+cleanup 和后继规划。`planning_not_ready` 只阻止 implementation admission；目标未完成且没有 admitted/pending 工作
+时必须由 Owner recovery。`ready=0`、旧 handoff、branch 或 worktree 不能单独构成等待理由。
 
 closeout 验证完成后，Owner 可派出专用 Luna/max Subagent，只清理由用户精确授权的
 worktree、本地分支和远程分支。exact path/ref/OID 门禁会保护脏、仍在使用、发生漂移、

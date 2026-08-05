@@ -4,6 +4,20 @@
 Owner 控制循环见 [operations.md](operations.md)；本文件不决定目标是否值得做，也不把容量状态当作
 目标完成证据。
 
+## 有效交付批次与依赖
+
+调度对象是“最小有效交付批次”，不是孤立的最小后继 Issue。两个以上候选若共享写入 carrier、验证矩阵和
+closeout lane，默认合为一个 tight batch，并绑定一个稳定 `task_key`/ownership；只有以下任一真实证据存在时
+才拆分：独立用户价值、独立风险/权限/数据边界、独立 ownership、真实 hard dependency，或独立回滚证据。
+不得把整个 milestone 变成一个超级任务，也不得为填槽制造空批次。拆分要同时更新 acceptance/backlog matrix
+和相邻 Work Item ownership。
+
+依赖只按语义分类：`hard`（不满足就不能安全开始实现）、`soft`（只改变优先级或补充信息）、
+`convergence`（只阻最终 merge、认证或 closeout）。父子、同 milestone、同 target 或外部 blocker 不会自动
+把后继传播为 blocked；Owner 必须保留责任方、证据和 wake condition。blocked successor 可先由 Owner/direct
+Subagent/共享只读 checkout 完成 readiness；在 hard dependency merge 前禁止正式 execution branch/worktree、
+完整 contract 和 `START`，解除后在同一周期立即创建现场并 admission。
+
 ## 容量与事实
 
 每次 dispatch 先从宿主和用户事实解析一次全局上限，并把来源写入 checkpoint：
@@ -30,8 +44,8 @@ dispatch_available_slots              # 本周期可创建的真实实现槽
 ```
 
 `implementation_admitted_inflight` 只计入：App 任务具备真实 `task_thread_id`、稳定
-`task_key`、正式 branch/worktree、完整合同、ACK/release/STARTED 和写 ownership；`direct` 具备真实
-`agentId`、`workspace_entry`、五段 packet、核验过的 runtime evidence 和写 ownership。只读、
+`task_key`、正式 branch/worktree、完整合同、ACK/release/STARTED、`delivery_route_status=armed` 和写 ownership；`direct` 具备真实
+`agentId`、`workspace_entry`、五段 packet、核验过的 runtime evidence、native agent completion/wait locator 和写 ownership。只读、
 `BOOTSTRAP_READBACK`、`execution_hold`、`pending_contract`、`clientThreadId`、`idle`、`blocked`、
 `goal blocked` 和计划数量都不计 actual。
 
@@ -49,12 +63,15 @@ dispatch_available_slots = max(
 
 ## 稳定身份与 ready buffer
 
-1. 一次性回读 GitHub truth 和现有线程，使用不可变 `task_key` 区分活动、待创建、已结束和状态不明。
+1. 一次性回读 GitHub truth、acceptance/backlog matrix 和现有线程，使用不可变 `task_key` 区分活动、待创建、已结束和状态不明。
+   GitHub acceptance、ownership、dependency、shared carrier 或 closeout consumer 任一变化，或
+   `truth_revision`/`truth_digest` 与 checkpoint 不匹配，立即把 matrix 标为 `stale`；stale 时禁止声称
+   backlog clear 或基于旧 matrix 新 dispatch，先刷新 `matrix_revision` 并重新回读 truth。
    首次 admission 后，`task_key` 永久绑定一个 Issue、FR、milestone 或紧密 batch；线程不得跨目标、
    branch 或 ownership 复用。
 2. 目标、Issue、FR、milestone、branch、worktree 或写入 ownership 错配时隔离旧线程并保留成果，
    为新目标创建新 `task_key`/线程；若新目标仍 ready，replacement 留在当前 ready wave。
-3. 每次调度完整回读 `ready_task_keys`，按可核验硬依赖、具体写入/公共合同冲突、防重或用户 hold
+3. 每次调度完整回读 `ready_task_keys` 和矩阵未满足行，按可核验 hard 依赖、具体写入/公共合同冲突、防重或用户 hold
    选择 `selected_wave`，直到 `dispatch_available_slots == 0` 或没有可 admission 的 ready task。
    只要 ready buffer 仍有可推进的后继，不能把“等下一次 Heartbeat”当作规划动作。
 4. 每个空槽和每个未选 task 都写任务级 `not_selected_reason`，附 dependency/冲突 locator、
@@ -62,6 +79,12 @@ dispatch_available_slots = max(
    单一收敛通道、一般谨慎或 Owner 偏好留空。
 5. `actual_wave_width` 只记录本波真实完成 admission 的任务数。收口、merge、依赖解除或收敛通道
    释放后，在同一 Owner 控制周期回读并重算 ready wave，优先形成并 admission 下一项关键路径工作。
+
+6. 当 `goal_status=incomplete`、`resolved_max_inflight > 1` 且 `critical_path_width` 持续为 `1`，执行
+   `fanout_audit`：逐条共同 blocker 说明类型、责任方、证据和 wake condition；把 soft/convergence 从实现
+   关键路径移出，能安全并行的候选组成 tight batch。`implementation_target_cap` 始终等于
+   `resolved_max_inflight`，Owner 不得降低 cap；occupancy、readiness/review、单一收敛 lane 和“2–3 条路径”
+   都不是 implementation width 或新 cap 的替代。
 
 ## Dispatch 与 admission 协调
 
@@ -75,6 +98,14 @@ dispatch_available_slots = max(
 - App 任务按 [contracts.md](contracts.md#admission-control) 的 `contract → contract_ack →
   execution_release → execution_release_ack → START → STARTED` 顺序 admission；direct 使用真实
   `agentId`、`workspace_entry`、packet 和 runtime evidence，不虚构 task thread。
+- 每个 App bootstrap/full task prompt 必须携带 `upstream_delivery_contract`；任务在 contract_ack 后、
+  release/START 前只主动调用一次 `codex_app__send_message_to_thread` 投递 `DELIVERY_ROUTE_ACK`，Owner 回读真实
+  message locator、确认 `delivery_route_status=armed`，并验证 sender locator 与创建返回的真实 task locator
+  一致且不等于 Owner thread。direct 免 route ACK，依赖 native agent completion/wait locator，不得永久 pending。
+  `armed` 只允许继续完整 admission，不是结束或 admitted 证据；只有完整 admission 后满足
+  [contracts.md](contracts.md) 的 `safe_sleep_predicate` 才能结束或进入 `waiting_task`。未 armed/错配保持
+  `admission_pending`，本回合做有界 wait/read；task thread created、BOOTSTRAP active、发送 `START`、
+  `BOOTSTRAP_READBACK`/task final 都不是交付或 admitted 证据。
 - 派发后和接受结果前按 [runtime-and-review-evidence.md](runtime-and-review-evidence.md) 回读目标、
   model/effort、cwd/worktree/head、custom profile 和执行代次；缺失、矛盾或错配只隔离具体 task。
 
@@ -84,13 +115,14 @@ condition；不改变全局 cap。补偿重试保持同一 `task_key` 并递增 
 ## 实现、收敛与 ready successor
 
 - `implementation_admitted_inflight` 受 target/resolved cap 约束；实现任务和只读/review 任务分开统计。
+  `actual_wave_width` 只计真实 admission；readiness、review、occupancy 或计划数量不能冒充实现宽度。
 - 同一仓库与 target branch 的 `convergence_inflight` 默认上限为 `1`，只影响 merge/closeout 排队，
   不阻塞无冲突 implementation admission，也不改写 cap。
-- PR candidate 取得收敛通道前，Owner 必须完成 [scope integrity](scope-integrity.md) 并取得
+- PR candidate 取得收敛通道前，Owner 必须完成 acceptance-derived preflight、[scope integrity](scope-integrity.md) 并取得
   `semantic_scope_status: aligned`；取得后一次消费最新 target head，完成 exact-head review、hosted
   CI、PR metadata 和 `PR_READY`。
 - `convergence_generation` 在 merge/closeout、撤回、失败或真实 `BLOCKED`/`NEEDS_OWNER` 时释放；
-  任务完成后仍有未完成目标时，回到 [operations.md](operations.md) 形成 successor Work Item。
+  任务完成后仍有未完成目标时，回到 [operations.md](operations.md) 依据 matrix 形成最小有效 successor batch。
 - cleanup 是独立 lane，按 [cleanup.md](cleanup.md) 串行，不计实现 actual，也不以清理槽位降低 cap。
 
 ## Checkpoint 最小调度载体
@@ -102,7 +134,11 @@ host_inflight / read_only_inflight / admission_pending
 implementation_admitted_inflight / slot_consuming_pending / dispatch_available_slots
 task_key -> threadId/agentId/clientThreadId -> dispatch_generation -> status
 task_key -> branch/worktree/workspace_entry -> runtime_evidence_locator/status/target
+task_key -> upstream_delivery_contract / delivery_route_status / delivery_route_locator / native_agent_locator
+execution_generation -> quarantine_status / slot_impact / replacement_forbidden
 task_key -> not_selected_reason / dependency_locator / last_capacity_failure
+acceptance_matrix_locator / matrix_revision / matrix_status / matrix_truth_revision / matrix_truth_digest
+fanout_audit_locator / critical_path_width / implementation_width_reason
 convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 ```
 

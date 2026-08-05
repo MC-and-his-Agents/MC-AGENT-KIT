@@ -2,22 +2,19 @@
 
 This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `79`
+- Cases: `91`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `79`
+- Blind A/B pairs: `91`
 - Gate pass: `True`
+
+Execution evidence: `recorded_fixture` only. Provider/model execution and human blind-review decisions: `missing evidence`.
+HotCP/ScorAce regressions include `source_kind=thread_readback_observed`; provider/runtime replay remains `missing evidence`.
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
 Run output review adjudication after reviewer decisions are recorded; pending cases should stay pending rather than being counted as human agreement.
-
-## Evidence Boundary
-
-- The 79 results grade deterministic `recorded_fixture` assertions; they are not provider/model execution evidence.
-- Provider/model execution: `missing evidence`.
-- Human blind-review decisions: `missing evidence` (all pairs remain pending).
 
 ## Case Results
 
@@ -102,6 +99,18 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | outcome-scorace-recovery-admission | 0.0 | 100.0 | 100.0 | with_skill | None |
 | execution-ready-before-runtime-bootstrap | 0.0 | 100.0 | 100.0 | with_skill | None |
 | heartbeat-owner-effectiveness-review | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-tight-batch-same-carrier | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-legal-split-evidence | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-acceptance-matrix-backlog | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-dependency-fanout-audit | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-premature-worksite | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-event-before-heartbeat | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-review-preflight-churn | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-owner-event-host-never-wakes | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-matrix-stale-holdout | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-scorace-bootstrap-route-sleep | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-hotcp-final-without-upstream-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v017-wrong-tool-local-final-not-delivery | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 

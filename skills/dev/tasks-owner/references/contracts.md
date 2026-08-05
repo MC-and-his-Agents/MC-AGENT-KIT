@@ -33,6 +33,9 @@ execution_mode: <direct | flat | hierarchical>
 luna_subagent_status: <supported | probe_ready | fallback | pending_restart | unverified>
 scope_locator: <GitHub milestone/FR/Issue>
 planning_truth_locator: <已回读的目标、依赖和归属>
+delivery_batch: <最小有效交付批次 / tight batch locator>
+acceptance_matrix_locator: <Owner checkpoint matrix locator>
+dependency_classification: <hard | soft | convergence + evidence>
 contract_revision: <单调递增整数>
 contract_digest: <规范字段 canonical JSON 的 SHA-256>
 ```
@@ -57,11 +60,21 @@ owner_runtime_lock:
 修改；修改时递增 revision、重算 digest，并让活动任务重新 admission。`verified` 只表示工具参数与目标
 回读相互匹配；没有宿主强制证据就记 `unverified`，不声称宿主会执行回显。
 
-任务或 Subagent 使用宿主 `send_message_to_thread` 唤醒 Owner 时，实际参数必须逐字回显锁：
+任务或 Subagent 使用 Codex App 的 `codex_app__send_message_to_thread` 唤醒 Owner 时，实际参数必须逐字回显锁：
 `model: owner_runtime_lock.model`、`thinking: owner_runtime_lock.reasoning_effort`；宿主参数名是
 `model`/`thinking`，不得改成 `target_model`。控制块只携带 `runtime_lock_revision`。锁缺失、格式/摘要/
 revision/支持性异常，或目标 `turn_context` 无法回读/不一致时，事件写为
 `<EVENT>_PENDING_DELIVERY` 或 `unverified`，暂停受影响 admission、派发、merge、closeout 和外部动作。
+`codex_app__read_thread`/`codex_app__wait_threads` 只用于回读或等待，不能替代消息投递；泛称
+`send_message_to_thread` 也不是可接受的 App 投递工具。direct native agent 走原生 completion/wait，免除 App
+消息工具要求但仍须留下可回读 locator/status。
+
+Owner 与独立 Codex App task thread 的双向通信只能调用精确工具
+`codex_app__send_message_to_thread`：Owner→Task 的 hold、contract、release、`START`、纠偏，以及
+Task→Owner 的 ACK、readiness、阻塞、scope、PR/完成事件都适用。只有该工具成功返回可回读结果，且目标
+thread 经 `codex_app__read_thread` 核验后，才能推进 delivery/admission；本地 final、泛称工具、
+`codex_app__read_thread` 或 `codex_app__wait_threads` 都不构成投递。direct native agent 不创建独立 App task
+thread，继续使用 native orchestration completion/wait。
 
 ## Admission control
 
@@ -77,9 +90,39 @@ execution_hold: true
 ```
 
 任务此时只能回报真实 `task_thread_id`、branch/worktree/head、模型/推理程度和 runtime locator。只有
-真实任务或宿主返回可回读 `clientThreadId` 才能处于 hold；branch/worktree/合同草稿不能冒充任务。Owner
-用 `task_thread_id + branch + absolute_worktree + head` 构造 `workspace_entry`，只存 Owner checkpoint/App
-运行态，除非 `AGENTS.md` 明确要求，不写 GitHub 或仓库。
+真实任务或宿主返回可回读 `clientThreadId` 才能处于 hold；branch/worktree/合同草稿不能冒充任务。若该批次
+仍有未解除 `hard` dependency，hold 只能支持只读 readiness/共享 checkout，不得建立正式 execution
+branch/worktree、完整 contract 或 `START`；Owner 用 `task_thread_id + branch + absolute_worktree + head`
+构造正式 `workspace_entry`，只存 Owner checkpoint/App 运行态，除非 `AGENTS.md` 明确要求，不写 GitHub 或仓库。
+
+### Upstream delivery contract
+
+每个 bootstrap prompt 和完整任务 prompt 都必须原样携带 `upstream_delivery_contract`；它是任务向 Owner
+主动回报的路由合同，不是任务自行改写目标 runtime 的权限：
+
+```text
+upstream_delivery_contract:
+  delivery_mode: <app_thread | direct>
+  owner_thread_id: <真实 Owner threadId>
+  sender_locator_kind: <task_thread_id | clientThreadId | agentId>
+  sender_task_thread_id: <完整合同固定真实 task threadId；bootstrap 可留空>
+  expected_sender_locator: <bootstrap 的 clientThreadId 或 direct agentId；解析后升级>
+  message_tool: codex_app__send_message_to_thread
+  owner_runtime_lock: <canonical owner_runtime_lock 原样回显>
+  event_revision: <contract/dispatch revision>
+  event_digest: <contract digest>
+  event_key: <稳定 task + revision + event + head/status key>
+  human_summary: <自然语言摘要>
+  failure_event: <EVENT_PENDING_DELIVERY 或同义 *_PENDING_DELIVERY>
+```
+
+任务不得自行改写 `owner_thread_id`、目标 runtime、锁或 event revision/digest。App task thread 在
+`CONTRACT_ACK` 后、`execution_release`/`START` 前必须先用 `codex_app__send_message_to_thread` 主动投递一次
+`DELIVERY_ROUTE_ACK`（包含真实 message locator、`sender_locator_kind` 和 sender locator），再写本地 final；
+每个 `task_key + execution_generation` 只允许一次。bootstrap 只有 `clientThreadId` 时以
+`sender_locator_kind=clientThreadId + expected_sender_locator` 绑定；解析出真实 `task_thread_id` 后升级并核对，
+完整合同再固定 `sender_task_thread_id`。`direct` 模式明确免此 route ACK，改由 native agent completion/wait
+locator 完成 route gate，不能永久保持 pending。`local_recorded`/task final 不等于 delivered、armed 或 consumed。
 
 ### Complete contract fields
 
@@ -89,11 +132,13 @@ bootstrap 回读后，Owner 发送同 revision/digest 的完整合同；至少�
 owner_thread_id / task_thread_id / task_key
 issue_readiness: ready
 planning_truth_locator / scope_locator
+delivery_batch / acceptance_matrix_locator
 contract_revision / contract_digest
 owner_runtime_lock / owner_runtime_lock_status / runtime_lock_revision
+upstream_delivery_contract / delivery_route_status / delivery_route_locator
 execution_hold: true
 milestone / FR / Issue / 用户价值 / 目标 / 非目标 / 验收
-硬依赖 / 软依赖 / 收敛依赖
+hard dependencies / soft dependencies / convergence dependencies
 允许写入的仓库、文件、branch、正式 worktree、workspace_entry
 禁止修改的 carrier、公共接口和越界边界
 execution_mode / task_model / task_reasoning_effort / subagent_policy
@@ -111,18 +156,25 @@ Admission 严格使用以下顺序，不以 final、标题、wait 结果或 bran
 ```text
 Owner → Task: contract
 Task → Owner: contract_ack
+Task → Owner: DELIVERY_ROUTE_ACK (once, before release/START)
 Owner → Task: execution_release
 Task → Owner: execution_release_ack
 Owner → Task: START control
 Task → Owner: STARTED
-Owner: read_thread + GitHub truth + runtime evidence → admitted/active
+Owner: codex_app__read_thread + GitHub truth + runtime evidence → admitted/active
 ```
 
 任务收到合同后先在自身会话写 `contract_ack: local_recorded`，再用锁定的
-`send_message_to_thread` 投递真实 Owner；Owner 回读 `read_thread`、GitHub truth 和 runtime evidence 后
+`codex_app__send_message_to_thread` 投递真实 Owner；Owner 回读 `codex_app__read_thread`、GitHub truth 和 runtime evidence 后
 才消费并发送 release。`execution_release_ack`、`STARTED` 也必须由任务主动投递；缺失、错配、不可验证
 或 release ACK 前写入均保持 `pending_contract`，隔离且不采用输出。START control 是执行许可，任务投递
-`STARTED` 后可继续执行，不等待 Owner 纯 ACK。
+`STARTED` 后可继续执行，不等待 Owner 纯 ACK。App task 必须在 contract_ack 后、release/START 前主动投递
+`DELIVERY_ROUTE_ACK`；Owner 只有逐任务回读 `delivery_route_status=armed`、真实 locator，并验证
+bootstrap 的 `expected_sender_locator` 或完整合同的 `sender_task_thread_id` 与创建返回的真实 task locator
+一致且不等于 `owner_thread_id` 后，才能标记 `armed` 并继续完整 admission；`armed` 不是结束或 admitted 证据。
+direct 以 native agent completion/wait locator 通过同一 gate。工具 accepted 不等于 armed。未 armed/错配时保持 `admission_pending`，在当前回合做有界
+wait/read 核验；不得以“无需操作”“正在并行”、task thread created、`BOOTSTRAP_READBACK` final、发送
+`START` 或任一 task final 冒充交付/实现 admission。
 
 首次写入的最低事实是：真实 `task_thread_id != owner_thread_id`、稳定 `task_key`、正式 branch/worktree、
 已回读 `workspace_entry`、完整合同、ACK/release/STARTED、写 ownership、当前/目标 head 和 runtime evidence。
@@ -140,7 +192,8 @@ Owner: read_thread + GitHub truth + runtime evidence → admitted/active
 下一步：<由谁执行什么，证据在哪里>
 
 <control>
-event: <contract_ack | execution_release_ack | STARTED | SCOPE_DELTA | BLOCKED | NEEDS_OWNER | PR_READY>
+event: <DELIVERY_ROUTE_ACK | contract_ack | execution_release_ack | STARTED | BOOTSTRAP_READBACK |
+FINAL_BATCH_READINESS | PLANNING_READINESS | CONVERGENCE_REQUEST | SCOPE_DELTA | BLOCKED | NEEDS_OWNER | PR_READY | COMPLETED>
 task_key: <稳定 task_key>
 execution_generation: <contract revision/digest 或 dispatch generation>
 event_key: <task_key + execution_generation + event + head/status>
@@ -148,15 +201,30 @@ next_actor: <owner | task | user | external>
 next_action: <短动作或等待原因>
 wake_condition: <可执行条件>
 runtime_lock_revision: <锁 revision>
+sender_locator_kind: <task_thread_id | clientThreadId | agentId>
+sender_task_thread_id: <真实 task threadId；bootstrap 可空>
+expected_sender_locator: <bootstrap expected locator>
+message_locator: <真实 message locator；缺失写 missing evidence>
+route_status: <pending | armed | *_PENDING_DELIVERY>
+failure_code: <NEEDS_OWNER 时必填：CONTRACT_REJECTED | CONTRACT_DRIFT | RUNTIME_LOCK_ANOMALY | DELIVERY_VIOLATION>
 evidence_locator: <消息/线程/GitHub/PR/head locator>
 </control>
 ```
 
-所有 `next_actor=owner` 事件（至少 `contract_ack`、`execution_release_ack`、`STARTED`、`SCOPE_DELTA`、
-`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、合同拒绝/漂移/锁权限异常）必须调用
-`send_message_to_thread(owner_thread_id, model=owner_runtime_lock.model,
-thinking=owner_runtime_lock.reasoning_effort)` 请求唤醒真实 Owner。每次投递在任务会话留短记录，
-不得把完整日志、证据清单、env、token 或完整 SHA 集合跨线程转发。
+`delivery_mode=app_thread` 的所有 `next_actor=owner` 事件（至少 `DELIVERY_ROUTE_ACK`、`contract_ack`、`execution_release_ack`、`STARTED`、
+`BOOTSTRAP_READBACK`、`FINAL_BATCH_READINESS`、`PLANNING_READINESS`、`CONVERGENCE_REQUEST`、`SCOPE_DELTA`、
+`BLOCKED`、`NEEDS_OWNER`、`PR_READY`、`COMPLETED`、合同拒绝/漂移/锁权限异常）必须调用
+`codex_app__send_message_to_thread({threadId: owner_thread_id, model: owner_runtime_lock.model,
+thinking: owner_runtime_lock.reasoning_effort, prompt: <control>})` 请求唤醒真实 Owner。每次投递在任务会话留短记录，
+不得把完整日志、证据清单、env、token 或完整 SHA 集合跨线程转发。必须先调用消息工具并取得真实
+message locator，再写本地 final；工具失败写对应 `*_PENDING_DELIVERY`。即使 local final，仍保留最小 control
+envelope（event、generation、event_key、next_actor、evidence/message locator、route_status/PENDING_DELIVERY）
+供 recovery 使用，但不推进 delivered/armed/consumed。
+
+`direct` 的 owner-facing 结果只通过 native orchestration completion/wait locator 返回，不调用 App 消息工具。
+
+合同拒绝、合同漂移和 runtime lock 异常统一使用 `event=NEEDS_OWNER`，并填写对应 `failure_code`；
+`*_PENDING_DELIVERY` 是 delivery/route status，不是 event 枚举。
 
 每个事件严格单向推进：
 
@@ -164,19 +232,67 @@ thinking=owner_runtime_lock.reasoning_effort)` 请求唤醒真实 Owner。每次
 local_recorded → delivery_pending → delivered → owner_verified → consumed
 ```
 
-工具失败、缺 message locator、锁/目标 runtime 无法核对或状态不明时写 `<EVENT>_PENDING_DELIVERY`，
-本地 final 不推进合同状态。相同 generation/head/status 的重复事件静默丢弃；新 revision/digest 或
-真实状态变化必须保留。Owner 收到事件后先 `read_thread` + GitHub truth + runtime evidence 核验，再更新
-checkpoint/handoff 并消费，不让 Heartbeat 承担正常 admission。
+每个事件还必须记录 `message_locator`、`received_at`、`verified_at`、`consumed_at`（或等价的可回读 locator）。
+所有 `next_actor=owner` 事件都要求真实 locator；缺 locator、工具失败、锁/目标 runtime 无法核对或状态不明时
+写 `<EVENT>_PENDING_DELIVERY`，本地 final 不推进合同状态。只要存在仍可执行且 recovery 未耗尽的
+`pending`/`unconsumed` Owner 事件，Owner 不得进入 `waiting_task`、`DONT_NOTIFY` 或结束回合，必须先投递、
+核验并消费；耗尽/quarantine 的 pending 只有在 evidence+wake_condition 完整且无 Owner action 时，才能按
+`safe_sleep_predicate` 转 `waiting_external/user`，不伪造 delivered/consumed。
+每个相同 `event_key` 在一个控制周期最多执行一次可验证的 delivery recovery，跨周期总尝试最多 `2` 次，
+并记录：
+
+```text
+delivery_recovery:
+  event_key: <稳定 event_key>
+  recovery_epoch: <外部事实/用户决定代次>
+  attempt_in_cycle: <0 | 1>
+  total_attempts: <0..2>
+  max_attempts: 2
+  executable_action: <true | false>
+  authority_locator: <用户/合同授权 locator>
+  host_evidence_locator: <宿主能力/错误/返回值 locator；缺失写 missing evidence>
+  retry_eligible_after: <新外部事实或用户决定；否则 hold>
+```
+
+若宿主始终不能提供可回读的 message locator/wake 能力，或 `total_attempts=2` 已耗尽，绝不伪造
+`delivered`、`owner_verified` 或 `consumed`；保留 `delivery_violation`、`pending/missing evidence`、
+`authority_locator`、`host_evidence_locator` 和 `wake_condition`，并分类为合法 `waiting_external`。只有
+需要用户选择替代通道、补充授权或确认不可逆风险时才转 `waiting_user`。在仍有
+`delivery_recovery.executable_action=true` 且未耗尽上限时，禁止等待、`DONT_NOTIFY` 或结束回合；新的外部事实
+或用户决定前不得再次尝试。新的外部事实或用户决定只开启新的 `recovery_epoch`（保留旧证据并在该 epoch
+重新从 0 计数），不得把同一无变化的 Heartbeat 当作新事实。相同 generation/head/status 的重复事件静默丢弃；新 revision/digest 或真实状态变化
+必须保留。Owner 收到事件后先 `codex_app__read_thread` + GitHub truth + runtime evidence 核验，再更新 checkpoint/handoff
+并消费，不让 Heartbeat 承担正常 admission。
+
+唯一安全静默/等待谓词 `safe_sleep_predicate`：
+
+```text
+safe_sleep_predicate =
+  no pending/unconsumed next_actor=owner event with executable_action=true and recovery not exhausted
+  && every App task route is armed (or direct has native agent locator/status)
+  && admission_pending == 0
+  && every admitted task has runtime/workspace/head evidence
+  && no executable owner_action
+  && exhausted/quarantined pending has evidence + wake_condition (may only be waiting_external/user)
+  && legal waiting_task | waiting_external | waiting_user is evidenced
+```
+
+其他文件只引用此谓词，不另行定义“无需操作/正在并行”或等待条件。达到同一 `event_key` 的 recovery 上限
+后，隔离并 quarantine 该 `execution_generation`，保留 slot impact、pending/violation/evidence；禁止计入
+admitted、replacement 或重复 dispatch，直到新的外部事实/用户决定解除 quarantine。
 
 `HEAD_CHANGED`、push、CI pending/success、review pending/success 可留任务内；仅当它们改变 Owner 的
 决策时合并为一次 `NEEDS_OWNER`，不逐条通知。
 
+Heartbeat 首次发现 `next_actor=owner` 事件漏投、未验证或未消费时，将其记录为 `delivery_violation`，立即
+纠偏投递并要求 Owner 消费；它是审计/漏投恢复，不是正常控制队列、数据库或常驻 supervisor。
+
 ## PR_READY 与 closeout contract
 
-任务只能报告 `PR_READY` 或局部完成，不能自行发 `COMPLETED`。`PR_READY` 必须绑定 exact reviewed head、
-准确 reviewed files、空 review write scope、完整 diff locator、验证结论、`semantic_scope_status: aligned`
-和 hosted/PR metadata 终态；后续 diff/head 使旧 verdict 失效，修复后 fresh review。
+任务只能报告 `PR_READY` 或局部完成，不能自行发 `COMPLETED`。`PR_READY` 必须绑定 acceptance-derived
+`preflight_locator/preflight_status: ready`、exact reviewed head、准确 reviewed files、空 review write
+scope、完整 diff locator、验证结论、`semantic_scope_status: aligned` 和 hosted/PR metadata 终态；后续
+diff/head 使旧 verdict 失效，修复后 fresh preflight/review。
 
 Owner 只有独立回读以下事实后才写 `closeout_verified`：目标验收通过；PR 已 merge 或有明确无需 PR 的依据；
 merge commit 与 target branch 可验证；GitHub Issue 状态和适用 repo carrier/current pointer 已同步；

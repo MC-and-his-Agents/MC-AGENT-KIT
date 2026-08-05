@@ -5,6 +5,7 @@ GitHub truth、admission、`owner_runtime_lock`、依赖、消息交付或 close
 
 - [Runtime evidence gate](#runtime-evidence-gate)
 - [五段局部 implementation packet](#五段局部-implementation-packet)
+- [Acceptance-derived review preflight](#acceptance-derived-review-preflight)
 - [Scope integrity evidence](#scope-integrity-evidence)
 - [Fresh exact-head review](#fresh-exact-head-review)
 - [Requested vs observed isolation](#requested-vs-observed-isolation)
@@ -84,6 +85,39 @@ GAPS: <未完成项、歧义或 none>
 “已测试”或“看起来通过”不能 admission 或接受。该 packet 只补充局部实现合同；Owner
 仍须按既有流程回读 diff、文件范围、workspace/head 和必要验证，并遵守依赖、消息交付、
 admission 与 closeout。
+
+## Acceptance-derived review preflight
+
+首次独立 review 前，任务/Owner 必须从当前 batch 的 acceptance/backlog matrix 生成一份可回读的 preflight
+evidence locator。它至少覆盖：
+
+```text
+acceptance_success_failure_unavailable -> evidence/check
+trust-boundary ordering              -> evidence/check
+negative matrix                      -> evidence/check
+fixture isolation and restoration    -> evidence/check
+resource release                     -> evidence/check
+project invariant                    -> evidence/check
+recent same-class findings           -> evidence/check
+```
+
+没有这些证据，不派 review；`preflight_status` 只能是 `ready | missing | failed`，不能用“任务已完成”、
+readiness、CI 或旧 review 替代。preflight 不替代 CI、hosted checks、fresh exact-head、scope integrity
+或 PR metadata。
+
+若首次独立 review 为 `fix-first`，Owner 必须先做 sibling/systemic scan，再完成一个有界修复并重新生成
+fresh preflight/review。第二次实质 finding（不是同一 `blocker_class` 的重复说明）触发 Owner `rethink`、
+`split`、`reassign` 或 `user_decision`；不得继续让 reviewer 探测式循环。重复同一 blocker 仍遵循
+[scope-integrity.md](scope-integrity.md) 的 circuit breaker。
+
+最小审查记录增加：
+
+```text
+preflight_locator / preflight_status / preflight_revision
+review_cycle: first | fix_first | second_substantive
+blocker_classes_seen / sibling_scan_locator / bounded_fix_locator
+review_churn_action: continue | rethink | split | reassign | user_decision
+```
 
 ## Scope integrity evidence
 
