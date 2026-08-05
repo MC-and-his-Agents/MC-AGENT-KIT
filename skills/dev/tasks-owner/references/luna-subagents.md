@@ -1,8 +1,21 @@
 # GPT-5.6 Luna 原生 Subagent 门禁
 
-在首次创建 Subagent 前读取。任务线程使用 Luna 不依赖本门禁；本门禁只判断当前 Codex
+在首次创建 Subagent 前读取。任务线程默认 Luna 不依赖本门禁；每个独立任务线程创建/恢复都必须由调用方显式传入
+`model=gpt-5.6-luna`、`thinking=max`，不得省略或从 Owner runtime 推导。本门禁只判断当前 Codex
 进程的原生 `spawn_agent` 能否接受 `gpt-5.6-luna / max`。配置文件是诊断和调整输入，当前
 进程的原生创建结果才是最终证据。
+
+## 下游 runtime 不继承
+
+direct、hierarchical、flat 中每一次 `spawn_agent` 都必须显式传入
+`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`；参数省略、发送方为 Sol/Terra、Heartbeat
+或父任务为低 effort 都是合同违规，不允许静默 fallback。只有用户对具体任务提供可定位
+`task_runtime_override` 时才允许替换，并按授权中明确的 task-only 或命名 descendants 传播；主 Owner
+runtime 永不被下游配置修改。创建后立即回读目标 agent 的实际 `turn_context`；实际缺失、Unknown model、
+不支持 reasoning 或与授权不一致时 fail closed，保留 attempted runtime/error/locator/time，隔离结果并向
+用户报告选择，不改 `~/.codex`、不自动重启。
+
+已有成功的 Luna/max runtime evidence 可继续使用；不得因重新读取本门禁或模板而重复阻塞已验证目标。
 
 ## 当前进程优先
 
@@ -28,12 +41,10 @@
    版本差异；漂移时报告差异，不静默重建。
 3. 有效目录已经把 Luna 标为 `v2`，但当前进程能力仍未反映，或本流程刚修改目录/config
    且当前进程尚未加载时，记为 `pending_restart`。只有这种情况才告诉用户重启并暂停。
-4. 原缓存为 `v1` 且没有有效覆盖时，先让用户选择：
-   - 本批次 Subagent 使用 `gpt-5.6-terra / xhigh`；
-   - 使用用户指定的其他模型与推理程度；
-   - 执行下列 Luna v2 本地目录调整。
-
-用户未选择时不创建 Subagent，也不修改 `~/.codex`。
+4. 原缓存为 `v1` 且当前具体 task 没有有效覆盖时，停止该 task 并向用户报告 Luna/max 不可用；用户只能
+   针对可定位的具体 task 选择 `task_runtime_override`（task locator、model、reasoning effort、传播范围）
+   或选择停止/恢复宿主能力。不得把 Terra/xhigh、其他模型或推理程度提升为本批次/全局默认，也不得让
+   一个 task 的选择传播到未命名 descendants。用户未选择时不创建该 Subagent，也不修改 `~/.codex`。
 
 ## 受控调整
 
@@ -60,7 +71,8 @@
 - `pending_restart`：告诉用户需要重启并暂停。用户明确回复“已重启”后，先重新检查当前进程
   能力，再执行同一原生验证；不得仅凭“已重启”或配置文件为 v2 记为 `supported`。
 - 原生创建成功且没有 `Unknown model gpt-5.6-luna` 才记为 `supported`。若重启后仍返回
-  `Unknown model`，保留证据并让用户选择 Terra、其他模型或停止；不得形成重复重启循环。
+  `Unknown model`，保留证据并让用户为该具体 task 选择带 locator/model/effort/propagation 的 override，
+  或停止；不得形成重复重启循环、批次 fallback 或全局改写。
 
 ## rollback boundary
 

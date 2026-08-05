@@ -25,6 +25,12 @@ Owner 先回读宿主公开的 thread/spawn/details metadata，再接受任何�
 - 使用 custom agent 时的实际 agent config/profile locator；
 - review 还要记录 requested/observed sandbox 与 permission（见下文）。
 
+独立任务的期望 runtime 是显式合同字段而非发送方推断：没有用户针对该具体 task 的
+`task_runtime_override` 时，`model=gpt-5.6-luna` 且 `reasoning_effort/thinking=max` 必须同时出现在
+创建/恢复调用、消息触发或 `spawn_agent` 调用和目标回合 `turn_context` 中。Owner 的
+`owner_runtime_lock`、父任务、Heartbeat、旧合同和风险评估都不能覆盖此默认值；只有授权 locator
+和明确传播范围可替换它。
+
 公开 metadata 缺字段时，只可使用宿主可访问的 allowlisted、只读本地运行证据补齐缺失
 字段。该 fallback 只输出上述路由字段及 sandbox/permission，不输出 prompt、消息、env、
 token、配置正文或任意 rollout payload；不要新增 inspector，也不要假定本地 JSONL
@@ -36,6 +42,12 @@ token、配置正文或任意 rollout payload；不要新增 inspector，也不�
 runtime evidence 是现有 canonical `owner_runtime_lock` 的消费门禁，不替代回显锁，也
 不能改用发送方 runtime。锁仍按 [contracts.md](contracts.md#canonical-owner-runtime-lock-回显锁)
 核验。
+
+宿主返回 Unknown model、拒绝 reasoning、缺失字段或静默 Terra/Sol/低 effort 时，目标标记
+`TASK_RUNTIME_DRIFT`/`runtime_status: failed` 并 fail closed：不消费结果、不 admission、不 merge/closeout；
+保留 attempted model/effort、错误、目标 locator 和时间，转 `reopen_with_explicit_runtime` 或
+`hold_for_user_choice`。不得修改 Owner runtime、`~/.codex` 或自动重启。活动任务 audit 只回读最小
+allowlisted routing 字段；已有成功 runtime evidence 不因重复模板检查失效。
 
 证据载体可保存完整 allowlisted routing record；Owner checkpoint 只保留：
 

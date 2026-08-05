@@ -1,8 +1,8 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以最小有效交付批次统筹结果，维护 acceptance/backlog matrix，分类依赖、并行调度、即时消费 Owner 事件并以前置 review preflight 收口；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
+description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
 metadata:
-  version: "0.17.0"
+  version: "0.17.1"
 ---
 
 # 结果负责的 GitHub 项目 Owner
@@ -20,6 +20,15 @@ Automation 单独授权，不生成 standing envelope 或长期高影响权限�
 truth。未经确认不写 GitHub、部署、发布、删除、付费、发外部消息或改权限。
 
 ## Outcome-first control loop
+
+所有用户事件、App task 事件、native Subagent completion、Heartbeat、merge/closeout、依赖解除和
+总结尝试（`attempted_summary`/`pre_final_attempt`）都只是 `control_trigger`。Owner 必须在同一回合执行 [operations.md](references/operations.md)
+的统一 action loop：消费/核验事件，更新差距与 acceptance/backlog matrix，执行已授权的全部
+`owner_action`，重算 ready/successor/cap，完成 dispatch/admission 或逐项记录真实等待证据；若动作产生
+新 trigger 就继续循环。native Subagent completion 后若目标仍未完成，必须在该回合派发 successor；不得先
+总结、写“无需操作/正在并行”或等待下一次 Heartbeat。任何 final、`DONT_NOTIFY` 或等待都必须先通过
+`pre_final_gate` 与 contracts.md 的 `safe_sleep_predicate`。通过门禁后的 `final_output` 是完成输出，不再重新进入 loop；
+`goal_complete` 走完成分支，只有 `goal_incomplete` 才需要有证据的 `waiting_*`。
 
 每个控制周期沿同一闭环推进：
 
@@ -41,7 +50,11 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
 ## 模式、终态与路由
 
 - `direct`：Owner → 原生 `spawn_agent`；`flat`：Owner → 任务线程，禁止下级衍生；`hierarchical`：任务线程内部有界并行。
-- 默认 Owner `gpt-5.6-sol/high`，任务/Subagent `gpt-5.6-luna/max`；容量、身份、ready buffer 和 admission 见 [scheduling.md](references/scheduling.md)。
+- 默认 Owner `gpt-5.6-sol/high`，每个独立任务线程和每个派生 Subagent 默认且必须显式使用
+  `gpt-5.6-luna/max`；容量、身份、ready buffer 和 admission 见 [scheduling.md](references/scheduling.md)。
+  创建、恢复和每次消息触发都不得省略任务 runtime 参数、继承 Owner/父任务/Heartbeat runtime，或静默
+  fallback 到 Terra/Sol/低 reasoning。只有用户在具体任务授权中可定位地指定 override 时才改变该任务，
+  且只向合同明确的层级传播；主 Owner runtime 永远不被任务配置覆盖。
 - 合法终态只有 `progressed`、`waiting_task`、`waiting_external`、`waiting_user`；`owner_dispatch_required` 是必须执行的 Owner action。
 - 控制循环总入口：[operations.md](references/operations.md)；语义归属：[scope-integrity.md](references/scope-integrity.md)。
 - readiness：[issue-readiness.md](references/issue-readiness.md)；admission/消息/closeout：[contracts.md](references/contracts.md)；Heartbeat：[automation.md](references/automation.md)。
@@ -49,7 +62,15 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
 ## Safety gates
 
 - 合同保留 runtime lock echo、主动消息、admission、delivery state、人类可读层和 `PR_READY`/closeout；缺失/错配 fail closed。
-  App bootstrap/full prompt 必须带 `upstream_delivery_contract`；任务以 `codex_app__send_message_to_thread` 完成 `contract_ack → DELIVERY_ROUTE_ACK → release/START`，Owner 确认 route armed 才继续 admission，direct 用 native completion/wait。仅 `safe_sleep_predicate` 可等待；漏投有界恢复两次，耗尽保留证据合法等待。
+  `delivery_mode=app_thread` 的 Owner↔独立任务控制消息唯一使用精确的
+  `codex_app__send_message_to_thread({threadId: <真实目标>, model: <目标合同 runtime>, thinking: <目标合同 effort>, prompt: <完整控制消息>})`；
+  `codex_app__read_thread`、`codex_app__wait_threads`、local final、泛称或同名工具都不算投递/唤醒。
+  canonical `event` 永远不带 `_PENDING_DELIVERY` 后缀；失败只写 `delivery_state: pending`、
+  `route_status: *_PENDING_DELIVERY`、`failure_code` 和缺失/错误证据。App bootstrap/full prompt 必须带
+  `upstream_delivery_contract`；任务以精确消息工具完成 `contract_ack → DELIVERY_ROUTE_ACK → release/START`，
+  Owner 确认 route armed 才继续 admission，direct 用 native completion/wait。仅 `pre_final_gate` 的
+  `goal_incomplete + safe_sleep_predicate` 分支可等待；`goal_complete` 直接走完成分支。漏投有界恢复两次，耗尽保留证据合法等待。
+- 宿主拒绝/Unknown model 或 reasoning 时 fail closed，保留 attempted runtime 和错误证据，向用户报告并等待选择；不自动改配置、重启或静默降级。
 - 实现 target、admitted actual、pending、convergence 和 cleanup lane 分开统计；计划数不得冒充事实。
 - scope integrity、material delta、repeat-blocker、exact-head review、cleanup 保护和 ownership 检查互相独立。
 - 适用 `AGENTS.md`、正式 branch/worktree、runtime evidence 和用户授权是实现前置条件；不得直接在 `main` 实施。

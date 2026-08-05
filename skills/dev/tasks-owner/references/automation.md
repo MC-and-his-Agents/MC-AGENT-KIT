@@ -59,7 +59,11 @@ Automation 不得成为第二个状态写入者。Automation prompt 发生实质
 
 ```text
 从 owner_handoff、Owner checkpoint、线程 cursor 和实时 GitHub truth 恢复上下文，然后立即执行一次
-完整 Owner 控制周期：
+完整 Owner 控制周期。Heartbeat 只是 control trigger，不是终态；用户事件、App task event、native
+Subagent completion、merge/closeout、依赖解除或总结尝试（`attempted_summary`/`pre_final_attempt`）也必须走同一控制周期。严格执行
+operations.md 的“消费/核验 → 更新 gap/matrix → 执行全部 owner_action → 重算 ready/successor/cap →
+dispatch/admit 或逐项证据化等待 → pre_final_gate”闭环；动作产生新事件时在本回合继续。native
+Subagent completion 后目标仍 incomplete 必须同回合派 successor，禁止先总结或等下一 Heartbeat：
 
 1. 核对 Owner 实际 `turn_context` 与 canonical `owner_runtime_lock`；异常时只读通知用户并暂停关键动作。
 2. 评估目标进度：目标是否完成、未满足结果、关键路径、依赖、下一解锁条件，以及 closeout 后是否缺少
@@ -83,13 +87,18 @@ Automation 不得成为第二个状态写入者。Automation prompt 发生实质
    BOOTSTRAP_READBACK final 不能替代真实 delivery locator。
 5. 评估交付质量：核验目标/验收归属、scope integrity、测试/CI、fresh exact-head review、PR metadata、
    `PR_READY`、closeout 与 cleanup 证据；不能用状态标签、摘要或旧 head 代替证据。
+   同时逐个回读独立任务/Subagent 的目标回合 `turn_context`；无用户 task-specific override 时必须是
+   `gpt-5.6-luna/max`。缺失、错误继承、静默 fallback 或宿主拒绝时记录 `TASK_RUNTIME_DRIFT`，保留
+   attempted runtime/error/locator/time，隔离结果并转 `reopen_with_explicit_runtime` 或
+   `hold_for_user_choice`，不改 Owner runtime、不改配置、不自动重启。
 6. 按实时事实重新分类 `execution_ready | owner_actionable | external_blocked`，执行
    [operations.md](operations.md) 的 owner action、readiness/admission、supervise/correct、
-   converge/closeout/cleanup/replan，直到合法控制周期终态。`ready_task_keys=[]`、`planning_not_ready`、
+   converge/closeout/cleanup/replan，直到通过 `pre_final_gate` 的合法控制周期终态。`ready_task_keys=[]`、`planning_not_ready`、
    stale `next_actor=external` 或历史 DONT_NOTIFY 都不能跳过本次评估。
 7. 更新 checkpoint 与 owner_handoff，并以 first-review pass、acceptance coverage per merge、same-carrier
    PR count、event-to-action latency、critical-path width 和 admitted=1 时剩余 owner-actionable 作为短
-   控制信号；它们不构成新数据库或 handoff 全量状态。只输出一条简短结果：已推进则写真实变化；合法 `waiting_task` /
+   控制信号；它们不构成新数据库或 handoff 全量状态。只输出一条简短结果：已推进则写真实变化；`goal_complete`
+   通过 pre-final 后写 final，不重新触发 loop；只有 `goal_incomplete` 的合法 `waiting_task` /
    `waiting_external` 才写 `DONT_NOTIFY` 和等待证据；需要用户决定或真实风险写 `NOTIFY`。不输出纯 ACK、
    逐任务流水账或多条阶段播报。
 
