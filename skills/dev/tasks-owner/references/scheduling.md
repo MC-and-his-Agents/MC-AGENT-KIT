@@ -88,6 +88,28 @@ dispatch_available_slots = max(
 
 ## Dispatch 与 admission 协调
 
+### 独立任务/Subagent runtime admission
+
+调度器在创建、恢复和每次触发任务前都必须生成并显式传入以下参数；缺参即拒绝 admission，不能让宿主
+默认值接管：
+
+```text
+App task:  model=gpt-5.6-luna, thinking=max
+spawn_agent: model=gpt-5.6-luna, reasoning_effort=max
+```
+
+这些值只对独立任务/下游 Subagent 生效；Owner 继续使用自己的 `owner_runtime_lock`，发送方 runtime、
+父任务当前 runtime、Heartbeat、旧合同、风险或容量不得覆盖下游。只有用户对具体 task 的
+`task_runtime_override`（含授权 locator、模型、推理程度和明确传播范围）才可替换；未明确命名的派生
+Subagent 仍回到 Luna/max。每个成功目标回合必须回读 `turn_context`，核对 task locator、model、effort、
+contract digest/revision、override locator、时间和 workspace/head；缺失、Unknown model、不支持 reasoning、
+静默 Terra/Sol/低 effort 或实际值不符都标 `TASK_RUNTIME_DRIFT`，隔离结果并 `fail closed`，不计 admitted。
+宿主拒绝时保留 attempted runtime、错误和 wake condition，等待用户选择，不改配置、不重启、不静默降级。
+
+活动任务 runtime audit/migration 只允许最小动作：`reopen_with_explicit_runtime`（可重新创建同一
+`task_key`，递增 generation）或 `hold_for_user_choice`；保留旧成果和 locator，不改变 Owner runtime，且已有
+成功 runtime evidence 不因重新阅读文档而失效。
+
 - readiness 通过只是规划质量门禁，不是运行 admission。`planning_not_ready` 任务不得进入本节。
 - `execution_ready` 不要求预先存在 branch/worktree、合同、任务 locator 或 runtime evidence；这些是
   本节 dispatch/admission 的产物与门禁。容量不足只使已选项等待真实槽位，不改变其工作分类。
@@ -98,7 +120,9 @@ dispatch_available_slots = max(
 - App 任务按 [contracts.md](contracts.md#admission-control) 的 `contract → contract_ack →
   execution_release → execution_release_ack → START → STARTED` 顺序 admission；direct 使用真实
   `agentId`、`workspace_entry`、packet 和 runtime evidence，不虚构 task thread。
-- 每个 App bootstrap/full task prompt 必须携带 `upstream_delivery_contract`；任务在 contract_ack 后、
+- 每个 App bootstrap/full task prompt 必须携带 `upstream_delivery_contract`、`task_model` 和
+  `task_reasoning_effort`；默认值只能是 `gpt-5.6-luna` / `max`，并必须与创建/恢复消息的
+  `model`/`thinking` 参数逐字一致。任务在 contract_ack 后、
   release/START 前只主动调用一次 `codex_app__send_message_to_thread` 投递 `DELIVERY_ROUTE_ACK`，Owner 回读真实
   message locator、确认 `delivery_route_status=armed`，并验证 sender locator 与创建返回的真实 task locator
   一致且不等于 Owner thread。direct 免 route ACK，依赖 native agent completion/wait locator，不得永久 pending。

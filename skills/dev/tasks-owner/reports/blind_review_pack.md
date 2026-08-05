@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `91`
+- Pairs: `111`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -114,7 +114,7 @@ Rubric:
 Prompt: 本机 Luna 的 multi_agent_version 是 v1，用户还没有选择如何处理。
 
 Rubric:
-- `fallback-options` (1.0): 提供 Terra、其他模型和本地调整三种选择。
+- `fallback-options` (1.0): Luna 不可用时只允许具体 task override 或恢复能力，不提供批次 fallback。
 - `no-unapproved-write` (1.0): 未经选择不得修改或重启。
 
 ### Variant A
@@ -123,7 +123,7 @@ Rubric:
 
 ### Variant B
 
-Luna 原生 Subagent 尚不支持。请用户选择：本批次使用 gpt-5.6-terra / xhigh、指定其他模型与推理程度、或执行 Luna v2 本地目录调整。用户未选择时不创建 Subagent，也不修改 ~/.codex；不自行重启 Codex。
+Luna/max 对当前具体 task 不可用。请用户为可定位的具体 task 提供 task_runtime_override（task locator、model、reasoning effort、propagation），或选择恢复 Luna/max 能力；不得把 Terra/xhigh、其他模型或任何选择提升为本批次/全局 fallback。用户未选择时不创建该 Subagent、不修改 ~/.codex、不自行重启 Codex。
 
 ## Case: luna-adjustment
 
@@ -167,7 +167,7 @@ Rubric:
 
 ### Variant A
 
-当前状态记为 pending_restart：新目录尚未被当前进程加载，因此此时才要求用户重启。用户回复已重启后先重新检查当前进程能力，再做一次原生 Luna/max 验证；只有 spawn 成功才记为 supported。若仍为 Unknown model，保留证据并让用户选择 Terra、其他模型或停止，不形成重复重启循环。
+当前状态记为 pending_restart：新目录尚未被当前进程加载，因此此时才要求用户重启。用户回复已重启后先重新检查当前进程能力，再做一次原生 Luna/max 验证；只有 spawn 成功才记为 supported。若仍为 Unknown model，保留证据并让用户为该具体 task 提供 task_runtime_override（task locator、model、reasoning effort、propagation）或停止；不形成批次 fallback，也不形成重复重启循环。
 
 ### Variant B
 
@@ -336,7 +336,7 @@ release 已发送，可以立即写入。
 
 ### Variant B
 
-仍保持 pending_contract，禁止写入。任务先留本地记录，再以 owner_runtime_lock 的 model/thinking 调用 codex_app__send_message_to_thread 主动投递匹配 revision/digest 的 execution_release_ack；失败则记录 RELEASE_ACK_PENDING_DELIVERY。Owner 用 codex_app__read_thread + GitHub truth 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED，Owner 再次核验后才 admitted。
+仍保持 pending_contract，禁止写入。任务先留本地记录，再以 owner_runtime_lock 的 model/thinking 调用 codex_app__send_message_to_thread 主动投递匹配 revision/digest 的 execution_release_ack；失败保持 event=execution_release_ack、delivery_state=pending、route_status=RELEASE_ACK_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing。Owner 用 codex_app__read_thread + GitHub truth 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED，Owner 再次核验后才 admitted。
 
 ## Case: max-inflight-cap-resolution
 
@@ -441,7 +441,7 @@ Rubric:
 
 ### Variant B
 
-投递不可验证时不虚报已上行；任务标记 PR_READY_PENDING_DELIVERY，只记录宿主投递结果并结束，在 final 中保留 task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和 evidence locator。Owner/Heartbeat 恢复时回读任务线程与 GitHub truth，补消费事件并把成功 message locator 写入自己的 checkpoint/handoff；不等待纯 ACK、不创建 registry、不无限重试。
+投递不可验证时不虚报已上行；任务保持 event=PR_READY、delivery_state=pending、route_status=PR_READY_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing；只记录宿主投递结果并结束，在 final 中保留 task_key、execution_generation、event_key、next_actor、next_action、wake_condition 和 evidence locator。Owner/Heartbeat 恢复时回读任务线程与 GitHub truth，补消费事件并把成功 message locator 写入自己的 checkpoint/handoff；不等待纯 ACK、不创建 registry、不无限重试。
 
 ## Case: owner-handoff-continuous-maintenance
 
@@ -467,7 +467,7 @@ Rubric:
 
 ### Variant A
 
-失败：task final 只是本地记录，不是跨线程交付。任务必须先写 local_recorded，再对真实 owner_thread_id 调用 codex_app__send_message_to_thread；工具失败或不可验证时保留 BLOCKED_PENDING_DELIVERY/CONTRACT_ACK_PENDING_DELIVERY，不能推进 Owner 合同状态。
+失败：task final 只是本地记录，不是跨线程交付。任务必须先写 local_recorded，再对真实 owner_thread_id 调用 codex_app__send_message_to_thread；工具失败或不可验证时保持 event=BLOCKED 或 event=contract_ack，delivery_state=pending，route_status=BLOCKED_PENDING_DELIVERY/CONTRACT_ACK_PENDING_DELIVERY，failure_code=MESSAGE_DELIVERY_FAILED，message_locator=missing，不能推进 Owner 合同状态。
 
 ### Variant B
 
@@ -502,7 +502,7 @@ sender 直接用自己的 Luna/max 参数发送，或省略参数让宿主默认
 
 ### Variant B
 
-只有显式回显锁才允许发送：codex_app__send_message_to_thread(model=gpt-5.6-sol, thinking=high)，控制块只带 runtime_lock_revision: 7；目标 turn_context 必须仍为 Sol/high。sender 自身 Luna/max、参数省略、使用旧 revision、contract_digest 不匹配或缺锁都写 *_PENDING_DELIVERY 并 fail closed；不得使用 target_model，也不声称宿主已强制回显。
+只有显式回显锁才允许发送：codex_app__send_message_to_thread(model=gpt-5.6-sol, thinking=high)，控制块只带 runtime_lock_revision: 7；目标 turn_context 必须仍为 Sol/high。sender 自身 Luna/max、参数省略、使用旧 revision、contract_digest 不匹配或缺锁都保持 canonical event，写 delivery_state=pending、route_status=<EVENT>_PENDING_DELIVERY、failure_code=RUNTIME_LOCK_ANOMALY、message_locator=missing 并 fail closed；不得使用 target_model，也不声称宿主已强制回显。
 
 ## Case: ready-wave-single-without-reason
 
@@ -1352,7 +1352,7 @@ Heartbeat 记录事件即可，输出 waiting_task/DONT_NOTIFY，等待下一次
 
 ### Variant B
 
-先标记 EVENT_PENDING_DELIVERY/delivery_violation，补真实 message locator，并记录 received_at、verified_at、consumed_at（或等价 locator）；Owner 立即回读并消费 BLOCKED。pending/unconsumed Owner 事件期间禁止 waiting_task、DONT_NOTIFY 或结束回合。Heartbeat 只做漏投审计和恢复，不是正常控制队列。
+先保持 event=BLOCKED，标记 delivery_state=pending、route_status=BLOCKED_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing 和 delivery_violation，补真实 message locator，并记录 received_at、verified_at、consumed_at（或等价 locator）；Owner 立即回读并消费 BLOCKED。pending/unconsumed Owner 事件期间禁止 waiting_task、DONT_NOTIFY 或结束回合。Heartbeat 只做漏投审计和恢复，不是正常控制队列。
 
 ## Case: v017-review-preflight-churn
 
@@ -1380,7 +1380,7 @@ Rubric:
 
 ### Variant A
 
-turn_1 先记录 delivery_violation、EVENT_PENDING_DELIVERY、authority_locator 和 host_evidence_locator；确认仍有可执行投递动作时，按同一 event_key 每控制周期最多一次，只尝试一次并保留 attempt_in_cycle=1、total_attempts=1，禁止伪造 delivered/consumed。turn_2 对同一 event_key 只允许最后一次有界 recovery（total_attempts=2）；宿主能力仍不可用后保留 pending/missing evidence、wake_condition 和 retry_eligible_after，绝不伪造 owner_verified/consumed。turn_3 在没有新的外部事实或用户决定前转合法 waiting_external；若用户必须选择替代通道或补充授权则转 waiting_user，不再轮询；新的外部事实或用户决定前不重试。
+turn_1 先保持 event=BLOCKED、delivery_state=pending、route_status=BLOCKED_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing、delivery_violation、authority_locator 和 host_evidence_locator；确认仍有可执行投递动作时，按同一 event_key 每控制周期最多一次，只尝试一次并保留 attempt_in_cycle=1、total_attempts=1，禁止伪造 delivered/consumed。turn_2 对同一 event_key 只允许最后一次有界 recovery（total_attempts=2）；宿主能力仍不可用后保留 pending/missing evidence、wake_condition 和 retry_eligible_after，绝不伪造 owner_verified/consumed。turn_3 在没有新的外部事实或用户决定前转合法 waiting_external；若用户必须选择替代通道或补充授权则转 waiting_user，不再轮询；新的外部事实或用户决定前不重试。
 
 ### Variant B
 
@@ -1416,7 +1416,7 @@ Rubric:
 
 ### Variant B
 
-Owner dispatch/bootstrap 时为 #228 和 #167 的每个 prompt 注入 upstream_delivery_contract：真实 owner_thread_id、sender_locator_kind、expected_sender_locator、message_tool=codex_app__send_message_to_thread、canonical owner_runtime_lock、event revision/digest/event_key、人类摘要和 *_PENDING_DELIVERY 失败事件。bootstrap 若只有 clientThreadId，则使用 sender_locator_kind=clientThreadId + expected_sender_locator；解析出真实 task_thread_id 后升级并核对，完整合同再固定 sender_task_thread_id。任务在 contract_ack 后、release/START 前只主动调用一次 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，并取得真实 message locator，再写本地 BOOTSTRAP_READBACK final。Owner 必须验证 sender locator 与创建返回的真实 task locator 一致且不等于 owner_thread_id，消费 locator 后标 delivery_route_status=armed；armed 只允许继续完整 admission，不能作为结束或 admitted 证据。两条都未 armed 前保持 admission_pending，在当前回合做 bounded wait/read，不输出无需操作/正在并行后休眠，也不把 task final/BOOTSTRAP_READBACK 当 admitted 证据。
+Owner dispatch/bootstrap 时为 #228 和 #167 的每个 prompt 注入 upstream_delivery_contract：真实 owner_thread_id、sender_locator_kind、expected_sender_locator、message_tool=codex_app__send_message_to_thread、canonical owner_runtime_lock、event revision/digest/event_key、人类摘要和 canonical event（如 BOOTSTRAP_READBACK）、delivery_state=pending、route_status=<EVENT>_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing。bootstrap 若只有 clientThreadId，则使用 sender_locator_kind=clientThreadId + expected_sender_locator；解析出真实 task_thread_id 后升级并核对，完整合同再固定 sender_task_thread_id。任务在 contract_ack 后、release/START 前只主动调用一次 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，并取得真实 message locator，再写本地 BOOTSTRAP_READBACK final。Owner 必须验证 sender locator 与创建返回的真实 task locator 一致且不等于 owner_thread_id，消费 locator 后标 delivery_route_status=armed；armed 只允许继续完整 admission，不能作为结束或 admitted 证据。两条都未 armed 前保持 admission_pending，在当前回合做 bounded wait/read，不输出无需操作/正在并行后休眠，也不把 task final/BOOTSTRAP_READBACK 当 admitted 证据。
 
 ## Case: v017-hotcp-final-without-upstream-delivery
 
@@ -1428,7 +1428,7 @@ Rubric:
 
 ### Variant A
 
-Owner 将 #267、#269、#200 的 final 都标为 delivery_violation/EVENT_PENDING_DELIVERY：没有 codex_app__send_message_to_thread 的真实 locator 就不能消费、不能 admit、不能结束。后续每个 bootstrap/full prompt 必须带 upstream_delivery_contract；任务先调用 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，再分别主动投递 FINAL_BATCH_READINESS/PLANNING_READINESS、SCOPE_DELTA 或 NEEDS_OWNER，失败则写对应 *_PENDING_DELIVERY。Owner 验证 sender_task_thread_id 与真实 task locator 一致且不等于 owner_thread_id，消费 locator 后才 delivery_route_status=armed；route 未 armed 时保持 admission_pending 并在当前回合 bounded wait/read，禁止 waiting_task、DONT_NOTIFY 或把 START/task final 当证据。Heartbeat 只做 delivery violation 恢复。
+Owner 将 #267、#269、#200 的 final 都标为 delivery_violation：保持 canonical event，delivery_state=pending、route_status=<EVENT>_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing；没有 codex_app__send_message_to_thread 的真实 locator 就不能消费、不能 admit、不能结束。后续每个 bootstrap/full prompt 必须带 upstream_delivery_contract；任务先调用 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，再分别主动投递 FINAL_BATCH_READINESS/PLANNING_READINESS、SCOPE_DELTA 或 NEEDS_OWNER，失败则保持对应 canonical event，并写 delivery_state=pending、route_status=<EVENT>_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing。Owner 验证 sender_task_thread_id 与真实 task locator 一致且不等于 owner_thread_id，消费 locator 后才 delivery_route_status=armed；route 未 armed 时保持 admission_pending 并在当前回合 bounded wait/read，禁止 waiting_task、DONT_NOTIFY 或把 START/task final 当证据。Heartbeat 只做 delivery violation 恢复。
 
 ### Variant B
 
@@ -1444,8 +1444,308 @@ Rubric:
 
 ### Variant A
 
-不能。task local final、泛称 send_message_to_thread、codex_app__wait_threads 和 codex_app__read_thread 都不是跨线程投递；只有精确调用 codex_app__send_message_to_thread 成功，并取得可重读的 message locator、再由目标 Owner thread readback 且核对 sender/target，才可推进 delivered、consumed 或 route_status=armed。否则保留最小 control envelope 和 *_PENDING_DELIVERY，记录 failure_code=DELIVERY_VIOLATION、delivery_route_status=pending、admission_pending，不得 admitted；不得 replacement；不得等待收口。direct native agent 是独立例外，使用 native completion/wait locator，不能把 App 工具缺失伪装成 direct。
+不能。task local final、泛称 send_message_to_thread、codex_app__wait_threads 和 codex_app__read_thread 都不是跨线程投递；只有精确调用 codex_app__send_message_to_thread 成功，并取得可重读的 message locator、再由目标 Owner thread readback 且核对 sender/target，才可推进 delivered、consumed 或 route_status=armed。否则保留最小 control envelope 和 canonical event，记录 delivery_state=pending、route_status=<EVENT>_PENDING_DELIVERY、failure_code=DELIVERY_VIOLATION、message_locator=missing、admission_pending，不得 admitted；不得 replacement；不得等待收口。direct native agent 是独立例外，使用 native completion/wait locator，不能把 App 工具缺失伪装成 direct。
 
 ### Variant B
 
 task final 已经写出，泛称消息工具和 read/wait 都能让 Owner 看见；直接标记 delivered、armed 并继续 admission。
+
+## Case: v017-owner-completion-summary-without-successor-fails
+
+Prompt: Owner 收到 native Subagent completion；目标仍 incomplete 且有 ready successor，但 Owner 只输出总结后结束。应发生什么？
+
+Rubric:
+- `completion-successor-same-turn` (1.0): native completion 后必须同回合派 successor，禁止先总结或 Heartbeat 等待。
+
+### Variant A
+
+Subagent 已完成，输出总结并等待下一次 Heartbeat。
+
+### Variant B
+
+该回合不能结束：native completion 是 control trigger。Owner 必须立即消费/核验 completion，更新 gap/matrix，执行已授权 owner_action，重算 ready wave/cap，并在同一回合形成、readiness、派发和 admission successor；总结不能替代动作，pre_final_gate 未通过。
+
+## Case: v017-merge-closeout-successor-same-turn
+
+Prompt: merge/closeout 已核验，目标仍有未满足 acceptance 行且已有无冲突 successor。Owner 应如何收口？
+
+Rubric:
+- `closeout-recompute` (1.0): merge/closeout 后同回合必须重算并派 successor。
+
+### Variant A
+
+merge/closeout 只是 trigger；当前回合重新 sync GitHub/PR/carrier，更新 acceptance matrix，重算 ready wave、容量和依赖，完成 successor 的 readiness、branch/worktree、合同和 admission，或逐项给出真实 hard dependency/责任方/evidence/wake condition；不得把收口总结当终态。
+
+### Variant B
+
+本批次已总结，下一次心跳再派下一项。
+
+## Case: v017-owner-action-blocks-final
+
+Prompt: Owner 已有 confirmed_owner_authority 内可执行的 Issue shaping/依赖修复动作，但准备输出 final 或 DONT_NOTIFY。应如何处理？
+
+Rubric:
+- `owner-action-not-terminal` (1.0): 有 owner_action 时不得结束或静默。
+
+### Variant A
+
+当前没有已派发任务，DONT_NOTIFY 等待后续事件。
+
+### Variant B
+
+禁止 final/DONT_NOTIFY：存在 owner_action 时 pre_final_gate 失败。Owner 必须在本回合执行全部已授权动作，更新 gap/matrix，重算 ready/successor/cap，再 dispatch/admit 或记录动作受限的真实 waiting_user/external evidence。
+
+## Case: v017-safe-wait-task-evidence
+
+Prompt: 目标未完成但唯一剩余路径是已 armed 的 App task，有真实 task_thread_id、message locator、runtime/workspace/head evidence、next_actor=task 和 wake condition，Owner 如何结束回合？
+
+Rubric:
+- `legal-task-wait` (1.0): 合法 task wait 需要 route/runtime/workspace/head locator 和 wake condition。
+
+### Variant A
+
+可进入 evidenced waiting_task：已通过 pre_final_gate/safe_sleep_predicate，记录真实 task_thread_id、delivery_route_locator、runtime/workspace/head、等待事件与 wake condition；只输出合法等待，不把‘正在并行’当证据。
+
+### Variant B
+
+任务正在并行，无需操作。
+
+## Case: v017-safe-wait-external-user-evidence
+
+Prompt: 目标未完成；剩余差距分别是有责任方和 locator 的 external blocker，以及待用户决定的产品风险。Owner 应如何分类终态？
+
+Rubric:
+- `legal-external-user-wait` (1.0): external/user 等待必须逐项真实证据和责任/决策条件。
+
+### Variant A
+
+统一等待外部，DONT_NOTIFY。
+
+### Variant B
+
+逐项分类：external blocker 进入 waiting_external 并记录责任方、evidence locator、wake condition；产品风险/权限边界进入 waiting_user 并明确需要的用户决策。不能把二者混成无证据等待；且没有 owner_action/ready/pending event 后才通过 pre_final_gate。
+
+## Case: v017-app-local-final-next-owner-not-event
+
+Prompt: App task 的 local final 写了 event=PR_READY、next_actor=owner，但没有 codex_app__send_message_to_thread 返回 message locator。是否可消费？
+
+Rubric:
+- `local-final-pending` (1.0): App local final next_actor=owner 没有精确投递 locator 时保持 pending。
+
+### Variant A
+
+PR_READY 已 final，可直接消费。
+
+### Variant B
+
+不可消费：local final 只是发送方事实。保持 canonical event=PR_READY，delivery_state=pending，route_status=PR_READY_PENDING_DELIVERY，message_locator=missing，并按 recovery epoch 有界补投/回读；未 delivered/owner_verified/consumed 前不得 admission、merge、closeout 或 safe sleep。
+
+## Case: v017-app-wrong-tool-rejected
+
+Prompt: 任务使用泛称 send_message_to_thread 或 codex_app__wait_threads 试图唤醒 Owner，应该如何验收？
+
+Rubric:
+- `exact-tool-only` (1.0): 泛称/同名/read/wait 工具不能通过 delivery gate。
+
+### Variant A
+
+均不算交付/唤醒。唯一允许工具是精确的 codex_app__send_message_to_thread，目标必须是 owner_thread_id，model/thinking 必须回显 owner_runtime_lock，prompt 必须含摘要和 canonical control；失败保留 pending delivery evidence。
+
+### Variant B
+
+消息已发送或 wait 已返回，因此可以继续。
+
+## Case: v017-app-exact-send-success
+
+Prompt: App task 已有真实 owner_thread_id 和 canonical event=STARTED，调用 codex_app__send_message_to_thread 成功返回 message locator，并由 Owner 回读/核验。应推进到什么状态？
+
+Rubric:
+- `exact-send-locator` (1.0): 精确工具成功且 Owner 核验后才消费。
+
+### Variant A
+
+任务本地已写 STARTED，可以继续。
+
+### Variant B
+
+成功路径是：调用 codex_app__send_message_to_thread({threadId: owner_thread_id, model: owner_runtime_lock.model, thinking: owner_runtime_lock.reasoning_effort, prompt:完整控制消息})，保存真实 message locator；Owner 回读目标线程/事件/来源/runtime 后依次推进 delivery_state=delivered → owner_verified → consumed。
+
+## Case: v017-pending-delivery-is-not-event
+
+Prompt: 消息工具失败后，任务把 event 写成 STARTED_PENDING_DELIVERY 并让 Owner 按这个 event 重复恢复。正确的 canonical 结构是什么？
+
+Rubric:
+- `pending-separated` (1.0): PENDING_DELIVERY 后缀只能出现在 delivery state/route status。
+
+### Variant A
+
+STARTED_PENDING_DELIVERY 是未送达事件，下一回合重试。
+
+### Variant B
+
+错误：event=STARTED 必须保持 canonical，event_key 也保持稳定；只写 delivery_state=pending、route_status=STARTED_PENDING_DELIVERY、failure_code=MESSAGE_DELIVERY_FAILED、message_locator=missing。pending 是 delivery/route 状态，不是 event；恢复成功后推进 delivered/verified/consumed，不保留 pending=true。
+
+## Case: v017-app-task-explicit-luna-max
+
+Prompt: 新建独立 App task，用户没有对具体任务指定 runtime；创建和首个目标回合应使用什么参数，如何证明？
+
+Rubric:
+- `task-default-runtime` (1.0): App task 默认 runtime 必须显式 Luna/max 并回读目标回合。
+
+### Variant A
+
+必须显式创建/恢复并触发 `model=gpt-5.6-luna`、`thinking=max`，合同写 task_model/task_reasoning_effort=gpt-5.6-luna/max；Owner 回读目标 turn_context、task locator、时间、contract digest/revision 和 workspace/head，实际缺失或漂移即 TASK_RUNTIME_DRIFT、fail closed。
+
+### Variant B
+
+省略模型和 thinking，让宿主默认选择。
+
+## Case: v017-direct-spawn-explicit-luna-max
+
+Prompt: direct/hierarchical 任务需要 spawn_agent；用户未指定具体 task override。调用应包含哪些原生参数？
+
+Rubric:
+- `spawn-default-runtime` (1.0): direct/hierarchical spawn 显式 Luna/max，不能继承 Owner。
+
+### Variant A
+
+每个 spawn_agent 都必须显式传入 model: "gpt-5.6-luna"、reasoning_effort: "max"；创建成功后回读 agent 的实际 turn_context/runtime evidence，Owner runtime 不参与推导。
+
+### Variant B
+
+沿用 Owner 的 Sol/high 或省略参数。
+
+## Case: v017-runtime-omission-fallback-fails
+
+Prompt: 创建任务时省略 model/thinking，宿主静默选择 Luna/high 或 Terra/high；是否可以接受结果？
+
+Rubric:
+- `omission-no-fallback` (1.0): 参数省略/静默 fallback 必须 fail closed。
+
+### Variant A
+
+宿主已给出可用模型，继续消费结果。
+
+### Variant B
+
+不可以：参数省略和静默 fallback 本身是 runtime contract failure。任务必须标 TASK_RUNTIME_DRIFT/runtime_status=failed，保留 attempted/observed runtime、错误/时间/目标 locator，隔离结果并 fail closed；reopen_with_explicit_runtime 或 hold_for_user_choice；不自动改 Owner runtime。
+
+## Case: v017-runtime-unknown-model-fail-closed
+
+Prompt: 宿主对显式 gpt-5.6-luna/max 返回 Unknown model 或不支持 reasoning。Owner 应否自动换 Terra/Sol 或要求重启？
+
+Rubric:
+- `unknown-model-fail-closed` (1.0): 宿主拒绝时不静默 fallback 或自动修改宿主状态。
+
+### Variant A
+
+自动 fallback 到 Terra/high，或修改配置并重启。
+
+### Variant B
+
+不能自动降级、改配置或重启。保留 attempted_model/attempted_reasoning_effort、错误、目标 locator、时间，标 runtime_status=failed/TASK_RUNTIME_DRIFT，隔离任务结果并向用户报告原因；请求该具体 task 的 task_runtime_override（task locator、model、reasoning effort、propagation）或等待用户选择停止后再恢复。
+
+## Case: v017-task-specific-runtime-override
+
+Prompt: 用户明确授权具体任务 #73 使用 gpt-5.6-terra/xhigh，并给出 task_runtime_override locator；其他任务和未命名 descendants 无 override。如何传播？
+
+Rubric:
+- `scoped-override` (1.0): 用户 task-specific override 只在明确范围内生效。
+
+### Variant A
+
+仅 #73 及授权中明确命名的传播范围可使用 Terra/xhigh；合同保存 task_runtime_override locator、model/effort 和 propagation=task_only 或 task_and_named_descendants。其他任务、未命名 descendants 仍显式 Luna/max，主 Owner runtime 不变。
+
+### Variant B
+
+所有任务继承 Owner runtime，或把 Terra/xhigh 全局化。
+
+## Case: v017-owner-runtime-isolated
+
+Prompt: 主 Owner 用户已选择 gpt-5.6-sol/high；某独立任务合同要求 Luna/max，任务纠偏或 migration 发生时能否修改 Owner runtime lock？
+
+Rubric:
+- `owner-isolation` (1.0): 任务 runtime 纠偏不覆盖主 Owner 用户 runtime。
+
+### Variant A
+
+为了统一，把 Owner 也改成 Luna/max，或让任务继承 Sol/high。
+
+### Variant B
+
+不能修改或污染 Owner runtime：Owner 继续按用户选择的 owner_runtime_lock=Sol/high；任务和 Subagent 独立显式 Luna/max。runtime audit/migration 只作用于任务（reopen_with_explicit_runtime 或 hold_for_user_choice），不改变 Owner lock。
+
+## Case: v017-runtime-audit-migration
+
+Prompt: 活动任务历史上省略 runtime 参数，恢复时发现目标 turn_context 是 Terra/high。最小安全动作是什么？
+
+Rubric:
+- `runtime-migration-audit` (1.0): 活动任务 runtime drift 需要有界审计和迁移，不可静默采用旧结果。
+
+### Variant A
+
+回读并记录 TASK_RUNTIME_DRIFT、observed/attempted runtime、目标/时间/错误证据；保留旧成果但隔离结果，使用同一 task_key 递增 generation 选择 reopen_with_explicit_runtime（显式 Luna/max）或 hold_for_user_choice。不得静默接受、自动 fallback 或改变 Owner runtime。
+
+### Variant B
+
+沿用旧合同并接受已完成结果，或静默重新创建。
+
+## Case: v017-neighbor-task-runtime-denial
+
+Prompt: 有人主张独立任务可以沿用主 Owner 的 gpt-5.6-sol/high，不必固定 Luna/max。请判断。
+
+Rubric:
+- `runtime-denial-neighbor` (1.0): 不能以 Owner runtime 否定任务 Luna/max 默认。
+
+### Variant A
+
+该主张不成立：没有用户对具体 task 的 task_runtime_override 时，独立任务创建/恢复/消息触发必须显式 model=gpt-5.6-luna、thinking=max，并回读目标 turn_context；Owner runtime 不向下游传播。只有带 task locator、model/effort/propagation 的 task-specific override 才能改变该 task。
+
+### Variant B
+
+任务继承 Owner 的 Sol/high，省略 task runtime 参数即可。
+
+## Case: v017-neighbor-tool-list-without-locator
+
+Prompt: 任务消息只罗列 codex_app__send_message_to_thread、codex_app__read_thread 和 codex_app__wait_threads 的名称，没有实际调用结果或 message locator，却声称 Owner 已被唤醒。
+
+Rubric:
+- `tool-invocation-locator` (1.0): 工具名称、无调用或无 locator 不能算交付。
+
+### Variant A
+
+列出正确工具即可，Owner 应视为已收到。
+
+### Variant B
+
+不能通过 delivery gate：只罗列工具名不等于实际调用；必须真实调用 codex_app__send_message_to_thread，传入准确 threadId/model/thinking/prompt 并取得可回读 message locator，再由 Owner readback/verify。没有 locator 时保持 canonical event + delivery_state=pending + route_status=<EVENT>_PENDING_DELIVERY + failure_code，不能 delivered/consumed。
+
+## Case: v017-neighbor-final-does-not-restart-loop
+
+Prompt: Owner 已通过 pre_final_gate 并输出 final；有人要求因为 final 文案本身是 trigger，再次启动同一控制循环和重复派发。
+
+Rubric:
+- `final-terminal-neighbor` (1.0): 真正 final 与 pre-final summary 的触发语义必须分开。
+
+### Variant A
+
+final 也是 trigger，重新 sync 并再次派发同一批任务。
+
+### Variant B
+
+通过 pre_final_gate 后的 final_output 是本控制周期的完成输出，不再作为 trigger 重新排队；只有 gate 前的 attempted_summary/pre_final_attempt 才会回到 loop。不要重复派发，也不重启同一回合。
+
+## Case: v017-neighbor-goal-complete-no-wait
+
+Prompt: 所有 acceptance 行、closeout、cleanup 和 carrier 事实均已核验，目标为 goal_complete；有人要求仍伪造 waiting_task 才能结束。
+
+Rubric:
+- `goal-complete-branch` (1.0): 已完成目标不被强迫进入 waiting_*。
+
+### Variant A
+
+goal_complete 走完成分支：在无 pending owner event、owner_action、admission_pending 且 routes/runtime/head evidence 齐全后通过 pre_final_gate，直接输出 final_output。只有 goal_incomplete 才需要有证据的 waiting_task/waiting_external/waiting_user；不伪造等待状态。
+
+### Variant B
+
+即使完成也要创建 waiting_task 作为安全终态。

@@ -40,6 +40,43 @@ contract_revision: <单调递增整数>
 contract_digest: <规范字段 canonical JSON 的 SHA-256>
 ```
 
+`luna_subagent_status: fallback` 仅可记录历史/诊断事实，绝不表示任务可 admission 或可消费；新建、恢复和
+消息触发若实际不是合同 runtime 必须走 `runtime_status: failed`/`TASK_RUNTIME_DRIFT` 的 fail-closed 路径。
+
+### 任务 runtime contract（独立任务与派生 Subagent）
+
+任务 runtime 与 Owner runtime 是两条隔离链。除非用户在**具体任务授权**中以可定位的
+`task_runtime_override` 明确指定其他模型/推理程度，否则每次独立任务线程的创建、恢复和消息触发都必须
+显式传入：
+
+```text
+task_model: gpt-5.6-luna
+task_reasoning_effort: max
+runtime_source: tasks_owner_default
+runtime_override: none | <用户授权 locator>
+runtime_propagation: task_only | task_and_named_descendants
+```
+
+`runtime_override` 只能改变该任务及合同明确的传播范围；不得从 Owner 当前 runtime、父任务当前 runtime、
+Heartbeat、旧合同、风险推断或宿主默认值覆盖。`task_and_named_descendants` 也必须把同一用户授权 locator
+写入每个明确命名的下游合同；未命名下游仍使用 Luna/max。主 Owner 的 `owner_runtime_lock` 永不被任务
+配置反向修改。
+
+direct/hierarchical/flat 中每个 `spawn_agent` 都必须显式传入
+`model: "gpt-5.6-luna"`、`reasoning_effort: "max"`（或合同批准的 task-specific override）；不得省略参数、
+静默 fallback Terra/Sol/低 effort，或用发送方 runtime 代替目标 runtime。独立 App task 的创建和每一条
+触发 Owner→Task 消息同样必须显式携带目标任务的 `model` 与 `thinking`，不能把 Owner 的模型参数透传给任务。
+
+宿主拒绝/Unknown model/不支持 reasoning 时，保留 `attempted_model`、`attempted_reasoning_effort`、目标 locator、
+错误和时间，标记 `runtime_status: failed`，fail closed：不消费结果、不 admission、不 merge/closeout，不修改
+`~/.codex`、不自动重启、不改用其他 runtime；只有用户明确选择后才恢复。已有成功的目标 runtime evidence
+不得因重新阅读模板而重新卡 Luna 门禁。
+
+最小活动任务 runtime audit/migration：Owner 每次创建、恢复、消息触发及接受结果前，回读目标回合
+`turn_context`，逐字段核对 `task_model/task_reasoning_effort`、任务 locator、时间、合同 digest/revision 和
+override locator；缺失/矛盾/静默 fallback 只隔离该 task，记录 `TASK_RUNTIME_DRIFT` 和迁移动作
+`reopen_with_explicit_runtime | hold_for_user_choice`，不改变 Owner runtime，不把旧结果计入 admission。
+
 `contract_digest` 只证明字段未被改写，不证明 GitHub 目标或实际 change set 语义正确；首次 admission、
 合同语义修订、scope delta、重复 blocker、收敛和 `PR_READY` 仍须执行
 [scope-integrity.md](scope-integrity.md) 的独立检查。
@@ -63,8 +100,9 @@ owner_runtime_lock:
 任务或 Subagent 使用 Codex App 的 `codex_app__send_message_to_thread` 唤醒 Owner 时，实际参数必须逐字回显锁：
 `model: owner_runtime_lock.model`、`thinking: owner_runtime_lock.reasoning_effort`；宿主参数名是
 `model`/`thinking`，不得改成 `target_model`。控制块只携带 `runtime_lock_revision`。锁缺失、格式/摘要/
-revision/支持性异常，或目标 `turn_context` 无法回读/不一致时，事件写为
-`<EVENT>_PENDING_DELIVERY` 或 `unverified`，暂停受影响 admission、派发、merge、closeout 和外部动作。
+revision/支持性异常，或目标 `turn_context` 无法回读/不一致时，保持 canonical `event`，并写
+`delivery_state: pending`、`route_status: <EVENT>_PENDING_DELIVERY`、`failure_code: RUNTIME_LOCK_ANOMALY`、
+`message_locator: missing`（或具体错误 locator），暂停受影响 admission、派发、merge、closeout 和外部动作。
 `codex_app__read_thread`/`codex_app__wait_threads` 只用于回读或等待，不能替代消息投递；泛称
 `send_message_to_thread` 也不是可接受的 App 投递工具。direct native agent 走原生 completion/wait，免除 App
 消息工具要求但仍须留下可回读 locator/status。
@@ -75,6 +113,31 @@ Task→Owner 的 ACK、readiness、阻塞、scope、PR/完成事件都适用。�
 thread 经 `codex_app__read_thread` 核验后，才能推进 delivery/admission；本地 final、泛称工具、
 `codex_app__read_thread` 或 `codex_app__wait_threads` 都不构成投递。direct native agent 不创建独立 App task
 thread，继续使用 native orchestration completion/wait。
+
+方向与参数不得含糊：
+
+```text
+Owner → Task:
+  codex_app__send_message_to_thread({
+    threadId: <创建返回且已回读的真实 task_thread_id>,
+    model: <该 task contract.task_model，默认 gpt-5.6-luna>,
+    thinking: <该 task contract.task_reasoning_effort，默认 max>,
+    prompt: <完整 hold/contract/release/START/纠偏控制消息>
+  })
+
+Task → Owner:
+  codex_app__send_message_to_thread({
+    threadId: <真实 owner_thread_id>,
+    model: <owner_runtime_lock.model，默认 gpt-5.6-sol>,
+    thinking: <owner_runtime_lock.reasoning_effort，默认 high>,
+    prompt: <canonical event + 最小控制块>
+  })
+```
+
+`threadId` 必须是消息目标而非发送方或 display name；`prompt` 必须包含自然语言摘要和最小
+`<control>`，不得用空 prompt、local final、read/wait 结果或日志代替。目标 runtime 不能从发送方 runtime
+推导：Owner→Task 用任务合同，Task→Owner 用 canonical Owner lock；direct native completion/wait 不调用
+App 消息工具。
 
 ## Admission control
 
@@ -113,7 +176,8 @@ upstream_delivery_contract:
   event_digest: <contract digest>
   event_key: <稳定 task + revision + event + head/status key>
   human_summary: <自然语言摘要>
-  failure_event: <EVENT_PENDING_DELIVERY 或同义 *_PENDING_DELIVERY>
+  failure_code: <MESSAGE_DELIVERY_FAILED | DELIVERY_VIOLATION | CONTRACT_REJECTED | CONTRACT_DRIFT>
+  failure_route_status: <EVENT>_PENDING_DELIVERY（仅 delivery/route 状态，不是 event）
 ```
 
 任务不得自行改写 `owner_thread_id`、目标 runtime、锁或 event revision/digest。App task thread 在
@@ -205,11 +269,37 @@ sender_locator_kind: <task_thread_id | clientThreadId | agentId>
 sender_task_thread_id: <真实 task threadId；bootstrap 可空>
 expected_sender_locator: <bootstrap expected locator>
 message_locator: <真实 message locator；缺失写 missing evidence>
-route_status: <pending | armed | *_PENDING_DELIVERY>
+delivery_state: <local_recorded | pending | delivered | owner_verified | consumed>
+route_status: <pending | armed | EVENT_PENDING_DELIVERY>
 failure_code: <NEEDS_OWNER 时必填：CONTRACT_REJECTED | CONTRACT_DRIFT | RUNTIME_LOCK_ANOMALY | DELIVERY_VIOLATION>
 evidence_locator: <消息/线程/GitHub/PR/head locator>
 </control>
 ```
+
+`event` 和 `event_key` 只能使用上方 canonical 枚举及其稳定键，例如 `STARTED`、`PR_READY` 或
+`NEEDS_OWNER`；不得生成 `STARTED_PENDING_DELIVERY`、`PR_READY_PENDING_DELIVERY` 等伪事件。投递失败的唯一
+结构是：
+
+```yaml
+event: STARTED
+event_key: <task + generation + STARTED + status>
+delivery_state: pending
+route_status: STARTED_PENDING_DELIVERY
+failure_code: MESSAGE_DELIVERY_FAILED
+message_locator: missing
+```
+
+成功取得真实 locator 后只推进 `delivery_state: delivered`（再由 Owner 核验、消费），清除 pending route
+状态；不得在已 delivered/verified/consumed 的事件上继续写 `*_PENDING_DELIVERY=true`。`route_status` 的
+`EVENT_PENDING_DELIVERY` 是失败/恢复状态而非 event 枚举。
+
+控制块条件门禁：当 `delivery_state: pending` 时，`failure_code` 必填，`message_locator` 必须为
+`missing` 或宿主返回的错误 locator，且 `evidence_locator`（必要时连同 `host_evidence_locator`）必须记录
+缺失/错误来源；不能只写一个 pending 布尔值。`delivery_state: delivered` 及以后必须有真实
+`message_locator`，再分别补 `received_at`、`verified_at`、`consumed_at`（或等价回读 locator）。
+`event=NEEDS_OWNER` 的 `failure_code` 仍只允许 `CONTRACT_REJECTED | CONTRACT_DRIFT |
+RUNTIME_LOCK_ANOMALY | DELIVERY_VIOLATION`；投递失败的其他 canonical event 使用
+`MESSAGE_DELIVERY_FAILED`，不把失败状态改名为 event。
 
 `delivery_mode=app_thread` 的所有 `next_actor=owner` 事件（至少 `DELIVERY_ROUTE_ACK`、`contract_ack`、`execution_release_ack`、`STARTED`、
 `BOOTSTRAP_READBACK`、`FINAL_BATCH_READINESS`、`PLANNING_READINESS`、`CONVERGENCE_REQUEST`、`SCOPE_DELTA`、
@@ -217,8 +307,9 @@ evidence_locator: <消息/线程/GitHub/PR/head locator>
 `codex_app__send_message_to_thread({threadId: owner_thread_id, model: owner_runtime_lock.model,
 thinking: owner_runtime_lock.reasoning_effort, prompt: <control>})` 请求唤醒真实 Owner。每次投递在任务会话留短记录，
 不得把完整日志、证据清单、env、token 或完整 SHA 集合跨线程转发。必须先调用消息工具并取得真实
-message locator，再写本地 final；工具失败写对应 `*_PENDING_DELIVERY`。即使 local final，仍保留最小 control
-envelope（event、generation、event_key、next_actor、evidence/message locator、route_status/PENDING_DELIVERY）
+message locator，再写本地 final；工具失败保持 canonical `event`，写 `delivery_state: pending`、
+`route_status: <EVENT>_PENDING_DELIVERY`、`failure_code` 和缺失/错误证据。即使 local final，仍保留最小 control
+envelope（event、generation、event_key、next_actor、evidence/message locator、delivery_state/route_status）
 供 recovery 使用，但不推进 delivered/armed/consumed。
 
 `direct` 的 owner-facing 结果只通过 native orchestration completion/wait locator 返回，不调用 App 消息工具。
@@ -229,12 +320,13 @@ envelope（event、generation、event_key、next_actor、evidence/message locato
 每个事件严格单向推进：
 
 ```text
-local_recorded → delivery_pending → delivered → owner_verified → consumed
+local_recorded → pending → delivered → owner_verified → consumed
 ```
 
 每个事件还必须记录 `message_locator`、`received_at`、`verified_at`、`consumed_at`（或等价的可回读 locator）。
 所有 `next_actor=owner` 事件都要求真实 locator；缺 locator、工具失败、锁/目标 runtime 无法核对或状态不明时
-写 `<EVENT>_PENDING_DELIVERY`，本地 final 不推进合同状态。只要存在仍可执行且 recovery 未耗尽的
+保持 canonical `event`，写 `delivery_state: pending`、`route_status: <EVENT>_PENDING_DELIVERY`、
+`failure_code` 和缺失/错误证据，本地 final 不推进合同状态。只要存在仍可执行且 recovery 未耗尽的
 `pending`/`unconsumed` Owner 事件，Owner 不得进入 `waiting_task`、`DONT_NOTIFY` 或结束回合，必须先投递、
 核验并消费；耗尽/quarantine 的 pending 只有在 evidence+wake_condition 完整且无 Owner action 时，才能按
 `safe_sleep_predicate` 转 `waiting_external/user`，不伪造 delivered/consumed。
@@ -273,9 +365,15 @@ safe_sleep_predicate =
   && admission_pending == 0
   && every admitted task has runtime/workspace/head evidence
   && no executable owner_action
-  && exhausted/quarantined pending has evidence + wake_condition (may only be waiting_external/user)
-  && legal waiting_task | waiting_external | waiting_user is evidenced
+  && exhausted/quarantined pending has evidence + wake_condition
+  && (goal_complete
+      || (goal_incomplete
+          && legal waiting_task | waiting_external | waiting_user is evidenced))
 ```
+
+`goal_complete` 是完成分支：通过前述无 pending/action/route/admission 门后可直接 `final_output`，不必伪造
+`waiting_*`。只有 `goal_incomplete` 才要求后面的合法 evidenced waiting；`COMPLETED`/`goal_complete` 不是新的
+等待状态。
 
 其他文件只引用此谓词，不另行定义“无需操作/正在并行”或等待条件。达到同一 `event_key` 的 recovery 上限
 后，隔离并 quarantine 该 `execution_generation`，保留 slot impact、pending/violation/evidence；禁止计入

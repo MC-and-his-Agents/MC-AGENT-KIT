@@ -12,7 +12,9 @@
 
 - Codex App 尚无已验证的任务线程原生 Subagent 禁用开关；`flat` 和 `direct` 的下级衍生限制只能由合同和 Owner 巡检约束。
 - Luna 的 `multi_agent_version: v2` 本地目录覆盖是受控兼容方案，不是上游修复；只有重启后的原生 `spawn_agent` 冒烟测试通过才算支持。
-- 模型与推理参数必须逐次创建后回读；用户选择的回退模型只对本批次生效。
+- 模型与推理参数必须逐次创建/恢复/触发后回读；无用户 task-specific override 时独立任务/Subagent 必须
+  显式 Luna/max。用户选择只能绑定可定位 task locator，并同时记录 model、effort 和 propagation；不得
+  形成批次或全局 fallback。
 - 输出评测目前是确定性合同样例，尚无 provider-backed 执行结果和人工盲审结论。
 - `agents/openai.yaml` 是 Codex UI 元数据；`agents/interface.yaml` 是 Yao Production 验证与信任边界，两者的三个 `interface` 字段必须保持一致。
 - hold/release 是协作式协议，不是宿主写权限锁；违反合同的任务只能由 Owner 检测、隔离和停止采用其输出。
@@ -26,7 +28,7 @@
 - `hard` 依赖阻止安全开始，`soft` 只影响优先级/信息，`convergence` 只阻最终 merge/认证/closeout。goal incomplete、resolved cap>1 且 critical-path implementation width 持续为1时必须逐条共同 blocker 做 fan-out audit；`implementation_target_cap=resolved_max_inflight`，occupancy、readiness/review、2–3条路径不是效果或新 cap。
 - acceptance/backlog matrix 在首次调度、重大 closeout/replan、用户效率复盘后刷新，至少映射 acceptance、Work Item/owner、依赖分类、shared carrier、parallel lane 和 closeout consumer；只在 checkpoint/运行态保留 locator/短状态，不写 GitHub/仓库运行数据。
 - 所有 next_actor=owner 事件必须有真实 message locator 与 received/verified/consumed 记录；pending/unconsumed 在 `delivery_recovery.executable_action=true` 且 recovery 未耗尽时禁止 waiting_task、DONT_NOTIFY 或结束回合。宿主不可用或同一 event_key 已耗尽两次时，保留 pending/violation、authority/host evidence locator 和 wake_condition，转 `waiting_external`；需用户选择替代通道或补充授权时转 `waiting_user`，不伪造 delivered/consumed。Heartbeat 首次发现漏投标 delivery_violation 并纠偏，不是正常队列。
-- 每个 App bootstrap/full task prompt 必须携带 `upstream_delivery_contract`（真实 owner_thread_id、sender locator kind、`message_tool=codex_app__send_message_to_thread`、canonical runtime lock、revision/digest/event_key、人类摘要和 `*_PENDING_DELIVERY` 失败事件）；任务在 contract_ack 后、release/START 前只主动投递一次 `DELIVERY_ROUTE_ACK`，Owner 消费真实 locator，验证 sender locator 与创建返回的真实 task locator 一致且不等于 Owner thread，并确认 `delivery_route_status=armed` 后仅可继续完整 admission。direct 免 route ACK，依赖 native agent completion/wait locator。只有 contracts 的 `safe_sleep_predicate` 成立才能等待；task thread、BOOTSTRAP、START 或 task final 不能冒充交付/ admitted 证据。
+- 每个 App bootstrap/full task prompt 必须携带 `upstream_delivery_contract`（真实 owner_thread_id、sender locator kind、`message_tool=codex_app__send_message_to_thread`、canonical runtime lock、revision/digest/event_key、人类摘要，以及 canonical `event` 对应的 `delivery_state: pending`、`route_status: <EVENT>_PENDING_DELIVERY`、failure code 和 message locator 失败结构）；任务在 contract_ack 后、release/START 前只主动投递一次 `DELIVERY_ROUTE_ACK`，Owner 消费真实 locator，验证 sender locator 与创建返回的真实 task locator 一致且不等于 Owner thread，并确认 `delivery_route_status=armed` 后仅可继续完整 admission。direct 免 route ACK，依赖 native agent completion/wait locator。只有 contracts 的 `safe_sleep_predicate` 分支成立才能等待；task thread、BOOTSTRAP、START 或 task final 不能冒充交付/ admitted 证据。
 - 首次独立 review 前必须有 acceptance-derived preflight；首次 fix-first 后做 sibling/systemic scan 和一个有界修复，第二次不同 blocker class 的实质 finding 触发 rethink/split/reassign/user decision，不继续 reviewer 探测循环。preflight 不替代 CI/exact-head/scope review。
 - 控制信号包括 first-review pass、acceptance coverage per merge、same-carrier PR count、event-to-action latency、critical-path width 和 admitted=1 时剩余 owner-actionable；不新增数据库或把全量指标塞进 handoff。
 - `BOOTSTRAP_READBACK` 后每个控制周期必须进入完整合同 admission、释放 implementation slot 并记录 blocker/wake condition，或结束 bootstrap 释放 host slot；不得无限 execution hold。
