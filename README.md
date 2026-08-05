@@ -47,19 +47,24 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
 | [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
-| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.16.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
+| [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.17.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以最小有效交付批次统筹结果，维护 acceptance/backlog matrix，分类依赖、并行调度、即时消费 Owner 事件并以前置 review preflight 收口；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
 ## Tasks Owner workflow
 
 [`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) turns the current Codex App
-conversation into the outcome-responsible Owner of a GitHub project. It syncs live truth,
-classifies each gap as `execution_ready`, `owner_actionable`, or `external_blocked`, shapes
-or revises Work Items inside `confirmed_owner_authority`, and keeps dispatch, supervision,
-convergence, closeout, cleanup, and successor planning in one control loop. `planning_not_ready`
-only blocks implementation admission; an incomplete goal with no admitted or pending work
-requires Owner recovery. A branch, worktree, stale handoff, or `ready=0` is not a wait reason.
+conversation into the outcome-responsible Owner of a GitHub project. It selects the smallest
+valid delivery batch: candidates sharing a write carrier, verification matrix, and closeout
+lane stay together unless independent value, risk/permission/data boundary, ownership, hard
+dependency, or rollback evidence requires a split. It refreshes an acceptance/backlog matrix
+at first dispatch, major closeout/replan, and efficiency review; classifies hard/soft/convergence
+dependencies without automatic parent-child propagation; and keeps dispatch, supervision,
+convergence, closeout, cleanup, and successor planning in one control loop. Owner events are
+consumed immediately, and independent review is preceded by acceptance-derived preflight with
+bounded churn. `planning_not_ready` only blocks implementation admission; an incomplete goal
+with no admitted or pending work requires Owner recovery. A branch, worktree, stale handoff, or
+`ready=0` is not a wait reason.
 
 After closeout is verified, the Owner can dispatch a dedicated Luna/max Subagent to
 remove only the explicitly authorized worktree, local branch, and remote branch. Exact

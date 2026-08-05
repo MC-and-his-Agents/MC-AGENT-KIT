@@ -2,9 +2,9 @@
   "schema_version": "2.0.0",
   "name": "tasks-owner",
   "title": "Tasks Owner",
-  "job_to_be_done": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
+  "job_to_be_done": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以最小有效交付批次统筹结果，维护 acceptance/backlog matrix，分类依赖、并行调度、即时消费 Owner 事件并以前置 review preflight 收口；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
   "trigger_surface": {
-    "description": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，识别结果差距和关键路径，形成或修订 Work Item，派发、纠偏并收敛流水线；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
+    "description": "将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以最小有效交付批次统筹结果，维护 acceptance/backlog matrix，分类依赖、并行调度、即时消费 Owner 事件并以前置 review preflight 收口；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。",
     "should_trigger": [
       "请让当前对话成为这个 GitHub 项目的主 Owner，读取 milestone 和 issue 后调度任务线程。",
       "我把这个 GitHub 项目委托给你长期统筹，请按 flat 模式推进各 issue。",
@@ -62,6 +62,7 @@
   "eval_plan": {
     "trigger": [
       "evals/history/2026-08-04-dispatch-liveness.md",
+      "evals/history/2026-08-05-efficiency-batches-and-events.md",
       "evals/history/2026-08-05-outcome-first.md",
       "evals/output/cases.jsonl",
       "evals/output/fixtures/github-plan.md",

@@ -2,7 +2,7 @@
 
 This packet hides whether each variant came from the baseline or the skill-guided output. Use the separate answer key only after review.
 
-- Pairs: `79`
+- Pairs: `91`
 - Seed: `yao-output-eval-blind-v1`
 - Answer key separate: `True`
 
@@ -182,7 +182,7 @@ Rubric:
 
 ### Variant A
 
-这是 cooperative gate，不是宿主写入锁。先发送 execution_hold；任务保持 pending_contract，在自身会话记录同 revision/contract_digest 的 contract_ack 后，用锁定 model/thinking 调用 send_message_to_thread 主动投递 Owner。Owner 用 read_thread + GitHub truth 核验 contract_ack_message_id 后发送 execution_release；任务同样主动投递 execution_release_ack。Owner 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED。Owner 最终核验后才标记 admitted；缺失、错配、漏投或提前写入立即隔离。
+这是 cooperative gate，不是宿主写入锁。先发送 execution_hold；任务保持 pending_contract，在自身会话记录同 revision/contract_digest 的 contract_ack 后，用锁定 model/thinking 调用 codex_app__send_message_to_thread 主动投递 Owner。Owner 用 codex_app__read_thread + GitHub truth 核验 contract_ack_message_id 后发送 execution_release；任务同样主动投递 execution_release_ack。Owner 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED。Owner 最终核验后才标记 admitted；缺失、错配、漏投或提前写入立即隔离。
 
 ### Variant B
 
@@ -336,7 +336,7 @@ release 已发送，可以立即写入。
 
 ### Variant B
 
-仍保持 pending_contract，禁止写入。任务先留本地记录，再以 owner_runtime_lock 的 model/thinking 调用 send_message_to_thread 主动投递匹配 revision/digest 的 execution_release_ack；失败则记录 RELEASE_ACK_PENDING_DELIVERY。Owner 用 read_thread + GitHub truth 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED，Owner 再次核验后才 admitted。
+仍保持 pending_contract，禁止写入。任务先留本地记录，再以 owner_runtime_lock 的 model/thinking 调用 codex_app__send_message_to_thread 主动投递匹配 revision/digest 的 execution_release_ack；失败则记录 RELEASE_ACK_PENDING_DELIVERY。Owner 用 codex_app__read_thread + GitHub truth 核验 release_ack_message_id 后发送 START control；任务主动投递首个 STARTED，Owner 再次核验后才 admitted。
 
 ## Case: max-inflight-cap-resolution
 
@@ -467,7 +467,7 @@ Rubric:
 
 ### Variant A
 
-失败：task final 只是本地记录，不是跨线程交付。任务必须先写 local_recorded，再对真实 owner_thread_id 调用 send_message_to_thread；工具失败或不可验证时保留 BLOCKED_PENDING_DELIVERY/CONTRACT_ACK_PENDING_DELIVERY，不能推进 Owner 合同状态。
+失败：task final 只是本地记录，不是跨线程交付。任务必须先写 local_recorded，再对真实 owner_thread_id 调用 codex_app__send_message_to_thread；工具失败或不可验证时保留 BLOCKED_PENDING_DELIVERY/CONTRACT_ACK_PENDING_DELIVERY，不能推进 Owner 合同状态。
 
 ### Variant B
 
@@ -482,7 +482,7 @@ Rubric:
 
 ### Variant A
 
-固定流程：Owner→Task contract；Task 在自身会话记录 contract_ack 后用 send_message_to_thread 投递真实 Owner，状态为 delivered；Owner 用 read_thread + GitHub truth 核验后发送 execution_release；Task 再投递 execution_release_ack；Owner 回读核验后发送 START control；Task 下一回合投递同 revision/digest/runtime_lock_revision 的 STARTED。Owner 再次 read_thread + GitHub truth 核验，才标记 admitted；随后 Owner 可结束当前回合，Task 继续执行。wait_threads 只能降低在线延迟。
+固定流程：Owner→Task contract；Task 在自身会话记录 contract_ack 后用 codex_app__send_message_to_thread 投递真实 Owner，状态为 delivered；Owner 用 codex_app__read_thread + GitHub truth 核验后发送 execution_release；Task 再投递 execution_release_ack；Owner 回读核验后发送 START control；Task 下一回合投递同 revision/digest/runtime_lock_revision 的 STARTED。Owner 再次 codex_app__read_thread + GitHub truth 核验，才标记 admitted；随后 Owner 可结束当前回合，Task 继续执行。codex_app__wait_threads 只能降低在线延迟。
 
 ### Variant B
 
@@ -502,7 +502,7 @@ sender 直接用自己的 Luna/max 参数发送，或省略参数让宿主默认
 
 ### Variant B
 
-只有显式回显锁才允许发送：send_message_to_thread(model=gpt-5.6-sol, thinking=high)，控制块只带 runtime_lock_revision: 7；目标 turn_context 必须仍为 Sol/high。sender 自身 Luna/max、参数省略、使用旧 revision、contract_digest 不匹配或缺锁都写 *_PENDING_DELIVERY 并 fail closed；不得使用 target_model，也不声称宿主已强制回显。
+只有显式回显锁才允许发送：codex_app__send_message_to_thread(model=gpt-5.6-sol, thinking=high)，控制块只带 runtime_lock_revision: 7；目标 turn_context 必须仍为 Sol/high。sender 自身 Luna/max、参数省略、使用旧 revision、contract_digest 不匹配或缺锁都写 *_PENDING_DELIVERY 并 fail closed；不得使用 target_model，也不声称宿主已强制回显。
 
 ## Case: ready-wave-single-without-reason
 
@@ -1062,7 +1062,7 @@ Rubric:
 
 ### Variant A
 
-Owner 持续 wait_threads，频繁检查任务进展。
+Owner 持续 codex_app__wait_threads，频繁检查任务进展。
 
 ### Variant B
 
@@ -1257,3 +1257,195 @@ Rubric:
 ### Variant B
 
 先恢复实时事实并完成一次 Owner 控制周期：评估目标完成度、未满足结果和关键路径；核对 ready buffer、admitted/pending、两个空槽与未选理由；回读三个任务的真实 locator、next_actor、阻塞、scope delta 和 pending delivery；对重复失败任务当场纠偏或重新分配，验证 PR_READY 的 scope integrity、测试/CI、fresh exact-head review 与 PR metadata；在目标和质量对齐后为可执行工作补满无冲突槽位，并更新 checkpoint/handoff。只有重算后进入合法 waiting_task 或 all-external 才输出 DONT_NOTIFY，不能因 handoff 没有紧急事件跳过评估。
+
+## Case: v017-tight-batch-same-carrier
+
+Prompt: 两个候选都服务同一用户结果，写同一个 carrier，共享验证矩阵和 closeout lane；应如何形成 Work Item？
+
+Rubric:
+- `shared-carrier-batch` (1.0): 共享 carrier/验证/收口时必须合并为 tight batch。
+- `batch-not-milestone-super-task` (1.0): 批次边界不能扩大成 milestone 超级任务。
+
+### Variant A
+
+按候选动作拆成两个独立 Issue 和两个 PR，先占满槽位再协调同一 carrier。
+
+### Variant B
+
+形成一个最小有效交付批次（tight batch）：两个候选共享写入 carrier、验证矩阵和 closeout lane，绑定一个 Work Item/owner、一个 shared carrier、一个 parallel lane 和一个 closeout consumer。只有独立用户价值、风险/权限/数据边界、ownership、真实 hard dependency 或独立回滚证据出现时才拆分；不把 milestone 变成超级任务。
+
+## Case: v017-legal-split-evidence
+
+Prompt: 两个候选虽同一 milestone，但一个触碰权限/数据边界，另一个有独立回滚和不同 ownership；是否拆分？
+
+Rubric:
+- `split-criteria` (1.0): 独立风险、数据/权限边界、ownership 或回滚证据可支持拆分。
+- `split-matrix` (1.0): 拆分后仍需各自进入矩阵。
+
+### Variant A
+
+合法拆分为两个最小有效交付批次：权限/数据边界和不同 ownership 是独立风险证据，独立回滚证据也支持拆分。分别建立 Work Item、owner、hard/soft/convergence 依赖、shared carrier/parallel lane/closeout consumer，并回写 acceptance/backlog matrix；同 milestone 本身不会强行合并。
+
+### Variant B
+
+同 milestone 默认合成一个超级批次，避免增加管理开销。
+
+## Case: v017-acceptance-matrix-backlog
+
+Prompt: 首次调度时有成功、失败和不可用三条验收；已有两个 Issue，但不可用路径没有 owner、依赖和 closeout consumer。能否宣称 backlog 清空？
+
+Rubric:
+- `matrix-completeness` (1.0): 所有验收状态都需有完整矩阵映射。
+- `matrix-boundary` (1.0): 矩阵是 Owner 运行态索引而非仓库/GitHub 数据。
+
+### Variant A
+
+不能宣称清空。建立或刷新完整 acceptance/backlog matrix，逐行映射 acceptance → Work Item/owner → hard/soft/convergence → shared carrier → parallel lane → closeout consumer；成功、失败和不可用路径都必须覆盖。不可用行缺 owner、依赖和 closeout consumer，matrix_status=incomplete，继续 owner_actionable shaping。矩阵只保存在 Owner checkpoint/运行态 locator 与短状态，不写 GitHub 或仓库运行数据。
+
+### Variant B
+
+两个 Issue 已 ready，ready buffer 为空，因此 backlog 清空并输出 DONT_NOTIFY。
+
+## Case: v017-dependency-fanout-audit
+
+Prompt: 目标未完成，resolved_max_inflight=4，但 critical-path implementation width 连续为1；三个后继被同一父 Issue 标为 blocked，其中两个只有 soft/convergence 关系。
+
+Rubric:
+- `dependency-classification` (1.0): 区分 hard/soft/convergence 并阻止父子自动传播。
+- `cap-and-width` (1.0): 关键路径宽度为1时审计并保持 cap。
+
+### Variant A
+
+父 Issue 未完成，所以三个子任务都必须串行等待；把 implementation cap 临时降为1。
+
+### Variant B
+
+执行 fan-out audit：critical-path implementation width=1，逐条列出共同 blocker 的责任方、证据和 wake condition；hard 依赖只阻安全开始，soft 只影响优先级/信息，convergence 只阻最终 merge/认证/closeout，父子关系不自动传播 blocker。把两个可并行后继组成 tight batch，保持 implementation_target_cap=resolved_max_inflight=4；occupancy、readiness/review 和2–3条路径不是实现效果或新 cap。
+
+## Case: v017-premature-worksite
+
+Prompt: blocked successor 的 readiness 已可由只读 checkout 完成，但 hard dependency 尚未 merge。任务线程想先建正式 branch/worktree、完整 contract 和 START。
+
+Rubric:
+- `no-premature-execution` (1.0): hard dependency 未解除时禁止正式 execution 现场和 START。
+- `admit-on-release` (1.0): 依赖解除后立即 admission。
+
+### Variant A
+
+允许 Owner/direct Subagent/共享只读 checkout 提前完成 acceptance、依赖和验证 readiness；因此可提前完成 readiness，但 hard dependency merge 前不得建立正式 execution branch/worktree、完整 contract 或 START；只读预读不是 implementation admission。依赖解除后同一控制周期立即创建正式现场、完成 ACK/release/STARTED admission。
+
+### Variant B
+
+提前建立 branch/worktree 并发送 START，这样依赖解除时可以立即写入。
+
+## Case: v017-event-before-heartbeat
+
+Prompt: 任务发送了 next_actor=owner 的 BLOCKED 事件，但 message locator 缺失；Heartbeat 先发现该事件，当前周期没有其他任务。
+
+Rubric:
+- `event-delivery-gate` (1.0): Owner 事件必须有 locator 和完整消费记录。
+- `no-quiet-with-pending` (1.0): 未消费事件禁止等待或静默终态。
+
+### Variant A
+
+Heartbeat 记录事件即可，输出 waiting_task/DONT_NOTIFY，等待下一次轮询。
+
+### Variant B
+
+先标记 EVENT_PENDING_DELIVERY/delivery_violation，补真实 message locator，并记录 received_at、verified_at、consumed_at（或等价 locator）；Owner 立即回读并消费 BLOCKED。pending/unconsumed Owner 事件期间禁止 waiting_task、DONT_NOTIFY 或结束回合。Heartbeat 只做漏投审计和恢复，不是正常控制队列。
+
+## Case: v017-review-preflight-churn
+
+Prompt: 首次独立 review 前，任务只有 readiness 和 CI 通过，没有 negative matrix、fixture 恢复、资源释放或最近 findings 证据；首次 review 给出 fix-first，修复后第二次出现不同 blocker_class 的实质 finding。
+
+Rubric:
+- `preflight-before-review` (1.0): review 前必须有 acceptance-derived preflight 的完整证据。
+- `bounded-review-churn` (1.0): fix-first 后一次有界修复，第二次不同 blocker class 触发 Owner rethink。
+
+### Variant A
+
+首次独立 review 前先完成 acceptance-derived preflight，覆盖目标验收、trust-boundary ordering、negative matrix、fixture 隔离/恢复、资源释放、项目 invariant 和最近同类 findings；缺证据不派 review。fix-first 后做 sibling/systemic scan 和一个有界修复并重新 review。第二次不同 blocker_class 的实质 finding 触发 Owner rethink/split/reassign/user decision，不继续 reviewer 探测循环；preflight 不替代 CI、exact-head 或 scope review。
+
+### Variant B
+
+readiness/CI 已通过，直接派 review；fix-first 后让 reviewer 继续逐轮指出问题，直到 ship。
+
+## Case: v017-owner-event-host-never-wakes
+
+Prompt: 同一 event_key 的 next_actor=owner BLOCKED 事件已 local_recorded，但宿主永久不能返回真实 message locator 或 wake 能力；连续两个控制周期都无法投递。Owner 如何结束本周期？
+
+Rubric:
+- `bounded-owner-delivery-recovery` (1.0): 宿主永久不可用时 delivery recovery 必须有界而非无限重试。
+- `fail-closed-owner-event` (1.0): 投递证据缺失时保留 pending/violation，不伪造消费并进入合法等待。
+
+### Variant A
+
+turn_1 先记录 delivery_violation、EVENT_PENDING_DELIVERY、authority_locator 和 host_evidence_locator；确认仍有可执行投递动作时，按同一 event_key 每控制周期最多一次，只尝试一次并保留 attempt_in_cycle=1、total_attempts=1，禁止伪造 delivered/consumed。turn_2 对同一 event_key 只允许最后一次有界 recovery（total_attempts=2）；宿主能力仍不可用后保留 pending/missing evidence、wake_condition 和 retry_eligible_after，绝不伪造 owner_verified/consumed。turn_3 在没有新的外部事实或用户决定前转合法 waiting_external；若用户必须选择替代通道或补充授权则转 waiting_user，不再轮询；新的外部事实或用户决定前不重试。
+
+### Variant B
+
+每次 Heartbeat 都再次发送唤醒，若仍失败就把事件标为 delivered/consumed，输出 DONT_NOTIFY 并等待下一次轮询。
+
+## Case: v017-matrix-stale-holdout
+
+Prompt: acceptance/backlog matrix 原为 complete，但 GitHub 刚改变一行 Work Item ownership，checkpoint 的 truth_digest 与当前 revision 不匹配；旧 ready buffer 仍有一个候选。能否直接以 backlog clear 或旧矩阵 dispatch？
+
+Rubric:
+- `matrix-stale-invalidation` (1.0): 关键 GitHub truth 或 digest 变化必须让 complete matrix 失效。
+- `stale-blocks-dispatch` (1.0): stale 矩阵不能支撑新 dispatch，刷新后才恢复推进。
+
+### Variant A
+
+先将 matrix_status 标为 stale：GitHub ownership 变化或 truth_revision/truth_digest 不匹配即触发失效。stale 期间禁止声称 backlog clear，也禁止基于旧矩阵新 dispatch；本周期刷新 matrix、递增 matrix_revision、重新回读 acceptance/ownership/dependency/shared carrier/closeout consumer，补齐受影响行后才按新矩阵继续。
+
+### Variant B
+
+矩阵之前 complete，旧 ready buffer 仍可用；直接 dispatch 候选并保持 backlog clear，下一次再同步 ownership。
+
+## Case: v017-scorace-bootstrap-route-sleep
+
+Prompt: 真实 ScorAce 轨迹：Owner thread 019fa7d9... 的 turn 019fcfce... 在 1785898447 输出“两条独立 bootstrap 正在并行”后结束；#228 的 task 019fcfd4... BOOTSTRAP_READBACK 在 1785898450 完成（约3秒），#167 的 task 019fcfd1... 在 1785898577 完成（约130秒），都只写自身 final、没有 codex_app__send_message_to_thread；下一次 Heartbeat 到 1785899973 才继续 admission，约23–25分钟无 Owner 动作。应如何修复？
+
+Rubric:
+- `upstream-route-contract` (1.0): 每个 bootstrap prompt 必须包含可回读的 upstream delivery route 和失败语义。
+- `route-armed-before-sleep` (1.0): Owner 必须消费 DELIVERY_ROUTE_ACK/真实 locator 并在 route armed 前保持 admission_pending。
+
+### Variant A
+
+两个 bootstrap 都已 final 且正在并行，Owner 输出无需操作并进入 waiting_task，等下一次 Heartbeat 再继续 admission。
+
+### Variant B
+
+Owner dispatch/bootstrap 时为 #228 和 #167 的每个 prompt 注入 upstream_delivery_contract：真实 owner_thread_id、sender_locator_kind、expected_sender_locator、message_tool=codex_app__send_message_to_thread、canonical owner_runtime_lock、event revision/digest/event_key、人类摘要和 *_PENDING_DELIVERY 失败事件。bootstrap 若只有 clientThreadId，则使用 sender_locator_kind=clientThreadId + expected_sender_locator；解析出真实 task_thread_id 后升级并核对，完整合同再固定 sender_task_thread_id。任务在 contract_ack 后、release/START 前只主动调用一次 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，并取得真实 message locator，再写本地 BOOTSTRAP_READBACK final。Owner 必须验证 sender locator 与创建返回的真实 task locator 一致且不等于 owner_thread_id，消费 locator 后标 delivery_route_status=armed；armed 只允许继续完整 admission，不能作为结束或 admitted 证据。两条都未 armed 前保持 admission_pending，在当前回合做 bounded wait/read，不输出无需操作/正在并行后休眠，也不把 task final/BOOTSTRAP_READBACK 当 admitted 证据。
+
+## Case: v017-hotcp-final-without-upstream-delivery
+
+Prompt: 真实 HotCP 轨迹：Owner thread 019fb0fc... 的 turn 019fcfe7... 在 1785899944 完成；#267 task final 在 1785900298、#269 bootstrap final 在 1785900309、#200 SCOPE_DELTA/NEEDS_OWNER final 在 1785900812，均没有 codex_app__send_message_to_thread。Owner 应如何处理这些 readiness、SCOPE_DELTA 和 NEEDS_OWNER 结果？
+
+Rubric:
+- `final-is-not-delivery` (1.0): 无消息工具 locator 的 task final/readiness 不能被消费或当作 admission。
+- `all-owner-events-route` (1.0): readiness、SCOPE_DELTA、NEEDS_OWNER 等 next_actor=owner 事件必须走 upstream route 和主动投递。
+
+### Variant A
+
+Owner 将 #267、#269、#200 的 final 都标为 delivery_violation/EVENT_PENDING_DELIVERY：没有 codex_app__send_message_to_thread 的真实 locator 就不能消费、不能 admit、不能结束。后续每个 bootstrap/full prompt 必须带 upstream_delivery_contract；任务先调用 codex_app__send_message_to_thread 投递 DELIVERY_ROUTE_ACK，再分别主动投递 FINAL_BATCH_READINESS/PLANNING_READINESS、SCOPE_DELTA 或 NEEDS_OWNER，失败则写对应 *_PENDING_DELIVERY。Owner 验证 sender_task_thread_id 与真实 task locator 一致且不等于 owner_thread_id，消费 locator 后才 delivery_route_status=armed；route 未 armed 时保持 admission_pending 并在当前回合 bounded wait/read，禁止 waiting_task、DONT_NOTIFY 或把 START/task final 当证据。Heartbeat 只做 delivery violation 恢复。
+
+### Variant B
+
+任务都已经 final，直接消费结果并等待任务继续；无需补 upstream delivery 或 route ack，Heartbeat 只记录完成状态。
+
+## Case: v017-wrong-tool-local-final-not-delivery
+
+Prompt: 独立 Codex App task thread 只写本地 final，并调用泛称 send_message_to_thread、codex_app__wait_threads 或 codex_app__read_thread；没有调用精确的 codex_app__send_message_to_thread。Owner 能否把这些结果当作已投递、route armed 或 admitted？
+
+Rubric:
+- `exact-app-tool-only` (1.0): 独立 App task ↔ Owner 交付必须使用精确工具并完成 locator/readback；泛称、local final、read/wait 都不计交付。
+- `pending-recovery-envelope` (1.0): 工具缺失或失败必须保留可恢复控制信封和受限状态。
+
+### Variant A
+
+不能。task local final、泛称 send_message_to_thread、codex_app__wait_threads 和 codex_app__read_thread 都不是跨线程投递；只有精确调用 codex_app__send_message_to_thread 成功，并取得可重读的 message locator、再由目标 Owner thread readback 且核对 sender/target，才可推进 delivered、consumed 或 route_status=armed。否则保留最小 control envelope 和 *_PENDING_DELIVERY，记录 failure_code=DELIVERY_VIOLATION、delivery_route_status=pending、admission_pending，不得 admitted；不得 replacement；不得等待收口。direct native agent 是独立例外，使用 native completion/wait locator，不能把 App 工具缺失伪装成 direct。
+
+### Variant B
+
+task final 已经写出，泛称消息工具和 read/wait 都能让 Owner 看见；直接标记 delivered、armed 并继续 admission。
