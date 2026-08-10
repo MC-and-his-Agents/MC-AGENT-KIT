@@ -8,7 +8,7 @@
 | Skill | 版本 | 描述 |
 |---|---:|---|
 | [code-smell-decision](./code-smell-decision/SKILL.md) | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
-| [tasks-owner](./tasks-owner/SKILL.md) | 0.17.1 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
+| [tasks-owner](./tasks-owner/SKILL.md) | 0.18.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付，并在发布/清理前收敛写入者、消费最终事件；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 
 从 Preview / latest source 安装本主题当前全部 skills：
 

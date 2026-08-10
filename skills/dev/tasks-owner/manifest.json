@@ -1,8 +1,8 @@
 {
   "name": "tasks-owner",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "owner": "MC-and-his-Agents",
-  "updated_at": "2026-08-05",
+  "updated_at": "2026-08-10",
   "status": "active",
   "maturity_tier": "production",
   "lifecycle_stage": "production",

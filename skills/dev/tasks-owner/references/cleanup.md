@@ -37,12 +37,22 @@ cleanup_authority_locator / revision
    一致，issue/carrier 已收口。
 2. 目标只能是该 Work Item 创建或明确接管的 source branch/worktree；default、base、target、
    protected branch、tag 和仓库根永不删除。
-3. 任务线程和全部相关 Subagent 已结束；没有活动 task、checkpoint、workspace_entry、开放 PR、
-   其他 worktree 或 cleanup lane 引用目标。
+3. 先建立待清理 current generation 的 `related_execution_units` inventory：任务线程、native/App writer、
+   reviewer 和此前派出的 Subagent 都必须绑定 role/is_writer、generation、真实 locator、宿主 terminal 状态、
+   write authority、completion locator 和 Owner consumption。pre-spawn inventory 不包含尚未创建的 cleanup
+   Subagent。所有既有 execution unit 必须 terminal；最终事件必须已
+   `owner_verified → consumed`。只有在该门禁通过后，Owner 才能派出专用 Luna/max cleanup Subagent；
+   不得把 cleanup 交给任务线程或其下游，也不得在 handoff 中提前删除活动 locator。没有活动 task、checkpoint、
+   workspace_entry、开放 PR、其他 worktree 或 cleanup lane 引用目标。
 4. worktree 没有 tracked/untracked 改动、未完成 merge/rebase/cherry-pick/bisect 或嵌套仓库；
    不自动 stash、commit、reset、checkout 或清除文件。
 5. local ref 和 remote ref 仍等于合同 expected OID；本地没有 PR head 之后的新提交，远程没有
    closeout 后漂移。无法证明提交已被 exact merged PR 消费时停止。
+
+发布/清理前的写入收敛独立于 review：`review=SHIP` 不能覆盖 `writer=running`。在 stage、commit、push、PR
+或 merge 前，native writer 必须 terminal；App writer 只有宿主暂停能力、quiesce ACK 与撤权证据均已回读时
+才可 `quiesced + revoked`，否则只能等待 current generation terminal。门禁通过后重新回读 diff、文件哈希和 exact head，再执行
+fresh review。晚到 completion、未消费 final 或 handoff 与宿主状态冲突都会使 `cleanup_blocked` 生效。
 
 任一检查不成立即 `cleanup_blocked`；记录具体资产、当前/期望身份、证据定位和需要谁决定，
 不得放宽目标或改用相似名称。若可在既有合同和授权内安全纠正，例如改从稳定 cwd 重新派发，
@@ -52,7 +62,9 @@ Owner 应直接纠正并重跑门禁，不把可执行动作转交用户。
 
 每仓库一次只运行一个 cleanup lane，并固定执行：
 
-1. 再次回读 `git worktree list --porcelain`、精确 local/remote ref、PR 与 target head。
+1. Owner 再次回读 `git worktree list --porcelain`、精确 local/remote ref、PR 与 target head；随后从不在删除
+   目标中的稳定 checkout 派出专用 cleanup Subagent，显式 `model: gpt-5.6-luna`、`reasoning_effort: max`、
+   `fork_turns: "none"`，且禁止继续衍生。Owner 不得把自身直接清理命令当作 cleanup Subagent 证据。
 2. 对 `local_worktree: delete` 使用 Git 原生命令非强制移除精确 worktree；禁止 `rm -rf` 和
    force-remove。已不存在且身份无冲突记为 `already_absent`。
 3. 对 `local_branch: delete` 先尝试安全删除。若仅因 squash/rebase merge 导致祖先检查失败，

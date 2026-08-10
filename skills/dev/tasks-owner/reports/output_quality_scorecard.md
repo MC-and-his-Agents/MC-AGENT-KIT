@@ -1,5 +1,8 @@
 # Output Quality Scorecard
 
+> 证据边界：下列 111 项仅为关键词式 recorded fixture，不是 provider、模型或宿主运行时证据，不能单独作为生命周期发布门禁。
+> v0.18 的独立门禁是 `evals/trajectory_cases.jsonl` 及标准库状态重放器；真实宿主证据另见对应 history 记录。
+
 This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
 - Cases: `111`
@@ -8,7 +11,8 @@ This v0 scorecard compares static without-skill and with-skill outputs using ass
 - Delta: `100.0`
 - Regressions: `0`
 - Blind A/B pairs: `111`
-- Gate pass: `True`
+- Static fixture gate pass: `True`
+- Structured trajectory gate: `12/12`（5 个规则各含正反例，并覆盖 App writer quiesce；另通过 mutation self-test）
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
 Run output review adjudication after reviewer decisions are recorded; pending cases should stay pending rather than being counted as human agreement.

@@ -38,6 +38,9 @@ acceptance_matrix_locator: <Owner checkpoint matrix locator>
 dependency_classification: <hard | soft | convergence + evidence>
 contract_revision: <单调递增整数>
 contract_digest: <规范字段 canonical JSON 的 SHA-256>
+related_execution_units: <当前 generation 的执行单元恢复索引>
+convergence_writer_quiescence: <pending | blocked | verified + current generation/exact head/diff/hash/host evidence locator/verified_at>
+heartbeat_cadence: <base/current interval, unchanged epochs, revision, reason>
 ```
 
 `luna_subagent_status: fallback` 仅可记录历史/诊断事实，绝不表示任务可 admission 或可消费；新建、恢复和
@@ -80,6 +83,45 @@ override locator；缺失/矛盾/静默 fallback 只隔离该 task，记录 `TAS
 `contract_digest` 只证明字段未被改写，不证明 GitHub 目标或实际 change set 语义正确；首次 admission、
 合同语义修订、scope delta、重复 blocker、收敛和 `PR_READY` 仍须执行
 [scope-integrity.md](scope-integrity.md) 的独立检查。
+
+### Execution-unit 与 generation 状态
+
+Owner 对每个实现 generation 保留有界的 `related_execution_units`，不得只依赖任务摘要或最新 final：
+
+```text
+related_execution_units:
+  - locator: <threadId | agentId>
+    generation: <execution generation>
+    role: <writer | reviewer | task | cleanup>
+    is_writer: <true | false>
+    kind: <app_task | native_subagent | cleanup_subagent>
+    host_status: <running | quiescing | quiesced | terminal | unknown>
+    write_authority: <active | revoked | none | unknown>
+    host_quiesce_capability: <verified | unavailable | unknown>
+    quiesce_ack_locator: <host locator or missing>
+    revocation_evidence_locator: <host locator or missing>
+    observed_at: <ISO-8601>
+    wait_locator: <bounded native wait locator or missing>
+    completion_locator: <final/completion locator or missing>
+    owner_consumption: <pending | verified | consumed>
+execution_unit_inventory:
+  generation: <current execution generation>
+  host_readback_locator: <list_agents/task-state readback>
+  observed_at: <ISO-8601>
+  complete: <true only when host readback and listed locators match>
+```
+
+`inventory_complete` 必须由当前 generation 的 `list_agents`/任务状态回读证明宿主活动单元集合与上述列表一致；
+它不是可自由填写的布尔值。任何 spawn、completion、归档或宿主状态变化都会使证明失效。
+
+写入单元在 `terminal` 前保持 `write_authority=active`。native writer 只接受 terminal；App writer 只有
+`host_quiesce_capability=verified`、真实 `quiesce_ack_locator`、`revocation_evidence_locator` 与 `observed_at`
+齐全时才可使用 `quiesced + revoked`。当前宿主没有可靠暂停/撤权证据时禁止推断 quiesced。
+`convergence_writer_quiescence` 必须在
+stage、commit、push、PR、merge 前通过；通过后重新读取 diff、文件哈希和 exact head，再派 fresh review。
+`review=ship` 与 `writer=running` 同时出现时一律 fail closed。
+`convergence_writer_quiescence=verified` 还必须绑定 current generation、宿主回读 locator、`verified_at`、
+diff/hash locator 与 reviewed exact head；generation/head 或 writer 状态变化立即使它失效。
 
 ## canonical owner runtime lock（回显锁）
 
@@ -293,6 +335,10 @@ message_locator: missing
 状态；不得在已 delivered/verified/consumed 的事件上继续写 `*_PENDING_DELIVERY=true`。`route_status` 的
 `EVENT_PENDING_DELIVERY` 是失败/恢复状态而非 event 枚举。
 
+成功路径必须同时清除此前同一 `event_key` 的 `failure_code`、缺失/错误 host evidence 和 pending route 字段；
+恢复后的 canonical 事件只能沿 `delivered → owner_verified → consumed` 前进。若成功 locator 与 pending/failure
+仍并存，视为合同漂移，停止 admission、merge、closeout 和 cleanup，重新执行该 generation 的 delivery recovery。
+
 控制块条件门禁：当 `delivery_state: pending` 时，`failure_code` 必填，`message_locator` 必须为
 `missing` 或宿主返回的错误 locator，且 `evidence_locator`（必要时连同 `host_evidence_locator`）必须记录
 缺失/错误来源；不能只写一个 pending 布尔值。`delivery_state: delivered` 及以后必须有真实
@@ -362,6 +408,11 @@ delivery_recovery:
 safe_sleep_predicate =
   no pending/unconsumed next_actor=owner event with executable_action=true and recovery not exhausted
   && every App task route is armed (or direct has native agent locator/status)
+  && current_generation_execution_units_inventory_complete with host readback evidence
+  && no active native child without verified completion-wake evidence
+  && every terminal/completed execution unit completion is owner_verified or consumed
+  && (goal_incomplete
+      || convergence_writer_quiescence == verified for current generation + exact head)
   && admission_pending == 0
   && every admitted task has runtime/workspace/head evidence
   && no executable owner_action
@@ -374,6 +425,11 @@ safe_sleep_predicate =
 `goal_complete` 是完成分支：通过前述无 pending/action/route/admission 门后可直接 `final_output`，不必伪造
 `waiting_*`。只有 `goal_incomplete` 才要求后面的合法 evidenced waiting；`COMPLETED`/`goal_complete` 不是新的
 等待状态。
+
+`direct` 仅适用于当前 Owner 回合内可完成的有界工作。Owner 创建 native Subagent 后必须保持回合，并以不超过
+60 秒一段的 bounded native wait（实际 `wait_agent.timeout_ms=10000..60000`）消费 completion；checkpoint 保存 child/generation、`wait_locator`、completion
+与 consumption locator，并证明当前 turn 尚未 final。不能在 child 仍运行时写 final。若工作预计长时或超过该边界，
+应在 admission 时选择 App task 的精确消息唤醒路径；Heartbeat 只负责异常漏消费恢复，不能作为 direct 的正常推进器。
 
 其他文件只引用此谓词，不另行定义“无需操作/正在并行”或等待条件。达到同一 `event_key` 的 recovery 上限
 后，隔离并 quarantine 该 `execution_generation`，保留 slot impact、pending/violation/evidence；禁止计入
