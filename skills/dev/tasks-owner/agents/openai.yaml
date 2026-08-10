@@ -1,4 +1,4 @@
 interface:
   display_name: "Tasks Owner"
   short_description: "以有效批次统筹 GitHub 结果、依赖和收口"
-  default_prompt: "使用 $tasks-owner：先回读 GitHub truth，按统一 control loop 消费事件、执行 owner_action、重算 successor 并推进；独立任务和 Subagent 默认显式使用 gpt-5.6-luna/max，App 任务只用 codex_app__send_message_to_thread 交付并在 pre_final_gate 前核验。"
+  default_prompt: "使用 $tasks-owner：先回读 GitHub truth，按统一 control loop 消费事件、执行 owner_action、重算 successor 并推进；独立任务和 Subagent 默认显式使用 gpt-5.6-luna/max，App 任务只用 codex_app__send_message_to_thread 交付并在 pre_final_gate 前核验；发布/清理前收敛 writer、消费 completion，稳定无反馈时按 cadence 退避并在新事件时恢复。"

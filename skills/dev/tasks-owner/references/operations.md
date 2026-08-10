@@ -63,6 +63,11 @@ pre_final_gate =
   && no executable owner_action
   && ready_wave_recomputed
   && no ready successor requiring admission
+  && current_generation_execution_units_inventory_complete with host readback evidence
+  && no active native child without verified completion-wake evidence
+  && every terminal/completed execution unit completion is owner_verified or consumed
+  && (goal_incomplete
+      || convergence_writer_quiescence == verified for current generation + exact head)
   && admission_pending == 0
   && every admitted task has runtime/workspace/head evidence
   && every App route is armed (direct has native completion/wait locator)
@@ -79,6 +84,56 @@ recovery 都没有产生新 trigger；它不是“没有任务”或 ready=0 的
 `pre_final_attempt` 只表示一次 gate 前的 `attempted_summary`：在 `pre_final_gate` 之前写出摘要会
 重新进入本循环，不能结束回合。通过门禁后才可写真正的 `final_output`；该 final 是本控制周期的完成输出，
 不再把自身重新排队为 trigger，也不强迫已完成目标进入任一 `waiting_*` 状态。
+
+### Execution-unit 与写入收敛门禁
+
+每个实现 generation 的恢复索引都必须保留以下有界记录；它只描述当前 generation，不替代 GitHub、线程或
+仓库事实：
+
+```text
+related_execution_units:
+  - locator: <threadId | agentId>
+    generation: <execution generation>
+    role: <writer | reviewer | task | cleanup>
+    is_writer: <true | false>
+    kind: <app_task | native_subagent | cleanup_subagent>
+    host_status: <running | quiescing | quiesced | terminal | unknown>
+    write_authority: <active | revoked | none | unknown>
+    host_quiesce_capability: <verified | unavailable | unknown>
+    quiesce_ack_locator: <host locator or missing>
+    revocation_evidence_locator: <host locator or missing>
+    observed_at: <ISO-8601>
+    wait_locator: <bounded wait locator or missing>
+    completion_locator: <final/completion locator or missing>
+    owner_consumption: <pending | verified | consumed>
+execution_unit_inventory:
+  generation: <current execution generation>
+  host_readback_locator: <list_agents/task-state readback>
+  observed_at: <ISO-8601>
+  complete: <true only when host readback and listed locators match>
+```
+
+`inventory_complete` 不是 Owner 自报布尔值：必须用当前 generation 的 `list_agents`/任务状态回读证明宿主活动
+单元集合与列表完全一致，并保存 locator 与时间；任何新 spawn、completion、归档或宿主状态变化都会使证明失效。
+
+发布前执行 `convergence_writer_quiescence`：native writer 必须 `terminal`；App writer 只有在
+`host_quiesce_capability=verified` 且 `quiesce_ack_locator`、`revocation_evidence_locator` 和 `observed_at`
+均可回读时才可使用 `quiesced + revoked`。当前宿主没有该能力时一律等待当前 generation terminal。
+门禁通过后重新读取 worktree diff、文件哈希、PR head，再绑定 fresh exact-head review。`review=ship` 不能覆盖
+`writer=running`，也不能覆盖晚到 completion。
+`convergence_writer_quiescence=verified` 必须同时保存 current generation、回读 locator、`verified_at`、diff/hash
+locator 与 reviewed exact head；generation/head 或 writer 状态变化立即失效，禁止复用旧 `verified`。
+
+cleanup 门禁还要求待清理的当前 generation 中所有既有 execution unit terminal、最终事件已
+`owner_verified → consumed`，且 handoff 尚未删除活动 locator；pre-spawn inventory 不包含尚未创建的 cleanup
+Subagent。满足后 Owner 才能派专用 Luna/max cleanup Subagent，随后独立回读 worktree/ref/remote 状态。任何
+活动 writer、未消费 completion、handoff/宿主冲突都阻止 merge、cleanup 和 `COMPLETED`。
+
+`direct` 路由只承载有界、预期在当前 Owner 回合完成的工作。创建 native Subagent 后，Owner 保持回合，以不超过
+60 秒一段的 bounded native wait 消费 completion，并在同一回合继续 action loop；实际 `wait_agent.timeout_ms`
+取 `10000..60000`。预计长时工作直接选 App task。
+若 active native child 仍运行且没有经过验证的宿主 completion-wake 证据，Owner 不得 final 或进入
+`safe_sleep_predicate`。Heartbeat 仅恢复漏消费，不是 direct 的正常推进器。
 
 ## Outcome-first 控制周期
 
@@ -258,6 +313,13 @@ event_key -> event=<canonical> / delivery_state=local_recorded | pending | deliv
 event_key -> received_at / verified_at / consumed_at / message_locator
 task_key -> upstream_delivery_contract / delivery_route_status / delivery_route_locator / native_agent_locator
 execution_generation -> quarantine_status / slot_impact / replacement_forbidden
+related_execution_units -> locator / generation / kind / host_status / write_authority /
+  role / is_writer / host_quiesce_capability / quiesce_ack_locator / revocation_evidence_locator /
+  observed_at / wait_locator / completion_locator / owner_consumption
+execution_unit_inventory -> generation / host_readback_locator / observed_at / complete
+convergence_writer_quiescence -> status / evidence_locator / verified_at / reviewed_head
+heartbeat_cadence -> base_interval / current_interval / unchanged_epochs / cadence_revision / reason /
+  override / last_user_feedback_revision / last_external_fact_revision / state_digest
 event_key -> delivery_recovery.attempt_in_cycle / total_attempts / max_attempts / executable_action
 event_key -> authority_locator / host_evidence_locator / retry_eligible_after
 next_actor / next_action / wake_condition / last_event_key / pending_delta / updated_at

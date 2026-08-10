@@ -287,6 +287,14 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
     errors.extend(
         run_check(
             root,
+            [sys.executable, str(root / "scripts/validate-tasks-owner-trajectories.py")],
+            "tasks-owner-trajectories",
+            "fix structured Tasks Owner trajectory cases",
+        )
+    )
+    errors.extend(
+        run_check(
+            root,
             [
                 sys.executable,
                 str(root / "plugins/codegraph-intelligence/scripts/check_codegraph_mcp.py"),
@@ -318,6 +326,16 @@ def main() -> int:
             if args.self_test
             else validate_repository(ROOT, args.base_ref)
         )
+        if args.self_test:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/validate-tasks-owner-trajectories.py"), "--self-test"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode:
+                errors.append(failure("scripts/validate-tasks-owner-trajectories.py", "trajectory-self-test", result.stdout.strip()))
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         errors = [failure(".", "validator-runtime", f"fix validator input or environment: {exc}")]
     for error in errors:

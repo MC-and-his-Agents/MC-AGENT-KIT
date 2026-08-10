@@ -155,15 +155,23 @@ GitHub truth 或相邻 ownership 任一变化都会使旧 checkpoint 过期。�
 reviewed_head: <exact commit SHA>
 reviewed_files: <被审 change set 的准确文件清单>
 review_write_scope: empty
+writer_quiescence: <verified | blocked>
+writer_units: <本次 change set 的全部 writer locator/generation>
+writer_terminal_evidence: <每个 writer 的 terminal 或 host-verified quiesce/revocation locator>
 diff_locator: <完整 diff/PR/commit 定位>
-verdict: ship | fix-first | rethink
+verdict: ship | fix-first | rethink | blocked
 semantic_scope_status: aligned | drift
 ```
 
 审查请求必须绑定 `reviewed_head`、`reviewed_files`、空写入范围、完整 diff locator 和 scope integrity evidence；reviewer 只能基于该
-快照返回 `ship`、`fix-first` 或 `rethink`，并分别给出 `semantic_scope_status`。之后被审查 change set 的 diff 或 head
+快照返回 `ship`、`fix-first`、`rethink` 或 `blocked`，并分别给出 `semantic_scope_status`。之后被审查 change set 的 diff 或 head
 发生变化都会让旧 verdict 立即失效，修复或 rebase 后必须重新派发 fresh review。reviewer 不得实现自己的
 修复；Owner 负责判断 findings、决定修复并重新派发。
+
+Fresh review 之前必须完成 `convergence_writer_quiescence`：所有写入 execution unit 已 terminal，或有宿主可
+回读的 quiesce ACK 且写权限已撤销。`review=ship` 不能覆盖 `writer=running`；门禁通过后若 diff、文件哈希或
+head 发生任何变化，旧 verdict 立即失效，必须重新读取并复审。没有 writer terminal/quiesce 证据时，review
+只能返回 `blocked`，不得生成可发布的 `ship`。
 
 fresh context 只表示新上下文，不得声称 Sol-on-Sol 是模型族独立。按风险决定是否需要
 独立 review；微小 carrier、closeout 或其他低风险改动不强制使用 Sol reviewer，也不改变

@@ -50,10 +50,43 @@ owner_handoff:
   matrix_status: <complete | incomplete | stale>
   unresolved_decision: <待用户/Owner 决定或 none>
   last_material_event_locator: <message/event/GitHub locator>
+  heartbeat_cadence:
+    base_interval: <用户授权的基础周期>
+    current_interval: <当前实际周期>
+    unchanged_epochs: <连续无变化周期数>
+    cadence_revision: <单调递增整数>
+    reason: <stable_wait | active_work | restored | fixed_interval>
+    override: <none | fixed_interval | no_backoff>
+    last_user_feedback_revision: <用户消息 revision/locator>
+    last_external_fact_revision: <任务/GitHub/外部事实 revision/locator>
+    state_digest: <包含上述 revisions、execution units、delivery 与 owner action 的摘要>
 ```
 
 只维护 locator、短状态和下一动作；不得把完整 matrix、完整效率指标、任务日志或运行数据塞进 handoff。
 Automation 不得成为第二个状态写入者。Automation prompt 发生实质变化时，Owner 同时维护对话 checkpoint；若 Automation 不可用，则仅保留 checkpoint。
+
+## 自适应 Heartbeat 退避
+
+Heartbeat 是用户授权的唤醒工具，但长期没有用户反馈时，Owner 可以主动降低频率以减少无效唤醒。每次
+Heartbeat 先按 [operations.md](operations.md) 完整执行控制循环；只有同时满足以下条件，才允许更新 Automation：
+
+```text
+eligible_backoff =
+  goal_incomplete
+  && wait_kind in {waiting_user, waiting_external}
+  && no user feedback since last cadence revision
+  && state_digest unchanged
+  && no active related_execution_units
+  && no pending/unconsumed delivery or owner_action
+  && no ready successor or admission_pending
+```
+
+连续 3 个 eligible 周期后，Owner 将 `current_interval` 加倍，最大 24 小时；每次加倍递增
+`cadence_revision`，原地更新同一 Automation 并回读实际 interval。任何用户消息、任务/原生 completion、
+新 GitHub/PR/head 事实、依赖解除或 Owner action 都立即把周期恢复到 `base_interval`，递增 revision 并
+继续控制循环。用户明确 `fixed_interval` 或 `no_backoff` 时优先保持原周期；Automation 更新失败时也保持原周期，
+记录失败 locator，不能只改 handoff 声称已退避。相同 `state_digest` 的 Heartbeat 不重置计数，也不能借无变化
+Heartbeat 开启新的 delivery recovery epoch。
 
 ## Heartbeat 唤醒提示词
 
@@ -101,6 +134,11 @@ Subagent completion 后目标仍 incomplete 必须同回合派 successor，禁�
    通过 pre-final 后写 final，不重新触发 loop；只有 `goal_incomplete` 的合法 `waiting_task` /
    `waiting_external` 才写 `DONT_NOTIFY` 和等待证据；需要用户决定或真实风险写 `NOTIFY`。不输出纯 ACK、
    逐任务流水账或多条阶段播报。
+
+8. 若本轮满足 `eligible_backoff`，递增 `unchanged_epochs`；达到 3 后按上方自适应规则实际更新并回读 Automation。
+   任何新消息、任务/原生 completion、GitHub/PR/head 事实、依赖解除或 Owner action 都先恢复 `base_interval`，
+   再继续当前控制周期。活动 writer、pending delivery、ready successor、admission_pending 或 owner_action 存在时
+   禁止退避。
 
 只执行 `confirmed_owner_authority` 与 Owner 合同覆盖的动作；不得补造 GitHub truth，也不得执行未经授权的
 发布、删除、付费、外部发送或权限变更。

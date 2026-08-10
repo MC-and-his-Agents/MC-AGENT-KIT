@@ -1,8 +1,8 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
+description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付，并在发布/清理前收敛写入者、消费最终事件；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
 metadata:
-  version: "0.17.1"
+  version: "0.18.0"
 ---
 
 # 结果负责的 GitHub 项目 Owner
@@ -55,7 +55,7 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
   创建、恢复和每次消息触发都不得省略任务 runtime 参数、继承 Owner/父任务/Heartbeat runtime，或静默
   fallback 到 Terra/Sol/低 reasoning。只有用户在具体任务授权中可定位地指定 override 时才改变该任务，
   且只向合同明确的层级传播；主 Owner runtime 永远不被任务配置覆盖。
-- 合法终态只有 `progressed`、`waiting_task`、`waiting_external`、`waiting_user`；`owner_dispatch_required` 是必须执行的 Owner action。
+- 合法终态只有 `goal_complete/completed`、`progressed`、`waiting_task`、`waiting_external`、`waiting_user`；`owner_dispatch_required` 是必须执行的 Owner action。
 - 控制循环总入口：[operations.md](references/operations.md)；语义归属：[scope-integrity.md](references/scope-integrity.md)。
 - readiness：[issue-readiness.md](references/issue-readiness.md)；admission/消息/closeout：[contracts.md](references/contracts.md)；Heartbeat：[automation.md](references/automation.md)。
 
@@ -75,5 +75,27 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
 - scope integrity、material delta、repeat-blocker、exact-head review、cleanup 保护和 ownership 检查互相独立。
 - 适用 `AGENTS.md`、正式 branch/worktree、runtime evidence 和用户授权是实现前置条件；不得直接在 `main` 实施。
 - 回归评测与真实证据边界见 `evals/`、`reports/`；recorded fixture 不冒充 provider/model 或人工证据。
+
+## v0.18 生命周期硬门禁
+
+- 每个实现 generation 都维护有界 `related_execution_units`：记录真实 locator、`kind`、宿主状态、
+  `write_authority`、最后 completion locator 和 Owner 的 `consumed_at`。它是 checkpoint/handoff 的恢复索引，
+  不是新的数据库或仓库事实载体。
+- `convergence_writer_quiescence` 在 stage、commit、push、PR、merge 前强制检查：所有 native writer 必须
+  `terminal`；App writer 只有在宿主暂停能力已验证、当前 generation 的 `quiesce_ack` 与撤权证据均可回读时
+  才可使用 `quiesced + revoked`，否则也只能等待 terminal。门禁通过后重新读取 diff、文件哈希和 head，再执行 fresh exact-head review。
+- cleanup 比发布更严格：所有关联 execution unit 已 terminal、最终事件已
+  `owner_verified → consumed`、handoff 仍保留 locator，才能由 Owner 派出专用 Luna/max、`fork_turns: none` 的
+  cleanup Subagent；Owner 必须独立回读其结果。running writer、晚到 completion、未消费 final 或状态冲突都阻止
+  merge、cleanup 和 `COMPLETED`。
+- `direct` 只适合当前 Owner 回合内可完成的有界工作。Owner 必须以最多 60 秒一段的 native wait 保持回合并消费
+  completion；存在 active native child 且没有经过验证的宿主 completion-wake 能力时，不得 final 或满足
+  `safe_sleep_predicate`。长时异步工作改用 App task 的精确消息唤醒路径。
+- canonical `event/event_key` 永不使用 `_PENDING_DELIVERY`；失败只记录 `delivery_state=pending`、
+  `route_status=<EVENT>_PENDING_DELIVERY`、`failure_code` 和证据，成功取得真实 locator 后清除 pending/failure，
+  单向推进至 `delivered → owner_verified → consumed`。
+- Heartbeat 在连续 3 个周期满足稳定 `waiting_user|waiting_external`、无用户反馈、`state_digest` 不变、无活动
+  execution unit、pending delivery 或 Owner action 时，可自主将当前周期加倍退避，最长 24 小时；新消息、任务事件、
+  外部事实或 Owner action 立即恢复基础周期。用户明确 `fixed_interval/no_backoff` 优先，Automation 更新失败时保留原周期。
 
 按路由读取专责文件；用户 final 只报告结果、影响、证据、风险和下一步，不展示内部控制块。

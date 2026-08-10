@@ -11,7 +11,8 @@
 ## missing evidence
 
 - Codex App 尚无已验证的任务线程原生 Subagent 禁用开关；`flat` 和 `direct` 的下级衍生限制只能由合同和 Owner 巡检约束。
-- Luna 的 `multi_agent_version: v2` 本地目录覆盖是受控兼容方案，不是上游修复；只有重启后的原生 `spawn_agent` 冒烟测试通过才算支持。
+- Luna 的 `multi_agent_version: v2` 本地目录覆盖是受控兼容方案，不是上游修复。先消费当前进程公开的模型能力并做
+  原生 `spawn_agent` probe；只有刚修改模型目录且当前进程尚未加载时才要求重启，不能把历史“未验证”当成重启门禁。
 - 模型与推理参数必须逐次创建/恢复/触发后回读；无用户 task-specific override 时独立任务/Subagent 必须
   显式 Luna/max。用户选择只能绑定可定位 task locator，并同时记录 model、effort 和 propagation；不得
   形成批次或全局 fallback。
