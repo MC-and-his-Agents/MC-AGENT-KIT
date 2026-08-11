@@ -89,7 +89,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Validate candidate
         env:
-          PYTHONPYCACHEPREFIX: /tmp/mc-skills-pycache
+          PYTHONPYCACHEPREFIX: /tmp/mc-agent-kit-pycache
         run: |
           python3 scripts/validate-repository.py --base-ref "${{ steps.facts.outputs.previous_tag }}"
           python3 scripts/validate-repository.py --self-test

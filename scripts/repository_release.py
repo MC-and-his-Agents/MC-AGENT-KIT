@@ -41,7 +41,7 @@ def release_notes(ledger: dict, run_url: str, ci_url: str) -> str:
     release = ledger["release"]
     changed = ledger["changes"]
     lines = [
-        f"# MC-SKILLS {release['tag']}",
+        f"# MC-AGENT-KIT {release['tag']}",
         "",
         "## Artifact changes",
         "",
@@ -66,11 +66,11 @@ def release_notes(ledger: dict, run_url: str, ci_url: str) -> str:
             "## Stable installation",
             "",
             "```bash",
-            f"npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/{release['tag']}/skills --full-depth --list",
-            f"codex plugin marketplace add MC-and-his-Agents/MC-SKILLS --ref {release['tag']}",
-            "codex plugin add codegraph-intelligence@mcskills",
-            f"claude plugin marketplace add MC-and-his-Agents/MC-SKILLS@{release['tag']}",
-            "claude plugin install codegraph-intelligence@mcskills",
+            f"npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/{release['tag']}/skills --full-depth --list",
+            f"codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref {release['tag']}",
+            "codex plugin add codegraph-intelligence@mc-agent-kit",
+            f"claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT@{release['tag']}",
+            "claude plugin install codegraph-intelligence@mc-agent-kit",
             "```",
             "",
             "## Evidence",
@@ -100,6 +100,13 @@ def self_test() -> list[str]:
     ledger = release_ledger(result, "v0.1.1", "v0.1.0")
     if ledger["release"]["target_commit"] != result["target_commit"]:
         failures.append("release ledger lost the target commit")
+    notes = release_notes(ledger, "run", "ci")
+    for expected in ("MC-AGENT-KIT", "@mc-agent-kit"):
+        if expected not in notes:
+            failures.append(f"release notes lost repository identity: {expected}")
+    for legacy in ("MC-SKILLS", "@mcskills"):
+        if legacy in notes:
+            failures.append(f"release notes retained legacy identity: {legacy}")
     for tag in ("v0.1.0", "v0.1.1-rc.1", "0.1.1"):
         try:
             release_ledger(result, tag, "v0.1.0")

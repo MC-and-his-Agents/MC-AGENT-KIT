@@ -23,6 +23,7 @@ from repository_validator_selfcheck import run_self_test
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MARKETPLACE_ID = "mc-agent-kit"
 SHARED_PLUGIN_FIELDS = (
     "name", "version", "description", "author", "license", "keywords", "skills", "mcpServers"
 )
@@ -198,9 +199,18 @@ def validate_marketplace(
     marketplace, errors = load_json(path, root)
     if marketplace is None:
         return errors
+    if marketplace.get("name") != MARKETPLACE_ID:
+        errors.append(
+            failure(
+                relative,
+                "marketplace-identity",
+                f"set `name` to `{MARKETPLACE_ID}`",
+            )
+        )
     entries = marketplace.get("plugins")
     if not isinstance(entries, list):
-        return [failure(relative, "marketplace-plugins", "set `plugins` to an array")]
+        errors.append(failure(relative, "marketplace-plugins", "set `plugins` to an array"))
+        return errors
     found: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
@@ -322,7 +332,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         errors = (
-            run_self_test(validate_skills, version_bump_errors, validate_plugins)
+            run_self_test(
+                validate_skills,
+                version_bump_errors,
+                validate_plugins,
+                validate_marketplace,
+            )
             if args.self_test
             else validate_repository(ROOT, args.base_ref)
         )

@@ -1,10 +1,10 @@
 {
-  "name": "mcskills",
+  "name": "mc-agent-kit",
   "owner": {
     "name": "mcontheway"
   },
   "metadata": {
-    "description": "MC 自研 Agent Plugins"
+    "description": "MC 自研 Agent 工程资产中的 Claude Code Plugins"
   },
   "plugins": [
     {

@@ -1,12 +1,14 @@
-# MC-SKILLS
+# MC-AGENT-KIT
 
-MC 自研 Agent Skills 和 Agent Plugins 的源码与分发仓库。每个 artifact 按真实情况声明兼容性，不默认绑定单一 agent harness，也不承诺全平台兼容。
+MC 自研、可版本化、可验证、可分发的 Agent 工程资产源码与分发仓库。目前收录独立 Agent Skills 和 Agent Plugins；未来可纳入面向特定 harness 的配置、agents、hooks、workflows 与配套工具，但只有实际入库并声明兼容性和验证或分发入口的 artifact 才视为受支持。
+
+仓库不收录凭据、会话、缓存、日志或机器专属运行状态，也不为未经验证的 harness 提供兼容承诺。
 
 [English](./README.md)
 
 ## 分发通道
 
-- **Stable（推荐）**：使用 [最新 GitHub Release](https://github.com/MC-and-his-Agents/MC-SKILLS/releases/latest) 中锁定 tag 的安装命令。Skill 或 Plugin 的版本只有进入仓库 Release 后才算正式发布。
+- **Stable（推荐）**：使用 [最新 GitHub Release](https://github.com/MC-and-his-Agents/MC-AGENT-KIT/releases/latest) 中锁定 tag 的安装命令。Skill 或 Plugin 的版本只有进入仓库 Release 后才算正式发布。
 - **Preview / latest source**：下文所有锁定 `main` 的命令都跟随仓库开发进度，可能包含尚待正式发布的 artifact 版本。
 
 每个本地 marketplace 只选择一个通道；stable 与 preview 使用相同的 marketplace 名。
@@ -18,19 +20,19 @@ MC 自研 Agent Skills 和 Agent Plugins 的源码与分发仓库。每个 artif
 查看可用 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --list
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --list
 ```
 
 安装单个 skill：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill write-a-goal
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill write-a-goal
 ```
 
 为一个已支持的 agent 安装全部独立 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill '*' --agent codex
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill '*' --agent codex
 ```
 
 `skills/` 子路径隔离了 plugin 内部 skills；`--full-depth` 同时发现扁平 skill 和二级 collection。Claude Code 使用 `--agent claude-code`。按主题批量安装请查看 collection 页面：
@@ -52,22 +54,6 @@ npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills -
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
-## Tasks Owner 工作流
-
-[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) 将当前 Codex App 对话设为结果负责的
-GitHub 项目 Owner。它以最小有效交付批次推进结果：共享写入 carrier、验证矩阵和 closeout lane 的候选默认
-合并，只有独立用户价值、风险/权限/数据边界、ownership、真实 hard dependency 或独立回滚证据才拆分。
-首次调度、重大 closeout/replan 和用户效率复盘时刷新 acceptance/backlog matrix；依赖区分 hard/soft/convergence，
-父子关系不会自动传播 blocker；Owner 事件必须即时投递、核验并消费，首次独立 review 前必须完成 acceptance-derived
-preflight，且 fix-first 后只允许一次有界 sibling/systemic 修复。它在同一控制循环中推进派发、监督、收敛、closeout、
-cleanup 和后继规划。`planning_not_ready` 只阻止 implementation admission；目标未完成且没有 admitted/pending 工作
-时必须由 Owner recovery。`ready=0`、旧 handoff、branch 或 worktree 不能单独构成等待理由。
-
-closeout 验证完成后，Owner 可派出专用 Luna/max Subagent，只清理由用户精确授权的
-worktree、本地分支和远程分支。exact path/ref/OID 门禁会保护脏、仍在使用、发生漂移、
-default、target、base 和 protected 资产。清理受阻时默认保留有争议资产，并在请求用户决定前
-给出证据、影响、可选路径和最优建议。
-
 ## Agent Plugins
 
 Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx skills` catalog。
@@ -77,26 +63,62 @@ Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx ski
 
 | Plugin | Harness | 分类 | 版本 | 描述 |
 |---|---|---|---:|---|
-| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.1 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
+| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.2 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
 <!-- PLUGINS_END -->
 
 ### Codex
 
 ```bash
-codex plugin marketplace add MC-and-his-Agents/MC-SKILLS --ref main
-codex plugin add codegraph-intelligence@mcskills
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
+codex plugin add codegraph-intelligence@mc-agent-kit
 codex plugin list
 ```
 
 ### Claude Code
 
 ```bash
-claude plugin marketplace add MC-and-his-Agents/MC-SKILLS
-claude plugin install codegraph-intelligence@mcskills
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
+claude plugin install codegraph-intelligence@mc-agent-kit
 claude plugin list
 ```
 
 其他 harness 只有在 artifact 明确声明并验证安装入口后才算支持。
+
+### 从 `mcskills` 迁移
+
+仓库 `v0.1.1` 及更早版本使用 marketplace identity `mcskills`。迁移到 `mc-agent-kit` 时，先移除旧安装和 marketplace，再添加新来源；Plugin identity `codegraph-intelligence` 不变。以下命令使用 user scope，若原安装使用 project/local scope，请在 Claude Code 命令中传入相同的 `--scope`。
+
+```bash
+# Codex
+codex plugin remove codegraph-intelligence@mcskills
+codex plugin marketplace remove mcskills
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
+codex plugin add codegraph-intelligence@mc-agent-kit
+codex plugin list
+
+# Claude Code
+claude plugin uninstall codegraph-intelligence@mcskills --keep-data
+claude plugin marketplace remove mcskills
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
+claude plugin install codegraph-intelligence@mc-agent-kit
+claude plugin list
+```
+
+回退到 `v0.1.1`：
+
+```bash
+# Codex
+codex plugin remove codegraph-intelligence@mc-agent-kit
+codex plugin marketplace remove mc-agent-kit
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref v0.1.1
+codex plugin add codegraph-intelligence@mcskills
+
+# Claude Code
+claude plugin uninstall codegraph-intelligence@mc-agent-kit --keep-data
+claude plugin marketplace remove mc-agent-kit
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT@v0.1.1
+claude plugin install codegraph-intelligence@mcskills
+```
 
 ## 维护
 

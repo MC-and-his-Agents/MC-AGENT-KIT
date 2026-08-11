@@ -13,6 +13,6 @@
 从 Preview / latest source 安装本主题当前全部 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill code-smell-decision --skill tasks-owner
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill code-smell-decision --skill tasks-owner
 ```
 <!-- COLLECTION_MEMBERS_END -->
