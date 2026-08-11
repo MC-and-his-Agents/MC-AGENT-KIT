@@ -187,7 +187,7 @@ def check_collections(root, failures) -> None:
     expect(errors, "skills/two/README.md", "[collection-command]", failures)
     expect(errors, "skills/orphan/README.md", "[collection-orphan]", failures)
     (root / "README.md").write_text(
-        "npx skills add MC-and-his-Agents/MC-SKILLS --skill same\n",
+        "npx skills add MC-and-his-Agents/MC-AGENT-KIT --skill same\n",
         encoding="utf-8",
     )
     expect(
@@ -208,13 +208,26 @@ def check_collections(root, failures) -> None:
     )
 
 
-def run_self_test(validate_skills, version_bump_errors, validate_plugins) -> list[str]:
+def check_marketplace_identity(root, validate_marketplace, failures) -> None:
+    path = root / "marketplace.json"
+    path.write_text(json.dumps({"name": "mcskills", "plugins": []}), encoding="utf-8")
+    errors = validate_marketplace(root, "marketplace.json", "Claude", set())
+    expect(errors, "marketplace.json", "[marketplace-identity]", failures)
+
+
+def run_self_test(
+    validate_skills,
+    version_bump_errors,
+    validate_plugins,
+    validate_marketplace,
+) -> list[str]:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         check_skills(root, validate_skills, version_bump_errors, failures)
         check_plugins(root, validate_plugins, failures)
         check_collections(root, failures)
+        check_marketplace_identity(root, validate_marketplace, failures)
     return failures
 
 

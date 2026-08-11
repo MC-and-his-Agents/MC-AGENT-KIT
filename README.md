@@ -1,12 +1,14 @@
-# MC-SKILLS
+# MC-AGENT-KIT
 
-Source and distribution repository for Agent Skills and Agent Plugins developed by MC. Each artifact declares its real compatibility instead of assuming one universal agent harness.
+Source and distribution repository for versioned, verifiable, and distributable agent engineering assets developed by MC. It currently contains standalone Agent Skills and Agent Plugins; harness-specific configuration, agents, hooks, workflows, and supporting tools may be added later, but an artifact is supported only after it is committed with a declared compatibility and a verified validation or distribution path.
+
+Credentials, sessions, caches, logs, machine-specific runtime state, and unverified harness compatibility are outside the repository scope.
 
 [中文版](./README.zh-CN.md)
 
 ## Distribution channels
 
-- **Stable (recommended):** use the tag-pinned commands in the [latest GitHub Release](https://github.com/MC-and-his-Agents/MC-SKILLS/releases/latest). A skill or plugin version is formally published only after it appears in a repository Release.
+- **Stable (recommended):** use the tag-pinned commands in the [latest GitHub Release](https://github.com/MC-and-his-Agents/MC-AGENT-KIT/releases/latest). A skill or plugin version is formally published only after it appears in a repository Release.
 - **Preview/latest source:** every `main`-pinned command below follows repository development and may include artifact versions that are still pending publication.
 
 Choose one channel per local marketplace. Stable and preview use the same marketplace name.
@@ -18,19 +20,19 @@ Standalone skills live directly under `skills/<skill>/` or in a themed collectio
 List available skills:
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --list
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --list
 ```
 
 Install one skill:
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill write-a-goal
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill write-a-goal
 ```
 
 Install all standalone skills for one supported agent:
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill '*' --agent codex
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill '*' --agent codex
 ```
 
 The `skills/` subpath excludes plugin-internal skills; `--full-depth` discovers both flat skills and two-level collections. Use `--agent claude-code` for Claude Code. See the collection pages for theme-specific batch commands:
@@ -52,27 +54,6 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
 <!-- SKILLS_END -->
 
-## Tasks Owner workflow
-
-[`tasks-owner`](./skills/dev/tasks-owner/SKILL.md) turns the current Codex App
-conversation into the outcome-responsible Owner of a GitHub project. It selects the smallest
-valid delivery batch: candidates sharing a write carrier, verification matrix, and closeout
-lane stay together unless independent value, risk/permission/data boundary, ownership, hard
-dependency, or rollback evidence requires a split. It refreshes an acceptance/backlog matrix
-at first dispatch, major closeout/replan, and efficiency review; classifies hard/soft/convergence
-dependencies without automatic parent-child propagation; and keeps dispatch, supervision,
-convergence, closeout, cleanup, and successor planning in one control loop. Owner events are
-consumed immediately, and independent review is preceded by acceptance-derived preflight with
-bounded churn. `planning_not_ready` only blocks implementation admission; an incomplete goal
-with no admitted or pending work requires Owner recovery. A branch, worktree, stale handoff, or
-`ready=0` is not a wait reason.
-
-After closeout is verified, the Owner can dispatch a dedicated Luna/max Subagent to
-remove only the explicitly authorized worktree, local branch, and remote branch. Exact
-path/ref/OID checks protect dirty, active, drifted, default, target, base, and protected
-assets. A blocked cleanup must preserve the disputed asset and present evidence, impact,
-options, and a recommended next action before requesting a user decision.
-
 ## Agent Plugins
 
 Plugin-contained skills stay inside their plugin and are distributed only through that plugin. They are not standalone entries in the `npx skills` catalog.
@@ -82,26 +63,62 @@ Plugin-contained skills stay inside their plugin and are distributed only throug
 
 | Plugin | Harness | Category | Version | Description |
 |---|---|---|---:|---|
-| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.1 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
+| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.2 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
 <!-- PLUGINS_END -->
 
 ### Codex
 
 ```bash
-codex plugin marketplace add MC-and-his-Agents/MC-SKILLS --ref main
-codex plugin add codegraph-intelligence@mcskills
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
+codex plugin add codegraph-intelligence@mc-agent-kit
 codex plugin list
 ```
 
 ### Claude Code
 
 ```bash
-claude plugin marketplace add MC-and-his-Agents/MC-SKILLS
-claude plugin install codegraph-intelligence@mcskills
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
+claude plugin install codegraph-intelligence@mc-agent-kit
 claude plugin list
 ```
 
 Other harnesses are supported only when the artifact explicitly declares and verifies an installation path.
+
+### Migrating from `mcskills`
+
+Repository releases through `v0.1.1` use the marketplace identity `mcskills`. To migrate to `mc-agent-kit`, remove the old installation and marketplace before adding the new source; the Plugin identity remains `codegraph-intelligence`. These commands use user scope. If Claude Code was installed with project or local scope, pass the same `--scope` to its commands.
+
+```bash
+# Codex
+codex plugin remove codegraph-intelligence@mcskills
+codex plugin marketplace remove mcskills
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
+codex plugin add codegraph-intelligence@mc-agent-kit
+codex plugin list
+
+# Claude Code
+claude plugin uninstall codegraph-intelligence@mcskills --keep-data
+claude plugin marketplace remove mcskills
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
+claude plugin install codegraph-intelligence@mc-agent-kit
+claude plugin list
+```
+
+To roll back to `v0.1.1`:
+
+```bash
+# Codex
+codex plugin remove codegraph-intelligence@mc-agent-kit
+codex plugin marketplace remove mc-agent-kit
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref v0.1.1
+codex plugin add codegraph-intelligence@mcskills
+
+# Claude Code
+claude plugin uninstall codegraph-intelligence@mc-agent-kit --keep-data
+claude plugin marketplace remove mc-agent-kit
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT@v0.1.1
+claude plugin install codegraph-intelligence@mcskills
+```
 
 ## Maintenance
 

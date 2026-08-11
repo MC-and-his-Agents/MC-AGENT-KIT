@@ -12,6 +12,6 @@
 从 Preview / latest source 安装本主题当前全部 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills --full-depth --skill codex-like-app-design
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill codex-like-app-design
 ```
 <!-- COLLECTION_MEMBERS_END -->

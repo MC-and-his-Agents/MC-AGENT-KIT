@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 SKILLS_SOURCE = (
-    "https://github.com/MC-and-his-Agents/MC-SKILLS/tree/main/skills"
+    "https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills"
 )
 NPX_ADD_PREFIX = f"npx skills add {SKILLS_SOURCE} --full-depth"
 

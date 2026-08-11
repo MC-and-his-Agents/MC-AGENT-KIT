@@ -13,18 +13,18 @@ codegraph init -i
 
 | Harness | Support | Native installation |
 |---|---|---|
-| Codex | Supported | `codex plugin add codegraph-intelligence@mcskills` |
-| Claude Code | Supported | `claude plugin install codegraph-intelligence@mcskills` |
+| Codex | Supported | `codex plugin add codegraph-intelligence@mc-agent-kit` |
+| Claude Code | Supported | `claude plugin install codegraph-intelligence@mc-agent-kit` |
 | Other harnesses | Not declared | No unverified installation command is provided. |
 
 Add this repository's marketplace before installing:
 
 ```bash
 # Codex
-codex plugin marketplace add MC-and-his-Agents/MC-SKILLS --ref main
+codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
 
 # Claude Code
-claude plugin marketplace add MC-and-his-Agents/MC-SKILLS
+claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
 ```
 
 The skills below are private plugin components. They are installed and versioned with the plugin and are not published as standalone `npx skills` entries.
