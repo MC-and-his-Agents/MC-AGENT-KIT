@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Release"
+  short_description: "安全发布 Skill 到双市场并配置集合仓库自动化流程"
+  default_prompt: "使用 $skill-release 选择手动、Tag 或变更自动发布模式，安全地预检并发布一个或多个 Skill。"
