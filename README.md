@@ -84,42 +84,6 @@ claude plugin list
 
 Other harnesses are supported only when the artifact explicitly declares and verifies an installation path.
 
-### Migrating from `mcskills`
-
-Repository releases through `v0.1.1` use the marketplace identity `mcskills`. To migrate to `mc-agent-kit`, remove the old installation and marketplace before adding the new source; the Plugin identity remains `codegraph-intelligence`. These commands use user scope. If Claude Code was installed with project or local scope, pass the same `--scope` to its commands.
-
-```bash
-# Codex
-codex plugin remove codegraph-intelligence@mcskills
-codex plugin marketplace remove mcskills
-codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
-codex plugin add codegraph-intelligence@mc-agent-kit
-codex plugin list
-
-# Claude Code
-claude plugin uninstall codegraph-intelligence@mcskills --keep-data
-claude plugin marketplace remove mcskills
-claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
-claude plugin install codegraph-intelligence@mc-agent-kit
-claude plugin list
-```
-
-To roll back to `v0.1.1`:
-
-```bash
-# Codex
-codex plugin remove codegraph-intelligence@mc-agent-kit
-codex plugin marketplace remove mc-agent-kit
-codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref v0.1.1
-codex plugin add codegraph-intelligence@mcskills
-
-# Claude Code
-claude plugin uninstall codegraph-intelligence@mc-agent-kit --keep-data
-claude plugin marketplace remove mc-agent-kit
-claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT@v0.1.1
-claude plugin install codegraph-intelligence@mcskills
-```
-
 ## Maintenance
 
 Regenerate the directory tables after changing skill or plugin metadata:

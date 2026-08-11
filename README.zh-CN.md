@@ -84,42 +84,6 @@ claude plugin list
 
 其他 harness 只有在 artifact 明确声明并验证安装入口后才算支持。
 
-### 从 `mcskills` 迁移
-
-仓库 `v0.1.1` 及更早版本使用 marketplace identity `mcskills`。迁移到 `mc-agent-kit` 时，先移除旧安装和 marketplace，再添加新来源；Plugin identity `codegraph-intelligence` 不变。以下命令使用 user scope，若原安装使用 project/local scope，请在 Claude Code 命令中传入相同的 `--scope`。
-
-```bash
-# Codex
-codex plugin remove codegraph-intelligence@mcskills
-codex plugin marketplace remove mcskills
-codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
-codex plugin add codegraph-intelligence@mc-agent-kit
-codex plugin list
-
-# Claude Code
-claude plugin uninstall codegraph-intelligence@mcskills --keep-data
-claude plugin marketplace remove mcskills
-claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
-claude plugin install codegraph-intelligence@mc-agent-kit
-claude plugin list
-```
-
-回退到 `v0.1.1`：
-
-```bash
-# Codex
-codex plugin remove codegraph-intelligence@mc-agent-kit
-codex plugin marketplace remove mc-agent-kit
-codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref v0.1.1
-codex plugin add codegraph-intelligence@mcskills
-
-# Claude Code
-claude plugin uninstall codegraph-intelligence@mc-agent-kit --keep-data
-claude plugin marketplace remove mc-agent-kit
-claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT@v0.1.1
-claude plugin install codegraph-intelligence@mcskills
-```
-
 ## 维护
 
 修改 skill 或 plugin 元数据后重新生成目录：
