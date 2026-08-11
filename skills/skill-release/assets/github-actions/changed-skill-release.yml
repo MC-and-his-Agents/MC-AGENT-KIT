@@ -1,0 +1,309 @@
+# Copy this file to .github/workflows/skill-release.yml and copy
+# detect_changed_skills.py and clawhub_target.py to .github/scripts/.
+# Remove the jobs for any marketplace the user did not authorize.
+name: Publish changed Skills
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - ".github/scripts/detect_changed_skills.py"
+      - ".github/scripts/clawhub_target.py"
+      - ".github/workflows/skill-release.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "skills/**"
+      - ".github/scripts/detect_changed_skills.py"
+      - ".github/scripts/clawhub_target.py"
+      - ".github/workflows/skill-release.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SKILLS_ROOT: skills
+  SKILLHUB_HOST: https://api.skillhub.cn
+  CLAWHUB_VERSION: "0.23.3"
+  # Required when ClawHub jobs are enabled: the expected personal or organization handle.
+  CLAWHUB_PUBLISHER: ""
+  # Map every published path to an explicit slug and mode (new or update).
+  CLAWHUB_TARGETS_JSON: "{}"
+  # Leave empty for personal publishing; set the organization handle otherwise.
+  CLAWHUB_OWNER: ""
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.changed.outputs.matrix }}
+      has_changes: ${{ steps.changed.outputs.has_changes }}
+      count: ${{ steps.changed.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install detector dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Detect changed Skills
+        id: changed
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 .github/scripts/detect_changed_skills.py \
+            --root "$SKILLS_ROOT" \
+            --base "$BASE_REF" \
+            --target "$GITHUB_SHA" \
+            --github-output "$GITHUB_OUTPUT" \
+            > "$RUNNER_TEMP/changed-skills.json"
+          cat "$RUNNER_TEMP/changed-skills.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: changed-skills-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/changed-skills.json
+          if-no-files-found: ignore
+
+  tencent_dry_run:
+    needs: detect
+    if: needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SkillHub CLI
+        run: |
+          curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --cli-only
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Dry-run Tencent SkillHub
+        run: |
+          skillhub --version
+          skillhub publish "${{ matrix.path }}" \
+            --host "$SKILLHUB_HOST" \
+            --dry-run \
+            --json > "$RUNNER_TEMP/tencent-dry-run.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tencent-dry-run-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tencent-dry-run.json
+          if-no-files-found: ignore
+
+  clawhub_dry_run:
+    needs: detect
+    if: needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install detector dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Install ClawHub CLI
+        run: npm install --global "clawhub@$CLAWHUB_VERSION"
+      - name: Resolve ClawHub target
+        id: target
+        env:
+          SKILL_PATH: ${{ matrix.path }}
+        run: |
+          python3 .github/scripts/clawhub_target.py \
+            --targets-json "$CLAWHUB_TARGETS_JSON" \
+            --path "$SKILL_PATH" \
+            --publisher "$CLAWHUB_PUBLISHER" \
+            --owner "$CLAWHUB_OWNER" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Verify ClawHub slug ownership
+        env:
+          CLAWHUB_SLUG: ${{ steps.target.outputs.slug }}
+          SKILL_PATH: ${{ matrix.path }}
+        run: |
+          inspect_status=0
+          clawhub inspect "$CLAWHUB_SLUG" --json \
+            > "$RUNNER_TEMP/clawhub-inspect.json" \
+            2> "$RUNNER_TEMP/clawhub-inspect.err" || inspect_status=$?
+          python3 .github/scripts/clawhub_target.py \
+            --targets-json "$CLAWHUB_TARGETS_JSON" \
+            --path "$SKILL_PATH" \
+            --publisher "$CLAWHUB_PUBLISHER" \
+            --owner "$CLAWHUB_OWNER" \
+            --inspect-json "$RUNNER_TEMP/clawhub-inspect.json" \
+            --inspect-error "$RUNNER_TEMP/clawhub-inspect.err" \
+            --inspect-status "$inspect_status"
+      - name: Dry-run ClawHub
+        env:
+          CLAWHUB_SLUG: ${{ steps.target.outputs.slug }}
+        run: |
+          owner_args=()
+          if [[ -n "$CLAWHUB_OWNER" ]]; then
+            owner_args=(--owner "$CLAWHUB_OWNER")
+          fi
+          clawhub --cli-version
+          clawhub skill publish "${{ matrix.path }}" \
+            --slug "$CLAWHUB_SLUG" \
+            --name "${{ matrix.name }}" \
+            --version "${{ matrix.version }}" \
+            "${owner_args[@]}" \
+            --dry-run \
+            --json > "$RUNNER_TEMP/clawhub-dry-run.json"
+          python3 - "$RUNNER_TEMP/clawhub-dry-run.json" "${{ matrix.version }}" <<'PY'
+          import json
+          import sys
+
+          sys.path.insert(0, ".github/scripts")
+          from detect_changed_skills import validate_clawhub_latest
+
+          with open(sys.argv[1], encoding="utf-8") as result:
+              validate_clawhub_latest(json.load(result), sys.argv[2])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clawhub-dry-run-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clawhub-dry-run.json
+          if-no-files-found: ignore
+
+  tencent_publish:
+    needs:
+      - detect
+      - tencent_dry_run
+    if: github.event_name == 'push' && needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment: skill-release-production
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    env:
+      SKILLHUB_KEY: ${{ secrets.SKILLHUB_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require Tencent SkillHub Secret
+        run: test -n "$SKILLHUB_KEY"
+      - name: Install SkillHub CLI
+        run: |
+          curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --cli-only
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Verify Tencent SkillHub identity
+        run: |
+          skillhub login --key "$SKILLHUB_KEY" --host "$SKILLHUB_HOST"
+          skillhub auth whoami
+      - name: Publish to Tencent SkillHub
+        run: |
+          skillhub publish "${{ matrix.path }}" \
+            --host "$SKILLHUB_HOST" \
+            --changelog "自动发布 ${GITHUB_SHA::12}" \
+            --json > "$RUNNER_TEMP/tencent-publish.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tencent-publish-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tencent-publish.json
+          if-no-files-found: ignore
+
+  clawhub_publish:
+    needs:
+      - detect
+      - clawhub_dry_run
+    if: github.event_name == 'push' && needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment: skill-release-production
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    env:
+      CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require ClawHub Secret
+        run: test -n "$CLAWHUB_TOKEN"
+      - name: Install ClawHub CLI
+        run: npm install --global "clawhub@$CLAWHUB_VERSION"
+      - name: Resolve ClawHub target
+        id: target
+        env:
+          SKILL_PATH: ${{ matrix.path }}
+        run: |
+          python3 .github/scripts/clawhub_target.py \
+            --targets-json "$CLAWHUB_TARGETS_JSON" \
+            --path "$SKILL_PATH" \
+            --publisher "$CLAWHUB_PUBLISHER" \
+            --owner "$CLAWHUB_OWNER" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Verify ClawHub identity
+        run: |
+          clawhub login --token "$CLAWHUB_TOKEN"
+          clawhub whoami
+      - name: Verify ClawHub slug ownership
+        env:
+          CLAWHUB_SLUG: ${{ steps.target.outputs.slug }}
+          SKILL_PATH: ${{ matrix.path }}
+        run: |
+          inspect_status=0
+          clawhub inspect "$CLAWHUB_SLUG" --json \
+            > "$RUNNER_TEMP/clawhub-inspect.json" \
+            2> "$RUNNER_TEMP/clawhub-inspect.err" || inspect_status=$?
+          python3 .github/scripts/clawhub_target.py \
+            --targets-json "$CLAWHUB_TARGETS_JSON" \
+            --path "$SKILL_PATH" \
+            --publisher "$CLAWHUB_PUBLISHER" \
+            --owner "$CLAWHUB_OWNER" \
+            --inspect-json "$RUNNER_TEMP/clawhub-inspect.json" \
+            --inspect-error "$RUNNER_TEMP/clawhub-inspect.err" \
+            --inspect-status "$inspect_status"
+      - name: Publish to ClawHub
+        env:
+          CLAWHUB_SLUG: ${{ steps.target.outputs.slug }}
+        run: |
+          owner_args=()
+          if [[ -n "$CLAWHUB_OWNER" ]]; then
+            owner_args=(--owner "$CLAWHUB_OWNER")
+          fi
+          clawhub skill publish "${{ matrix.path }}" \
+            --slug "$CLAWHUB_SLUG" \
+            --name "${{ matrix.name }}" \
+            --version "${{ matrix.version }}" \
+            "${owner_args[@]}" \
+            --changelog "自动发布 ${GITHUB_SHA::12}" \
+            --json > "$RUNNER_TEMP/clawhub-publish.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clawhub-publish-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/clawhub-publish.json
+          if-no-files-found: ignore
+
+  report:
+    if: always()
+    needs:
+      - detect
+      - tencent_dry_run
+      - clawhub_dry_run
+      - tencent_publish
+      - clawhub_publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write release summary
+        run: |
+          {
+            echo "## Skill release"
+            echo
+            echo "- Changed Skills: ${{ needs.detect.outputs.count || '0' }}"
+            echo "- Tencent dry-run: ${{ needs.tencent_dry_run.result }}"
+            echo "- ClawHub dry-run: ${{ needs.clawhub_dry_run.result }}"
+            echo "- Tencent publish: ${{ needs.tencent_publish.result }}"
+            echo "- ClawHub publish: ${{ needs.clawhub_publish.result }}"
+          } >> "$GITHUB_STEP_SUMMARY"
