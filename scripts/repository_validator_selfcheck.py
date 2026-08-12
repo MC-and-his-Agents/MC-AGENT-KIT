@@ -87,6 +87,35 @@ def write_code_atlas_plugin(root: Path, *, valid: bool = True) -> Path:
         "metadata:\n  internal: true\n  version: 0.3.0\n---\n",
         encoding="utf-8",
     )
+    required = (
+        "agents/openai.yaml",
+        "assets/config.example.yml",
+        "references/change-analysis.md",
+        "references/codegraph.md",
+        "references/dead-code.md",
+        "references/exploration.md",
+        "references/maintainability.md",
+        "references/test-selection.md",
+        "references/trace-and-debug.md",
+        "scripts/build-evidence-pack.py",
+        "scripts/scan-dependencies.py",
+        "scripts/scan-duplication.py",
+        "scripts/scan-git-churn.py",
+        "scripts/scan-literals-comments.py",
+        "scripts/scan-size-complexity.py",
+        "scripts/scan-tests.py",
+    )
+    for relative in required:
+        path = skill / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture\n", encoding="utf-8")
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"findings": {"type": "array"}},
+    }
+    for name in ("decision-report.schema.json", "evidence-pack.schema.json"):
+        (skill / "assets" / name).write_text(json.dumps(schema), encoding="utf-8")
     hooks = {
         "hooks": {
             "SessionStart": [
@@ -133,6 +162,10 @@ def write_code_atlas_plugin(root: Path, *, valid: bool = True) -> Path:
         invalid_hooks["hooks"]["SubagentStart"][0]["hooks"][0]["command"] = "node \"${CLAUDE_PLUGIN_ROOT:-.}/scripts/code-atlas-hook.js\" SubagentStart"
         invalid_hooks["hooks"]["UserPromptSubmit"] = invalid_hooks["hooks"]["SubagentStart"]
         hook_file.write_text(json.dumps(invalid_hooks), encoding="utf-8")
+        (skill / "scripts" / "scan-tests.py").unlink()
+        (skill / "assets" / "evidence-pack.schema.json").write_text(
+            json.dumps({"type": "array"}), encoding="utf-8"
+        )
     return plugin
 
 
@@ -247,6 +280,8 @@ def check_plugins(root, validate_plugins, failures) -> None:
     expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-hook-timeout]", failures)
     expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-no-user-prompt-hook]", failures)
     expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-no-shell-fallback]", failures)
+    expect(invalid_errors, "plugins/code-atlas/skills/code-atlas/scripts/scan-tests.py", "[code-atlas-skill-assets]", failures)
+    expect(invalid_errors, "plugins/code-atlas/skills/code-atlas/assets/evidence-pack.schema.json", "[code-atlas-schema-contract]", failures)
 
 
 def check_collections(root, failures) -> None:
@@ -302,6 +337,8 @@ def check_code_atlas_hook_runtime(failures: list[str]) -> None:
         git(repo, "config", "user.email", "self-check@example.invalid")
         (repo / "README.md").write_text("fixture\n", encoding="utf-8")
         commit_all(repo, "fixture")
+        alternate = root / "repo-alternate"
+        git(repo, "worktree", "add", "-b", "alternate", str(alternate))
         fake_bin = root / "bin"
         fake_bin.mkdir()
         fake_cli = fake_bin / "codegraph"
@@ -361,6 +398,24 @@ def check_code_atlas_hook_runtime(failures: list[str]) -> None:
             failures.append("native SessionStart context omitted required evidence")
         elif "SubagentStart evidence" in native_session:
             failures.append("native SessionStart included reduced SubagentStart-only context")
+
+        alternate_session, _, stderr = run("SessionStart", alternate)
+        expected_common = str((repo / ".git").resolve())
+        if stderr or not isinstance(alternate_session, str):
+            failures.append("alternate worktree SessionStart did not emit raw context")
+        elif any(
+            item not in alternate_session
+            for item in (
+                "status=unavailable",
+                f"worktree={alternate.resolve()}",
+                f"git-common-dir={expected_common}",
+                "index=missing",
+            )
+        ):
+            failures.append("alternate worktree reused the primary worktree index or identity")
+        if isinstance(native_session, str) and f"git-common-dir={expected_common}" not in native_session:
+            failures.append("linked worktrees did not share repository identity")
+
 
         native_subagent, _, stderr = run("SubagentStart", repo)
         if stderr or not isinstance(native_subagent, dict) or native_subagent.get("hookSpecificOutput", {}).get("hookEventName") != "SubagentStart":
