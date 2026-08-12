@@ -48,7 +48,6 @@ npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skill
 | Skill | 主题 | 版本 | 描述 |
 |---|---|---:|---|
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
-| [code-smell-decision](./skills/dev/code-smell-decision/SKILL.md) | dev | 0.1.0 | Analyze code smells in a repository, module, directory, file, symbol, or diff and turn findings into engineering decisions. |
 | [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.18.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付，并在发布/清理前收敛写入者、消费最终事件；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 | [skill-release](./skills/skill-release/SKILL.md) | — | 0.4.0 | 检查、预检、发布并配置手动、Tag 或按变更自动发布 Skill 到腾讯 SkillHub 或 ClawHub。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
@@ -63,14 +62,19 @@ Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx ski
 
 | Plugin | Harness | 分类 | 版本 | 描述 |
 |---|---|---|---:|---|
-| [codegraph-intelligence](./plugins/codegraph-intelligence/README.md) | Codex, Claude Code | Developer Tools | 0.2.2 | Graph-backed workflows for exploring and modifying codebases using CodeGraph. |
+| [code-atlas](./plugins/code-atlas/README.md) | Codex, Claude Code | Developer Tools | 0.3.0 | Read-only graph-assisted workflows for understanding, tracing, changing and assessing code. |
 <!-- PLUGINS_END -->
+
+CodeAtlas 只读运行：CodeGraph 是外部运行时依赖，原生 MCP 在运行时协商而不
+随插件分发；只有当前 worktree 的精确 `.codegraph/codegraph.db` 才能提供图
+证据。生命周期 hook 只报告 cwd/Git identity、PATH 中 CLI 和该文件，不执行
+`codegraph --version`、`status`、`serve`、`install`、`init`、`index` 或 `sync`。
 
 ### Codex
 
 ```bash
 codex plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT --ref main
-codex plugin add codegraph-intelligence@mc-agent-kit
+codex plugin add code-atlas@mc-agent-kit
 codex plugin list
 ```
 
@@ -78,7 +82,7 @@ codex plugin list
 
 ```bash
 claude plugin marketplace add MC-and-his-Agents/MC-AGENT-KIT
-claude plugin install codegraph-intelligence@mc-agent-kit
+claude plugin install code-atlas@mc-agent-kit
 claude plugin list
 ```
 

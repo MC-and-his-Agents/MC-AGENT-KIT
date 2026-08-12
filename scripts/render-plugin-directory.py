@@ -200,6 +200,7 @@ def render_plugins(headers: tuple[str, str, str, str, str]) -> str:
         if not manifests:
             raise RenderError(f"Plugin has no supported manifest: {plugin_dir.relative_to(ROOT)}")
 
+        plugin_name = manifests[0][1].get("name")
         shared_fields = (
             "name",
             "version",
@@ -210,6 +211,8 @@ def render_plugins(headers: tuple[str, str, str, str, str]) -> str:
             "skills",
             "mcpServers",
         )
+        if plugin_name == "code-atlas":
+            shared_fields = tuple(field for field in shared_fields if field != "mcpServers")
         for field in shared_fields:
             values = [manifest.get(field) for _, manifest in manifests]
             if any(value is None for value in values) or any(

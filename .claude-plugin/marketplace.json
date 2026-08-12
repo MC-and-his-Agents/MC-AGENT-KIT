@@ -8,8 +8,8 @@
   },
   "plugins": [
     {
-      "name": "codegraph-intelligence",
-      "source": "./plugins/codegraph-intelligence",
+      "name": "code-atlas",
+      "source": "./plugins/code-atlas",
       "category": "development"
     }
   ]

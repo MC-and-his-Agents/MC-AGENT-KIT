@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -75,6 +76,64 @@ def write_plugin(
             (plugin / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
             document["hooks"] = "./hooks.json"
         manifest.write_text(json.dumps(document), encoding="utf-8")
+
+
+def write_code_atlas_plugin(root: Path, *, valid: bool = True) -> Path:
+    plugin = root / "plugins" / "code-atlas"
+    skill = plugin / "skills" / "code-atlas"
+    skill.mkdir(parents=True, exist_ok=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: code-atlas\ndescription: test\n"
+        "metadata:\n  internal: true\n  version: 0.3.0\n---\n",
+        encoding="utf-8",
+    )
+    hooks = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup|resume|clear|compact",
+                    "hooks": [{"type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js\" SessionStart", "timeout": 5}],
+                }
+            ],
+            "SubagentStart": [
+                {
+                    "hooks": [{"type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js\" SubagentStart", "timeout": 5}],
+                }
+            ],
+        }
+    }
+    hook_file = plugin / "hooks" / "claude-codex-hooks.json"
+    hook_file.parent.mkdir(parents=True, exist_ok=True)
+    hook_file.write_text(json.dumps(hooks), encoding="utf-8")
+    base = {
+        "name": "code-atlas",
+        "version": "0.3.0",
+        "description": "test",
+        "author": {"name": "test"},
+        "license": "MIT",
+        "keywords": [],
+        "skills": "./skills/",
+        "hooks": "./hooks/claude-codex-hooks.json",
+    }
+    for harness in (".codex-plugin", ".claude-plugin"):
+        manifest = plugin / harness / "plugin.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps(base), encoding="utf-8")
+    if not valid:
+        (plugin / ".mcp.json").write_text("{}", encoding="utf-8")
+        (plugin / "hooks" / "hooks.json").write_text("{}", encoding="utf-8")
+        extra = plugin / "skills" / "extra"
+        extra.mkdir()
+        (extra / "SKILL.md").write_text(
+            "---\nname: extra\ndescription: test\nmetadata:\n  internal: true\n---\n",
+            encoding="utf-8",
+        )
+        invalid_hooks = json.loads(hook_file.read_text(encoding="utf-8"))
+        invalid_hooks["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = 6
+        invalid_hooks["hooks"]["SubagentStart"][0]["hooks"][0]["command"] = "node \"${CLAUDE_PLUGIN_ROOT:-.}/scripts/code-atlas-hook.js\" SubagentStart"
+        invalid_hooks["hooks"]["UserPromptSubmit"] = invalid_hooks["hooks"]["SubagentStart"]
+        hook_file.write_text(json.dumps(invalid_hooks), encoding="utf-8")
+    return plugin
 
 
 def write_collection_readme(
@@ -173,6 +232,22 @@ def check_plugins(root, validate_plugins, failures) -> None:
     for source, rule in expected:
         expect(plugin_errors, source, rule, failures)
 
+    atlas_root = root / "atlas-contract"
+    write_code_atlas_plugin(atlas_root)
+    _, atlas_errors = validate_plugins(atlas_root, set())
+    if atlas_errors:
+        failures.append(f"valid CodeAtlas fixture failed: {atlas_errors}")
+    invalid_root = root / "atlas-negative"
+    write_code_atlas_plugin(invalid_root, valid=False)
+    _, invalid_errors = validate_plugins(invalid_root, set())
+    expect(invalid_errors, "plugins/code-atlas", "[code-atlas-no-mcp]", failures)
+    expect(invalid_errors, "plugins/code-atlas/hooks/hooks.json", "[code-atlas-standard-hooks-path]", failures)
+    expect(invalid_errors, "plugins/code-atlas", "[code-atlas-single-skill]", failures)
+    expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-hook-events]", failures)
+    expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-hook-timeout]", failures)
+    expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-no-user-prompt-hook]", failures)
+    expect(invalid_errors, "plugins/code-atlas/hooks/claude-codex-hooks.json", "[code-atlas-no-shell-fallback]", failures)
+
 
 def check_collections(root, failures) -> None:
     errors = validate_collection_readmes(root)
@@ -215,6 +290,125 @@ def check_marketplace_identity(root, validate_marketplace, failures) -> None:
     expect(errors, "marketplace.json", "[marketplace-identity]", failures)
 
 
+def check_code_atlas_hook_runtime(failures: list[str]) -> None:
+    """Run the lifecycle runner against an isolated fake CLI/index fixture."""
+    runner = Path(__file__).resolve().parents[1] / "plugins/code-atlas/scripts/code-atlas-hook.js"
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        repo = root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-b", "main")
+        git(repo, "config", "user.name", "self-check")
+        git(repo, "config", "user.email", "self-check@example.invalid")
+        (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+        commit_all(repo, "fixture")
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        fake_cli = fake_bin / "codegraph"
+        fake_cli.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        fake_cli.chmod(0o755)
+        db = repo / ".codegraph" / "codegraph.db"
+        db.parent.mkdir()
+        db.write_text("fake\n", encoding="utf-8")
+        node_path = shutil.which("node")
+        if not node_path:
+            failures.append("node is unavailable for lifecycle runner self-check")
+            return
+
+        def run(
+            event: str,
+            cwd: Path,
+            *,
+            plugin_data: Path | None = None,
+            path_override: str | None = None,
+        ) -> tuple[dict | str, str, str]:
+            env = {
+                "PATH": path_override or str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                "CODEX_CWD": str(cwd),
+                "CODEX_WORKSPACE_DIR": "",
+                "CLAUDE_PROJECT_DIR": "",
+            }
+            if plugin_data is not None:
+                env["PLUGIN_DATA"] = str(plugin_data)
+            result = subprocess.run(
+                [node_path, str(runner), event],
+                cwd=cwd,
+                env={**env},
+                input="ignored stdin\n",
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if result.returncode != 0:
+                failures.append(f"runner {event} exited {result.returncode}: {result.stderr}")
+            try:
+                parsed: dict | str = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                parsed = result.stdout
+            return parsed, result.stdout, result.stderr
+
+        before = git(repo, "status", "--porcelain")
+        before_files = sorted(
+            item.relative_to(repo).as_posix()
+            for item in repo.rglob("*")
+            if ".git" not in item.parts
+        )
+        native_session, _, stderr = run("SessionStart", repo)
+        if stderr or not isinstance(native_session, str):
+            failures.append("native SessionStart did not emit raw context with empty stderr")
+        elif any(item not in native_session for item in ("status=cli-only", "worktree=", "git-common-dir=", "mcp=unknown")):
+            failures.append("native SessionStart context omitted required evidence")
+        elif "SubagentStart evidence" in native_session:
+            failures.append("native SessionStart included reduced SubagentStart-only context")
+
+        native_subagent, _, stderr = run("SubagentStart", repo)
+        if stderr or not isinstance(native_subagent, dict) or native_subagent.get("hookSpecificOutput", {}).get("hookEventName") != "SubagentStart":
+            failures.append("native SubagentStart protocol/event is invalid")
+        elif any(
+            item not in native_subagent["hookSpecificOutput"].get("additionalContext", "")
+            for item in ("status=cli-only", "worktree=", "cli=", "index=", "mcp=unknown", "observed", "inferred", "unknown")
+        ):
+            failures.append("native SubagentStart omitted reduced evidence rules")
+
+        codex, _, stderr = run("SessionStart", repo, plugin_data=root / "plugin-data")
+        if stderr or not isinstance(codex, dict) or codex.get("systemMessage") != "CodeAtlas: cli-only":
+            failures.append("Codex protocol/systemMessage is invalid")
+        elif codex.get("hookSpecificOutput", {}).get("hookEventName") != "SessionStart":
+            failures.append("Codex SessionStart hook event is invalid")
+        elif "mcp=unknown" not in codex["hookSpecificOutput"].get("additionalContext", ""):
+            failures.append("Codex SessionStart omitted MCP unknown evidence")
+
+        real_git = shutil.which("git")
+        no_cli_bin = root / "no-cli-bin"
+        no_cli_bin.mkdir()
+        if real_git:
+            (no_cli_bin / "git").symlink_to(real_git)
+        missing_cli, _, stderr = run("SessionStart", repo, path_override=str(no_cli_bin))
+        if stderr or not isinstance(missing_cli, str) or "status=unavailable" not in missing_cli:
+            failures.append("missing CLI fixture did not report unavailable")
+
+        no_index = root / "no-index"
+        no_index.mkdir()
+        missing, _, stderr = run("SessionStart", no_index)
+        if stderr or not isinstance(missing, str) or "status=unknown" not in missing and "status=unavailable" not in missing:
+            failures.append("missing index/CLI fixture did not report conservative status")
+        non_git = root / "non-git"
+        non_git.mkdir()
+        nongit, _, stderr = run("SubagentStart", non_git)
+        if stderr or not isinstance(nongit, dict) or nongit.get("hookSpecificOutput", {}).get("hookEventName") != "SubagentStart":
+            failures.append("non-Git SubagentStart did not fail closed")
+        if git(repo, "status", "--porcelain") != before:
+            failures.append("runner changed repository status")
+        after_files = sorted(
+            item.relative_to(repo).as_posix()
+            for item in repo.rglob("*")
+            if ".git" not in item.parts
+        )
+        if after_files != before_files:
+            failures.append("runner changed repository files")
+
+
 def run_self_test(
     validate_skills,
     version_bump_errors,
@@ -228,6 +422,7 @@ def run_self_test(
         check_plugins(root, validate_plugins, failures)
         check_collections(root, failures)
         check_marketplace_identity(root, validate_marketplace, failures)
+    check_code_atlas_hook_runtime(failures)
     return failures
 
 

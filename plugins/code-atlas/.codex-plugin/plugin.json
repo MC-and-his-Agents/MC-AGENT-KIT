@@ -1,0 +1,33 @@
+{
+  "name": "code-atlas",
+  "version": "0.3.0",
+  "description": "Read-only CodeAtlas workflows for repository exploration, tracing, change analysis and maintainability decisions.",
+  "author": {
+    "name": "mcontheway"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codegraph",
+    "code atlas",
+    "code intelligence",
+    "impact analysis",
+    "maintainability",
+    "codex",
+    "claude code"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-codex-hooks.json",
+  "interface": {
+    "displayName": "CodeAtlas",
+    "shortDescription": "Read-only graph-assisted workflows for understanding, tracing, changing and assessing code.",
+    "longDescription": "CodeAtlas is one private skill with four routed lanes: UNDERSTAND, TRACE, CHANGE and ASSESS. It uses a worktree-local CodeGraph index when available, negotiates visible MCP tools at runtime, defaults to codegraph_explore, and reports CLI-only or unavailable evidence honestly. It never edits code, creates issues or runs CodeGraph commands by itself.",
+    "developerName": "mcontheway",
+    "category": "Developer Tools",
+    "capabilities": ["Read"],
+    "defaultPrompt": [
+      "Use CodeAtlas to understand this repository area.",
+      "Use CodeAtlas to trace this request or symbol.",
+      "Use CodeAtlas to assess maintainability before the next change."
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "code-atlas",
+  "version": "0.3.0",
+  "description": "Read-only CodeAtlas workflows for repository exploration, tracing, change analysis and maintainability decisions.",
+  "author": {
+    "name": "mcontheway"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codegraph",
+    "code atlas",
+    "code intelligence",
+    "impact analysis",
+    "maintainability",
+    "codex",
+    "claude code"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-codex-hooks.json"
+}

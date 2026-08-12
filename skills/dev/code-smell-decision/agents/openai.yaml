@@ -1,4 +1,0 @@
-interface:
-  display_name: "代码坏味道决策"
-  short_description: "发现代码坏味道并判断是否修复、延期、记录债务或接受"
-  default_prompt: "使用 $code-smell-decision 分析指定仓库、目录、文件或变更集中的代码坏味道，收集工程证据，并输出工程决策报告和 issue 草案。"

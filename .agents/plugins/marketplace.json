@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "codegraph-intelligence",
+      "name": "code-atlas",
       "source": {
         "source": "local",
-        "path": "./plugins/codegraph-intelligence"
+        "path": "./plugins/code-atlas"
       },
       "policy": {
         "installation": "AVAILABLE",

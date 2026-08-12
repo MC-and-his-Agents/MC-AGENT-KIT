@@ -82,6 +82,12 @@ def valid_hook_matcher(matcher: object) -> bool:
         and bool(hook["command"].strip())
         and isinstance(hook.get("args", []), list)
         and all(isinstance(arg, str) for arg in hook.get("args", []))
+        and (
+            "timeout" not in hook
+            or isinstance(hook.get("timeout"), (int, float))
+            and not isinstance(hook.get("timeout"), bool)
+            and hook["timeout"] > 0
+        )
         for hook in hooks
     )
 
