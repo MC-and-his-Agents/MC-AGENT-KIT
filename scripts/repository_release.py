@@ -15,6 +15,17 @@ from repository_artifacts import ROOT, artifact_row, compare, json_text
 RELEASE_TAG_PATTERN = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
+def code_atlas_migration(changed: dict) -> bool:
+    added = {(item["type"], item["name"], item["version"]) for item in changed["added"]}
+    removed = {(item["type"], item["name"], item["version"]) for item in changed["removed"]}
+    return not changed["updated"] and added == {
+        ("plugin", "code-atlas", "0.3.0")
+    } and removed == {
+        ("plugin", "codegraph-intelligence", "0.2.2"),
+        ("skill", "code-smell-decision", "0.1.0"),
+    }
+
+
 def release_ledger(result: dict, release_tag: str, previous_tag: str) -> dict:
     match = RELEASE_TAG_PATTERN.fullmatch(release_tag)
     previous = RELEASE_TAG_PATTERN.fullmatch(previous_tag)
@@ -55,6 +66,20 @@ def release_notes(ledger: dict, run_url: str, ci_url: str) -> str:
             ]
             lines.extend((f"### {title} ({len(items)})", ""))
             lines.extend((*(f"- `{item['type']}:{item['name']} {item['version']}`" for item in items), ""))
+    if code_atlas_migration(changed):
+        lines.extend(
+            (
+                "## CodeAtlas 0.3.0",
+                "",
+                "- CodeAtlas 现在只有一个 Skill，以 `UNDERSTAND`、`TRACE`、`CHANGE`、`ASSESS` 四路覆盖代码库理解、行为追踪、变更影响和维护性决策。",
+                "- 独立 `code-smell-decision` 已被 `ASSESS` 吸收；七个只读 scanner、JSON schema、误报过滤与 Fix/Defer/Track/Accept/Human Judgment 决策模型继续保留。",
+                "- 插件只注册一次 `SessionStart` / `SubagentStart` hooks。hooks 仅报告当前 worktree、CLI 和精确 `.codegraph/codegraph.db` 状态，不安装 CodeGraph、不初始化索引、不修改配置。",
+                "- CodeGraph CLI 与当前 worktree 索引是图分析必备条件；原生 MCP 由 CodeGraph 自身安装维护，不随 CodeAtlas 分发。没有 MCP 时只能进入诚实标注能力缺口的 CLI-only 模式。",
+                "- 旧 `codegraph-intelligence` 和 standalone `code-smell-decision` 入口已移除；Claude Code 的显式入口为 `/code-atlas:code-atlas`。",
+                "- 环境缺失或迁移旧安装时，应由 Agent 先解释官方来源、准确写入范围与副作用，取得授权后执行安装、配置、初始化或卸载，并回读验证；不要静默修改用户环境。",
+                "",
+            )
+        )
     lines.extend(
         (
             "## Full artifact snapshot",
@@ -107,6 +132,41 @@ def self_test() -> list[str]:
     for legacy in ("MC-SKILLS", "@mcskills"):
         if legacy in notes:
             failures.append(f"release notes retained legacy identity: {legacy}")
+    migration = release_ledger(
+        {
+            **result,
+            "added": [{"type": "plugin", "name": "code-atlas", "version": "0.3.0"}],
+            "removed": [
+                {"type": "plugin", "name": "codegraph-intelligence", "version": "0.2.2"},
+                {"type": "skill", "name": "code-smell-decision", "version": "0.1.0"},
+            ],
+        },
+        "v0.3.0",
+        "v0.2.0",
+    )
+    migration_notes = release_notes(migration, "run", "ci")
+    for expected in (
+        "UNDERSTAND",
+        "TRACE",
+        "CHANGE",
+        "ASSESS",
+        "SessionStart",
+        "SubagentStart",
+        "CLI-only",
+        "/code-atlas:code-atlas",
+        "取得授权",
+    ):
+        if expected not in migration_notes:
+            failures.append(f"CodeAtlas migration notes lost required contract: {expected}")
+    migration_changes = migration["changes"]
+    invalid_migrations = (
+        {**migration_changes, "added": [*migration_changes["added"], {"type": "skill", "name": "extra", "version": "0.1.0"}]},
+        {**migration_changes, "updated": [{"before": {"type": "skill", "name": "extra", "version": "0.1.0"}, "after": {"type": "skill", "name": "extra", "version": "0.1.1"}}]},
+        {**migration_changes, "added": [{"type": "plugin", "name": "code-atlas", "version": "9.9.9"}]},
+        {**migration_changes, "removed": [{"type": "plugin", "name": "codegraph-intelligence", "version": "9.9.9"}, migration_changes["removed"][1]]},
+    )
+    if any(code_atlas_migration(changes) for changes in invalid_migrations):
+        failures.append("CodeAtlas migration notes accepted extra artifacts or wrong versions")
     for tag in ("v0.1.0", "v0.1.1-rc.1", "0.1.1"):
         try:
             release_ledger(result, tag, "v0.1.0")
