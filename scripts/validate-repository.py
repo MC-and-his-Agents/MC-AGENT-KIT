@@ -31,6 +31,30 @@ CODE_ATLAS_NAME = "code-atlas"
 CODE_ATLAS_HOOKS = "./hooks/claude-codex-hooks.json"
 CODE_ATLAS_HOOK_FILE = "hooks/claude-codex-hooks.json"
 CODE_ATLAS_RUNNER = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js"'
+CODE_ATLAS_SKILL_FILES = (
+    "skills/code-atlas/agents/openai.yaml",
+    "skills/code-atlas/assets/config.example.yml",
+    "skills/code-atlas/assets/decision-report.schema.json",
+    "skills/code-atlas/assets/evidence-pack.schema.json",
+    "skills/code-atlas/references/change-analysis.md",
+    "skills/code-atlas/references/codegraph.md",
+    "skills/code-atlas/references/dead-code.md",
+    "skills/code-atlas/references/exploration.md",
+    "skills/code-atlas/references/maintainability.md",
+    "skills/code-atlas/references/test-selection.md",
+    "skills/code-atlas/references/trace-and-debug.md",
+    "skills/code-atlas/scripts/build-evidence-pack.py",
+    "skills/code-atlas/scripts/scan-dependencies.py",
+    "skills/code-atlas/scripts/scan-duplication.py",
+    "skills/code-atlas/scripts/scan-git-churn.py",
+    "skills/code-atlas/scripts/scan-literals-comments.py",
+    "skills/code-atlas/scripts/scan-size-complexity.py",
+    "skills/code-atlas/scripts/scan-tests.py",
+)
+CODE_ATLAS_SCHEMAS = (
+    "skills/code-atlas/assets/decision-report.schema.json",
+    "skills/code-atlas/assets/evidence-pack.schema.json",
+)
 
 def parse_skill(path: Path, root: Path) -> tuple[dict, dict, list[str]]:
     return parse_skill_text(path.read_text(encoding="utf-8"), path.relative_to(root).as_posix())
@@ -154,6 +178,35 @@ def validate_code_atlas(
         )
     if (plugin_dir / ".mcp.json").exists():
         errors.append(failure(source, "code-atlas-no-mcp", "remove `.mcp.json`"))
+    for relative in CODE_ATLAS_SKILL_FILES:
+        path = plugin_dir / relative
+        if not path.is_file():
+            errors.append(
+                failure(
+                    path.relative_to(root),
+                    "code-atlas-skill-assets",
+                    "restore the required CodeAtlas reference, scanner, schema or metadata file",
+                )
+            )
+    for relative in CODE_ATLAS_SCHEMAS:
+        path = plugin_dir / relative
+        if not path.is_file():
+            continue
+        document, load_errors = load_json(path, root)
+        errors.extend(load_errors)
+        if document is not None and not (
+            isinstance(document.get("$schema"), str)
+            and document.get("type") == "object"
+            and isinstance(document.get("properties"), dict)
+            and "findings" in document["properties"]
+        ):
+            errors.append(
+                failure(
+                    path.relative_to(root),
+                    "code-atlas-schema-contract",
+                    "keep a draft-tagged object schema with a `findings` property",
+                )
+            )
     standard_hooks = plugin_dir / "hooks" / "hooks.json"
     if standard_hooks.exists():
         errors.append(
