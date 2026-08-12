@@ -18,7 +18,7 @@ from repository_artifacts import (
     version_bump_errors,
 )
 from repository_collections import validate_collection_readmes, validate_npx_readmes
-from repository_plugin_components import load_json, validate_component_path
+from repository_plugin_components import load_json, valid_hooks, validate_component_path
 from repository_validator_selfcheck import run_self_test
 
 
@@ -27,6 +27,10 @@ MARKETPLACE_ID = "mc-agent-kit"
 SHARED_PLUGIN_FIELDS = (
     "name", "version", "description", "author", "license", "keywords", "skills", "mcpServers"
 )
+CODE_ATLAS_NAME = "code-atlas"
+CODE_ATLAS_HOOKS = "./hooks/claude-codex-hooks.json"
+CODE_ATLAS_HOOK_FILE = "hooks/claude-codex-hooks.json"
+CODE_ATLAS_RUNNER = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js"'
 
 def parse_skill(path: Path, root: Path) -> tuple[dict, dict, list[str]]:
     return parse_skill_text(path.read_text(encoding="utf-8"), path.relative_to(root).as_posix())
@@ -125,6 +129,138 @@ def validate_private_skills(
         private_seen[skill_name] = source
     return errors
 
+
+def validate_code_atlas(
+    root: Path,
+    plugin_dir: Path,
+    manifests: list[tuple[Path, dict]],
+) -> list[str]:
+    """Apply identity-specific contracts without constraining future plugins."""
+    if plugin_dir.name != CODE_ATLAS_NAME:
+        return []
+
+    errors: list[str] = []
+    source = plugin_dir.relative_to(root)
+    skill_paths = sorted((plugin_dir / "skills").rglob("SKILL.md"))
+    if len(skill_paths) != 1:
+        errors.append(failure(source, "code-atlas-single-skill", "keep exactly one private Skill"))
+    elif skill_paths[0].parent.name != CODE_ATLAS_NAME:
+        errors.append(
+            failure(
+                skill_paths[0].relative_to(root),
+                "code-atlas-skill-identity",
+                "set the private Skill directory and frontmatter name to `code-atlas`",
+            )
+        )
+    if (plugin_dir / ".mcp.json").exists():
+        errors.append(failure(source, "code-atlas-no-mcp", "remove `.mcp.json`"))
+    standard_hooks = plugin_dir / "hooks" / "hooks.json"
+    if standard_hooks.exists():
+        errors.append(
+            failure(
+                standard_hooks.relative_to(root),
+                "code-atlas-standard-hooks-path",
+                f"remove auto-loaded `hooks/hooks.json`; use `{CODE_ATLAS_HOOKS}`",
+            )
+        )
+
+    hook_paths: list[str] = []
+    for manifest_path, manifest in manifests:
+        if "mcpServers" in manifest:
+            errors.append(
+                failure(
+                    manifest_path.relative_to(root),
+                    "code-atlas-no-mcp-servers",
+                    "remove manifest `mcpServers`; negotiate native MCP at runtime",
+                )
+            )
+        hooks = manifest.get("hooks")
+        if hooks != CODE_ATLAS_HOOKS:
+            errors.append(
+                failure(
+                    manifest_path.relative_to(root),
+                    "code-atlas-hooks-path",
+                    f"register the shared hooks companion exactly once at `{CODE_ATLAS_HOOKS}`",
+                )
+            )
+        elif isinstance(hooks, str):
+            hook_paths.append(hooks)
+
+    if hook_paths and len(set(hook_paths)) != 1:
+        errors.append(failure(source, "code-atlas-hooks-duplicate", "use one shared hooks path in both manifests"))
+
+    hook_file = plugin_dir / CODE_ATLAS_HOOK_FILE
+    document, load_errors = load_json(hook_file, root)
+    errors.extend(load_errors)
+    if document is None:
+        return errors
+    if not valid_hooks(document):
+        errors.append(failure(hook_file.relative_to(root), "code-atlas-hooks-shape", "use valid host hook matchers"))
+        return errors
+
+    events = document.get("hooks", {})
+    if set(events) != {"SessionStart", "SubagentStart"}:
+        errors.append(
+            failure(
+                hook_file.relative_to(root),
+                "code-atlas-hook-events",
+                "register only SessionStart and SubagentStart",
+            )
+        )
+    session = events.get("SessionStart", [])
+    if len(session) != 1 or session[0].get("matcher") != "startup|resume|clear|compact":
+        errors.append(
+            failure(
+                hook_file.relative_to(root),
+                "code-atlas-session-matcher",
+                "use exactly matcher `startup|resume|clear|compact`",
+            )
+        )
+    subagent = events.get("SubagentStart", [])
+    if len(subagent) != 1 or "matcher" in subagent[0]:
+        errors.append(
+            failure(
+                hook_file.relative_to(root),
+                "code-atlas-subagent-matcher",
+                "register one unfiltered SubagentStart matcher",
+            )
+        )
+    expected_commands = {
+        "SessionStart": f"{CODE_ATLAS_RUNNER} SessionStart",
+        "SubagentStart": f"{CODE_ATLAS_RUNNER} SubagentStart",
+    }
+    runner_bases: set[str] = set()
+    for event, matchers in (("SessionStart", session), ("SubagentStart", subagent)):
+        for matcher in matchers:
+            for hook in matcher.get("hooks", []):
+                command = hook.get("command")
+                if command != expected_commands[event]:
+                    errors.append(
+                        failure(
+                            hook_file.relative_to(root),
+                            "code-atlas-hook-runner",
+                            f"use the direct runner command `{expected_commands[event]}`",
+                        )
+                    )
+                elif isinstance(command, str):
+                    runner_bases.add(command.rsplit(" ", 1)[0])
+                timeout = hook.get("timeout")
+                if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout > 5:
+                    errors.append(
+                        failure(
+                            hook_file.relative_to(root),
+                            "code-atlas-hook-timeout",
+                            "set every lifecycle hook timeout to at most 5 seconds",
+                        )
+                    )
+    if runner_bases != {CODE_ATLAS_RUNNER}:
+        errors.append(failure(hook_file.relative_to(root), "code-atlas-hook-runner", "use one direct runner with only the event argument differing"))
+    if any(":-" in str(matcher.get("hooks")) for matcher in (*session, *subagent)):
+        errors.append(failure(hook_file.relative_to(root), "code-atlas-no-shell-fallback", "do not use POSIX `${A:-...}` fallback syntax"))
+    if "UserPromptSubmit" in json.dumps(document, ensure_ascii=False):
+        errors.append(failure(hook_file.relative_to(root), "code-atlas-no-user-prompt-hook", "do not register UserPromptSubmit"))
+    return errors
+
 def validate_plugins(
     root: Path, standalone_names: set[str]
 ) -> tuple[dict[str, tuple[str, str]], list[str]]:
@@ -143,7 +279,10 @@ def validate_plugins(
         if len(manifests) != 2:
             continue
         first = manifests[0][1]
+        plugin_name = first.get("name")
         for field in SHARED_PLUGIN_FIELDS:
+            if field == "mcpServers" and plugin_name == CODE_ATLAS_NAME:
+                continue
             values = [manifest.get(field) for _, manifest in manifests]
             if any(value is None for value in values) or values[1:] != values[:-1]:
                 errors.append(
@@ -183,6 +322,7 @@ def validate_plugins(
         errors.extend(
             validate_private_skills(root, plugin_dir, standalone_names, private_seen)
         )
+        errors.extend(validate_code_atlas(root, plugin_dir, manifests))
     return artifacts, errors
 
 def marketplace_plugin(entry: dict, harness: str) -> tuple[str | None, str | None]:
@@ -266,6 +406,11 @@ def tracked_json_errors(root: Path) -> list[str]:
     for relative in paths:
         try:
             json.loads((root / relative).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            # A staged deletion is a valid candidate state before commit.
+            continue
+        except OSError as exc:
+            errors.append(failure(relative, "json-read", f"read JSON file: {exc}"))
         except json.JSONDecodeError as exc:
             errors.append(failure(relative, "json-syntax", f"fix JSON syntax: {exc}"))
     return errors
@@ -300,18 +445,6 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
             [sys.executable, str(root / "scripts/validate-tasks-owner-trajectories.py")],
             "tasks-owner-trajectories",
             "fix structured Tasks Owner trajectory cases",
-        )
-    )
-    errors.extend(
-        run_check(
-            root,
-            [
-                sys.executable,
-                str(root / "plugins/codegraph-intelligence/scripts/check_codegraph_mcp.py"),
-                "--static",
-            ],
-            "codegraph-capabilities",
-            "align docs and skills with REQUIRED_TOOLS",
         )
     )
     if base_ref:

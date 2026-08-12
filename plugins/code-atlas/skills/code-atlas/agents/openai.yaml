@@ -1,0 +1,4 @@
+interface:
+  display_name: "CodeAtlas 代码地图"
+  short_description: "按理解、追踪、变更和维护性四路分析代码"
+  default_prompt: "使用 $code-atlas 以只读方式理解仓库、追踪请求、分析变更影响或评估维护性，并明确标注 observed、inferred、unknown。"
