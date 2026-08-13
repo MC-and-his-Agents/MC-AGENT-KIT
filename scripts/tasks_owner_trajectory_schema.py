@@ -10,11 +10,11 @@ SCHEMA_VERSION = "tasks-owner-trajectory.v1"
 ROOT_KEYS = set("schema_version id source_kind mode initial events expected evidence".split())
 EVENT_KEYS = set("seq turn actor kind locator unit_id generation tool args facts".split())
 EXPECTED_KEYS = {"verdict", "rule_id"}
-MODES = {"app_thread", "direct", "convergence", "cleanup", "heartbeat"}
-RULES = {"canonical_delivery", "writer_quiescence", "cleanup_terminal_consumed", "direct_wake", "heartbeat_backoff"}
-MODE_RULES = {"app_thread": "canonical_delivery", "direct": "direct_wake", "convergence": "writer_quiescence", "cleanup": "cleanup_terminal_consumed", "heartbeat": "heartbeat_backoff"}
+MODES = {"app_thread", "direct", "convergence", "cleanup", "heartbeat", "review"}
+RULES = {"canonical_delivery", "writer_quiescence", "cleanup_terminal_consumed", "direct_wake", "heartbeat_backoff", "review_disposition"}
+MODE_RULES = {"app_thread": "canonical_delivery", "direct": "direct_wake", "convergence": "writer_quiescence", "cleanup": "cleanup_terminal_consumed", "heartbeat": "heartbeat_backoff", "review": "review_disposition"}
 ACTORS = {"owner", "task", "app_task", "native_subagent", "reviewer", "cleanup_subagent", "external", "user"}
-KINDS = set("unit_state delivery owner_wait completion completion_consumed successor head_readback fresh_review closeout handoff publish cleanup_spawn cleanup_readback heartbeat automation_update automation_readback external_event owner_final wake_verified".split())
+KINDS = set("unit_state delivery owner_wait completion completion_consumed successor head_readback fresh_review finding_disposition review_write scope_change closeout handoff publish cleanup_spawn cleanup_readback heartbeat automation_update automation_readback external_event owner_final wake_verified".split())
 TOOLS = set("spawn_agent wait_agent native_completion native_status list_agents codex_app__create_thread codex_app__send_message_to_thread codex_app__read_thread codex_app__automation_update git_readback reviewer_result gh_readback handoff_readback git_stage git_commit git_push gh_pr_create gh_pr_merge final native_completion_wake user_message github_event automation_wake".split())
 EXECUTION_KINDS = {"app_task", "native_subagent", "cleanup_subagent"}
 
@@ -80,6 +80,14 @@ def schema_errors(case: Any) -> list[str]:
         runtime = initial.get("owner_runtime")
         if not nonempty(initial.get("owner_thread_id")) or not isinstance(runtime, dict) or any(not nonempty(runtime.get(key)) for key in ("model", "reasoning_effort")):
             errors.append("app_thread initial requires owner thread/runtime")
+    elif case.get("mode") == "review":
+        if not nonempty(initial.get("task_key")) or not nonempty(initial.get("scope_revision")):
+            errors.append("review initial requires task_key/scope_revision")
+        if "review_fix_round_count" not in initial:
+            errors.append("review initial requires explicit review_fix_round_count")
+        count = initial.get("review_fix_round_count")
+        if not isinstance(count, int) or isinstance(count, bool) or count not in {0, 1}:
+            errors.append("review initial requires review_fix_round_count 0 or 1")
     expected = case.get("expected")
     if not isinstance(expected, dict) or set(expected) != EXPECTED_KEYS:
         errors.append("expected must contain verdict and rule_id")
@@ -122,4 +130,8 @@ def schema_errors(case: Any) -> list[str]:
             errors.append(f"event {index} has invalid generation")
         if not isinstance(event.get("args"), dict) or not isinstance(event.get("facts"), dict):
             errors.append(f"event {index} args/facts must be objects")
+        elif case.get("mode") == "review" and event.get("kind") == "finding_disposition":
+            facts = event["facts"]
+            if facts.get("disposition") == "user_decision" and "user_decision_locator" not in facts:
+                errors.append(f"event {index} user_decision requires user_decision_locator")
     return errors

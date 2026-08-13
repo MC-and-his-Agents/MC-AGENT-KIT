@@ -13,10 +13,25 @@ closeout lane，默认合为一个 tight batch，并绑定一个稳定 `task_key
 和相邻 Work Item ownership。
 
 依赖只按语义分类：`hard`（不满足就不能安全开始实现）、`soft`（只改变优先级或补充信息）、
-`convergence`（只阻最终 merge、认证或 closeout）。父子、同 milestone、同 target 或外部 blocker 不会自动
-把后继传播为 blocked；Owner 必须保留责任方、证据和 wake condition。blocked successor 可先由 Owner/direct
-Subagent/共享只读 checkout 完成 readiness；在 hard dependency merge 前禁止正式 execution branch/worktree、
-完整 contract 和 `START`，解除后在同一周期立即创建现场并 admission。
+`convergence`（只阻最终 merge、认证或 closeout）。`blocked-by` 只是 GitHub 声明事实，不是 hard 证明；父子、
+同 milestone、同 target 或外部 blocker 也不会自动把后继传播为 blocked。只有逐条具备以下反事实证据的依赖
+才能标为 `hard`；`residual_integration_boundary` 与 Issue 的 `deferred_boundary` 必须指向同一延期范围：
+
+```text
+dependency: <真实 locator>
+unsafe_to_start_without: <缺失时为何连安全开始都不可能>
+fixture_or_recorded_contract_insufficient_because: <为何固定证据、recorded contract、只读准备或隔离 carrier 不能先跑薄切片>
+residual_integration_boundary: <哪些部分仍需真实上游；无残余则写 none>
+deferred_boundary: <与 residual_integration_boundary 对应的延期完备性；无延期则写 none>
+```
+
+若 fixture、recorded contract、只读准备或隔离 carrier 足以安全开始某个薄切片，则该部分不得被整体 hard
+阻塞；将薄切片 admission，只有仍依赖真实上游的 residual integration 才保留 `hard`。不能证明安全反事实的
+依赖只可为 `soft`/`convergence`，或退回 readiness 补证。Owner 必须保留责任方、证据和 wake condition；residual
+hard 只有在 resolution evidence 可回读且 wake condition 已验证时才算解除。blocked successor 可先由
+Owner/direct Subagent/共享只读 checkout 完成 readiness；在 residual hard dependency resolution 和 verified
+wake condition 之前禁止正式 execution branch/worktree、完整 contract 和 `START`，解除后在同一周期立即创建现场并
+admission。resolution 可来自真实上游能力、权限、运行时或其他非 Git 条件，不要求存在 merge commit。
 
 ## 容量与事实
 
@@ -80,11 +95,12 @@ dispatch_available_slots = max(
 5. `actual_wave_width` 只记录本波真实完成 admission 的任务数。收口、merge、依赖解除或收敛通道
    释放后，在同一 Owner 控制周期回读并重算 ready wave，优先形成并 admission 下一项关键路径工作。
 
-6. 当 `goal_status=incomplete`、`resolved_max_inflight > 1` 且 `critical_path_width` 持续为 `1`，执行
-   `fanout_audit`：逐条共同 blocker 说明类型、责任方、证据和 wake condition；把 soft/convergence 从实现
-   关键路径移出，能安全并行的候选组成 tight batch。`implementation_target_cap` 始终等于
-   `resolved_max_inflight`，Owner 不得降低 cap；occupancy、readiness/review、单一收敛 lane 和“2–3 条路径”
-   都不是 implementation width 或新 cap 的替代。
+6. 当 `goal_status=incomplete`、`resolved_max_inflight > 1` 且 `critical_path_width=1` 连续两个控制周期，
+   同时 `truth_digest`/`state_digest` 未变化时，必须产生实际动作：重分类依赖、admission 可并行的 tight
+   batch，或为每个剩余候选给出逐项不可并行证据与 `wake_condition`。仅写 `fanout_audit completed` 不算动作；
+   已完整且仍有效的逐项证明可在 digest 未变化时复用，但必须保留 locator、复用原因和下一次 wake condition。
+   `implementation_target_cap` 始终等于 `resolved_max_inflight`，Owner 不得降低 cap；occupancy、readiness/review、
+   单一收敛 lane 和“2–3 条路径”都不是 implementation width 或新 cap 的替代。
 
 ## Dispatch 与 admission 协调
 
@@ -162,7 +178,9 @@ task_key -> upstream_delivery_contract / delivery_route_status / delivery_route_
 execution_generation -> quarantine_status / slot_impact / replacement_forbidden
 task_key -> not_selected_reason / dependency_locator / last_capacity_failure
 acceptance_matrix_locator / matrix_revision / matrix_status / matrix_truth_revision / matrix_truth_digest
-fanout_audit_locator / critical_path_width / implementation_width_reason
+dependency_proof_locator / hard_dependency_proof_status / residual_integration_boundary / deferred_boundary
+truth_digest / state_digest / fanout_audit_locator / fanout_action_locator / critical_path_width / critical_path_stable_cycles /
+  implementation_width_reason / wake_condition
 convergence_inflight / convergence_owner / convergence_generation / convergence_requested_at
 ```
 

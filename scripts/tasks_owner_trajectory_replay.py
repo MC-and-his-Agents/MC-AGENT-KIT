@@ -430,9 +430,222 @@ class Replay:
         return self.violations
 
 
+class ReviewReplay:
+    """Replay review finding admission and the generation-wide fix budget.
+
+    This is intentionally a small state machine: review evidence remains exact-head and
+    writer-quiescence evidence, while the semantic budget is keyed only by task/scope.
+    Reviewer, blocker class, file, head, and execution generation are observations, not
+    reset switches.
+    """
+
+    DISPOSITIONS = {"fix_now", "defer", "reject", "split", "reassign", "user_decision"}
+    SEVERITIES = {"P0", "P1", "P2", "P3"}
+    BOUNDARIES = {"none", "production_subsystem", "permission_or_runtime"}
+    SCOPE_CHANGES = {"shrink", "split", "reassign"}
+
+    def __init__(self, case: dict[str, Any]) -> None:
+        initial = case["initial"]
+        self.case = case
+        self.violations: set[str] = set()
+        self.task_key = initial["task_key"]
+        self.scope_revision = initial["scope_revision"]
+        self.round_count = initial.get("review_fix_round_count", 0)
+        self.first_review_seen = False
+        self.current_review: dict[str, Any] | None = None
+        self.dispositions: dict[str, dict[str, Any]] = {}
+        self.pending_fix: set[str] = set()
+        self.awaiting_fresh_review = False
+        self.last_write_head: str | None = None
+        self.last_review_head: str | None = None
+
+    @staticmethod
+    def _required(facts: dict[str, Any], fields: tuple[str, ...]) -> bool:
+        return all(_nonempty(facts.get(field)) for field in fields)
+
+    def _scope_matches(self, facts: dict[str, Any]) -> bool:
+        return facts.get("task_key") == self.task_key and facts.get("scope_revision") == self.scope_revision
+
+    def _review_common_valid(self, event: dict[str, Any], facts: dict[str, Any]) -> bool:
+        return (
+            event["actor"] == "reviewer"
+            and event["tool"] == "reviewer_result"
+            and facts.get("verdict") in {"fix-first", "ship", "rethink", "blocked"}
+            and self._scope_matches(facts)
+            and self._required(facts, ("reviewer_locator", "reviewed_head", "diff_locator", "execution_generation"))
+            and isinstance(facts.get("reviewed_files"), list)
+            and bool(facts.get("reviewed_files"))
+            and facts.get("review_write_scope") == "empty"
+            and facts.get("writer_quiescence") == "verified"
+            and facts.get("semantic_scope_status") == "aligned"
+        )
+
+    def fresh_review(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        if not self._review_common_valid(event, facts):
+            self.violations.add("review_disposition")
+            return
+        if self.current_review is not None:
+            prior_findings = set(self.current_review.get("finding_locators", []))
+            if not prior_findings.issubset(self.dispositions):
+                self.violations.add("review_disposition")
+        verdict = facts["verdict"]
+        findings = facts.get("finding_locators", [])
+        if not isinstance(findings, list) or any(not _nonempty(value) for value in findings) or len(set(findings)) != len(findings):
+            self.violations.add("review_disposition")
+            return
+        if verdict == "fix-first" and not findings:
+            self.violations.add("review_disposition")
+        if verdict == "ship" and not set(findings).issubset(self.dispositions):
+            self.violations.add("review_disposition")
+        if self.last_review_head is not None and not self.awaiting_fresh_review and facts["reviewed_head"] != self.last_review_head:
+            self.violations.add("review_disposition")
+        if self.awaiting_fresh_review and facts["reviewed_head"] != self.last_write_head:
+            self.violations.add("review_disposition")
+        if verdict == "ship" and self.pending_fix:
+            self.violations.add("review_disposition")
+        self.first_review_seen = True
+        self.current_review = {**facts, "finding_locators": findings, "seq": event["seq"]}
+        self.dispositions = {}
+        self.pending_fix = set()
+        self.awaiting_fresh_review = False
+        self.last_review_head = facts["reviewed_head"]
+
+    def finding_disposition(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        required = (
+            "finding_locator", "severity", "acceptance_or_invariant_locator",
+            "unsafe_evidence_locator", "disposition", "carrier_locator",
+            "rejection_basis", "boundary_expansion", "task_key", "scope_revision",
+            "reviewed_head", "reviewer_locator", "execution_generation", "blocker_class",
+        )
+        valid = event["actor"] == "owner" and event["tool"] == "reviewer_result" and self._required(facts, required)
+        valid = valid and self.current_review is not None and self._scope_matches(facts)
+        valid = valid and facts.get("finding_locator") in self.current_review.get("finding_locators", [])
+        valid = valid and facts.get("reviewed_head") == self.current_review.get("reviewed_head")
+        valid = valid and facts.get("reviewer_locator") == self.current_review.get("reviewer_locator")
+        valid = valid and facts.get("severity") in self.SEVERITIES
+        valid = valid and facts.get("disposition") in self.DISPOSITIONS
+        valid = valid and isinstance(facts.get("current_outcome_unsafe_without_fix"), bool)
+        valid = valid and facts.get("boundary_expansion") in self.BOUNDARIES
+        if not valid or facts.get("finding_locator") in self.dispositions:
+            self.violations.add("review_disposition")
+            return
+        disposition = facts["disposition"]
+        if disposition in {"defer", "split", "reassign"} and (not _nonempty(facts.get("carrier_locator")) or facts.get("carrier_locator") == "none"):
+            self.violations.add("review_disposition")
+        if disposition == "reject" and (not _nonempty(facts.get("rejection_basis")) or facts.get("rejection_basis") == "none"):
+            self.violations.add("review_disposition")
+        if disposition == "user_decision" and (
+            not _nonempty(facts.get("user_decision_locator")) or facts.get("user_decision_locator") == "none"
+        ):
+            self.violations.add("review_disposition")
+        if disposition == "fix_now":
+            mapped = facts["acceptance_or_invariant_locator"] != "none"
+            high_risk = facts["severity"] in {"P0", "P1"} and facts["current_outcome_unsafe_without_fix"]
+            valid_fix = (
+                (mapped or high_risk)
+                and facts["current_outcome_unsafe_without_fix"]
+                and facts["boundary_expansion"] == "none"
+                and facts["unsafe_evidence_locator"] != "none"
+            )
+            if not valid_fix:
+                self.violations.add("review_disposition")
+            else:
+                self.pending_fix.add(facts["finding_locator"])
+        self.dispositions[facts["finding_locator"]] = facts
+
+    def review_write(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        required = (
+            "task_key", "scope_revision", "execution_generation", "base_reviewed_head",
+            "new_head", "writer_evidence_locator", "writer_quiescence", "boundary_expansion",
+        )
+        valid = (
+            event["actor"] in {"owner", "task"}
+            and event["tool"] == "git_commit"
+            and self.first_review_seen
+            and self.current_review is not None
+            and self.current_review.get("verdict") == "fix-first"
+            and self._required(facts, required)
+            and self._scope_matches(facts)
+            and facts.get("base_reviewed_head") == self.current_review.get("reviewed_head")
+            and facts.get("new_head") != facts.get("base_reviewed_head")
+            and facts.get("writer_quiescence") == "verified"
+            and facts.get("boundary_expansion") == "none"
+            and isinstance(facts.get("finding_locators"), list)
+            and bool(facts.get("finding_locators"))
+            and set(facts.get("finding_locators", [])) == self.pending_fix
+        )
+        if event["actor"] == "reviewer":
+            valid = False
+        if self.round_count >= 1:
+            valid = False
+        if not valid:
+            self.violations.add("review_disposition")
+            return
+        self.round_count += 1
+        self.last_write_head = facts["new_head"]
+        self.pending_fix = set()
+        self.awaiting_fresh_review = True
+
+    def scope_change(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        if self.current_review is not None:
+            prior_findings = set(self.current_review.get("finding_locators", []))
+            if not prior_findings.issubset(self.dispositions):
+                self.violations.add("review_disposition")
+        valid = (
+            event["actor"] == "owner"
+            and event["tool"] in {"git_readback", "gh_readback"}
+            and facts.get("status") in self.SCOPE_CHANGES
+            and facts.get("narrower") is True
+            and self._required(facts, ("from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision", "evidence_locator"))
+            and facts.get("from_task_key") == self.task_key
+            and facts.get("from_scope_revision") == self.scope_revision
+            and facts.get("to_task_key") != self.task_key
+            and facts.get("to_scope_revision") != self.scope_revision
+        )
+        if not valid:
+            self.violations.add("review_disposition")
+            return
+        self.task_key = facts["to_task_key"]
+        self.scope_revision = facts["to_scope_revision"]
+        self.round_count = 0
+        self.current_review = None
+        self.dispositions = {}
+        self.pending_fix = set()
+        self.awaiting_fresh_review = False
+        self.last_write_head = None
+        self.last_review_head = None
+
+    def handle(self, event: dict[str, Any]) -> None:
+        kind = event["kind"]
+        if kind == "fresh_review":
+            self.fresh_review(event)
+        elif kind == "finding_disposition":
+            self.finding_disposition(event)
+        elif kind == "review_write":
+            self.review_write(event)
+        elif kind == "scope_change":
+            self.scope_change(event)
+        else:
+            self.violations.add("review_disposition")
+
+    def finish(self) -> set[str]:
+        if not self.first_review_seen or self.awaiting_fresh_review or self.pending_fix:
+            self.violations.add("review_disposition")
+        return self.violations
+
+
 def evaluate(case: dict[str, Any]) -> set[str]:
     if _schema_errors(case):
         return {"schema"}
+    if case["mode"] == "review":
+        replay = ReviewReplay(case)
+        for event in case["events"]:
+            replay.handle(event)
+        return replay.finish()
     replay = Replay(case)
     for event in case["events"]:
         replay.handle(event)

@@ -81,7 +81,7 @@ override locator；缺失/矛盾/静默 fallback 只隔离该 task，记录 `TAS
 `reopen_with_explicit_runtime | hold_for_user_choice`，不改变 Owner runtime，不把旧结果计入 admission。
 
 `contract_digest` 只证明字段未被改写，不证明 GitHub 目标或实际 change set 语义正确；首次 admission、
-合同语义修订、scope delta、重复 blocker、收敛和 `PR_READY` 仍须执行
+合同语义修订、scope delta、review finding disposition、修复回合、收敛和 `PR_READY` 仍须执行
 [scope-integrity.md](scope-integrity.md) 的独立检查。
 
 ### Execution-unit 与 generation 状态
@@ -447,6 +447,11 @@ Heartbeat 首次发现 `next_actor=owner` 事件漏投、未验证或未消费�
 `preflight_locator/preflight_status: ready`、exact reviewed head、准确 reviewed files、空 review write
 scope、完整 diff locator、验证结论、`semantic_scope_status: aligned` 和 hosted/PR metadata 终态；后续
 diff/head 使旧 verdict 失效，修复后 fresh preflight/review。
+
+审查 finding 的处理还必须满足 [scope-integrity.md](scope-integrity.md) 的 admission 与 generation-wide
+修复预算：每个 finding 有 disposition、当前验收/不变量映射或现实 P0/P1 风险证据；同一
+`task_key + scope_revision` 在首次 finding-driven 写入后不得启动第二轮。只有有证据的更窄新 task_key
+才可重新计数；`user_decision` 必须带真实产品、权限或外部结果决策 locator；reviewer 不得写入修复。
 
 Owner 只有独立回读以下事实后才写 `closeout_verified`：目标验收通过；PR 已 merge 或有明确无需 PR 的依据；
 merge commit 与 target branch 可验证；GitHub Issue 状态和适用 repo carrier/current pointer 已同步；

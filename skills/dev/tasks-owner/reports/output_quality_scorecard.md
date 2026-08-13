@@ -1,18 +1,18 @@
 # Output Quality Scorecard
 
-> 证据边界：下列 111 项仅为关键词式 recorded fixture，不是 provider、模型或宿主运行时证据，不能单独作为生命周期发布门禁。
-> v0.18 的独立门禁是 `evals/trajectory_cases.jsonl` 及标准库状态重放器；真实宿主证据另见对应 history 记录。
+> 证据边界：下列 119 项仅为关键词式 recorded fixture，不是 provider、模型或宿主运行时证据，不能单独作为生命周期发布门禁。
+> v0.19 的独立门禁是 `evals/trajectory_cases.jsonl` 及标准库状态重放器；真实宿主证据另见对应 history 记录。
 
 This v0 scorecard compares static without-skill and with-skill outputs using assertion grading.
 
-- Cases: `111`
+- Cases: `119`
 - Baseline pass rate: `0.0`
 - With-skill pass rate: `100.0`
 - Delta: `100.0`
 - Regressions: `0`
-- Blind A/B pairs: `111`
+- Blind A/B pairs: `111`（v0.19 新增 8 项尚未进入人工盲审包）
 - Static fixture gate pass: `True`
-- Structured trajectory gate: `12/12`（5 个规则各含正反例，并覆盖 App writer quiesce；另通过 mutation self-test）
+- Structured trajectory gate: `24/24`（6 个规则均含正反例；review disposition/单轮修复预算另通过 mutation self-test）
 
 Blind review artifacts are generated separately so reviewers can inspect A/B outputs without seeing the answer key.
 Run output review adjudication after reviewer decisions are recorded; pending cases should stay pending rather than being counted as human agreement.
@@ -132,6 +132,14 @@ Run output review adjudication after reviewer decisions are recorded; pending ca
 | v017-neighbor-tool-list-without-locator | 0.0 | 100.0 | 100.0 | with_skill | None |
 | v017-neighbor-final-does-not-restart-loop | 0.0 | 100.0 | 100.0 | with_skill | None |
 | v017-neighbor-goal-complete-no-wait | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-blocked-by-not-hard | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-recorded-contract-thin-slice | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-real-safety-hard | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-legal-tight-batch | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-oversized-platform-no-shared-boundary | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-first-slice-field-missing | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-width-one-two-cycles-action | 0.0 | 100.0 | 100.0 | with_skill | None |
+| v019-issue108-width-one-two-cycles-no-action | 0.0 | 100.0 | 100.0 | with_skill | None |
 
 ## Failure Taxonomy
 
