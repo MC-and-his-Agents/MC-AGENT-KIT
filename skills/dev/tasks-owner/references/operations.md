@@ -203,16 +203,24 @@ consumer 任一变化，或 `truth_revision`/`truth_digest` 与 checkpoint 不�
 
 ### 依赖分类与执行现场时机
 
-`hard` = 不满足不能安全开始；`soft` = 只影响优先级或信息；`convergence` = 只阻最终 merge、认证或
-closeout。父子、同 milestone 或同 target 关系不会自动传播 external blocker；Owner 必须逐行保留责任方、
-证据和 wake condition。`goal_status=incomplete` 且 `resolved_max_inflight > 1`，若 `critical_path_width`
-持续为 `1`，本周期执行 fan-out audit：逐条列出共同 blocker，判断哪些只是 soft/convergence，并继续
-形成可并行的 tight batch。`implementation_target_cap = resolved_max_inflight` 不变；occupancy 不是效果，
+依赖分类和 hard 证明以 [scheduling.md](scheduling.md) 为唯一语义源：`hard` = 不满足不能安全开始；`soft` =
+只影响优先级或信息；`convergence` = 只阻最终 merge、认证或 closeout。`blocked-by`、父子、同 milestone 或同
+target 关系不会自动传播 external blocker。控制周期消费依赖时，必须逐行回读 `dependency` locator、
+`unsafe_to_start_without`、`fixture_or_recorded_contract_insufficient_because`、`residual_integration_boundary`
+和对应的 `deferred_boundary`；二者必须指向同一延期范围，没有安全开始反事实证明的项不能 admission 为 hard。能
+用 fixture、recorded contract、只读准备或隔离 carrier 安全开始的薄切片先行，仍需真实上游的残余集成保留
+residual hard。Owner 仍须保留责任方、证据和 wake condition；residual hard 只有在 resolution evidence 可回读且
+verified wake condition 满足后才解除。resolution 可是上游能力、权限、运行时或其他非 Git 条件，不要求 merge。
+
+`goal_status=incomplete` 且 `resolved_max_inflight > 1` 时，若 `critical_path_width=1` 连续两个控制周期且
+`truth_digest`/`state_digest` 未变化，本周期必须完成依赖重分类、可并行 tight batch admission，或逐候选不可并行
+证据与 wake condition；单独写 `fanout_audit completed` 不足。truth/state 未变化且证明仍有效时可复用完整逐项
+证明，但要留下复用 locator/原因。`implementation_target_cap = resolved_max_inflight` 不变；occupancy 不是效果，
 readiness/review 不是实现槽，2–3 条真实路径也不是新 cap。
 
 blocked successor 可以提前由 Owner/direct Subagent/共享只读 checkout 做 acceptance、依赖和验证 readiness；
-在 hard dependency merge 前禁止正式 execution branch/worktree、完整 contract 或 `START`。依赖解除后同一
-控制周期立刻创建正式现场并 admission，不能把预读 checkout 当成已开始执行。
+在 residual hard dependency resolution 和 verified wake condition 前禁止正式 execution branch/worktree、完整
+contract 或 `START`。依赖解除后同一控制周期立刻创建正式现场并 admission，不能把预读 checkout 当成已开始执行。
 
 ### 三类工作与实时分类
 
@@ -306,6 +314,9 @@ task_key -> workspace_entry/runtime_evidence_locator/status/target
 <scope-integrity.md> 的 semantic_scope_checkpoint/status/evidence
 acceptance_matrix_locator / matrix_revision / matrix_status / matrix_truth_revision / matrix_truth_digest /
   missing_acceptance_rows
+dependency_proof_locator / hard_dependency_proof_status / residual_integration_boundary / deferred_boundary
+truth_digest / state_digest / fanout_audit_locator / fanout_action_locator / critical_path_stable_cycles /
+  implementation_width_reason / wake_condition
 control_signals_locator: first_review_pass / acceptance_coverage_per_merge / same_carrier_pr_count /
   event_to_action_latency / critical_path_width / admitted_one_owner_actionable_remaining
 convergence / cleanup 状态与 evidence locator

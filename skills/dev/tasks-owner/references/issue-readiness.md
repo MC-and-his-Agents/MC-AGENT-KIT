@@ -31,9 +31,50 @@ closeout lane，默认合并为一个 tight batch；只有独立用户价值、�
 dependency 或独立回滚证据才拆分。父 FR/milestone 不能替代可执行 batch，也不能扩大为 milestone 超级任务。
 
 依赖字段按 `hard`（不满足不能安全开始）、`soft`（只影响优先级/信息）、`convergence`（只阻最终 merge、
-认证或 closeout）填写；父子关系不会自动传播 blocker。blocked successor 可提前由 Owner/direct Subagent/共享
-只读 checkout 完成 readiness，但在 hard dependency merge 前不得建立正式 execution branch/worktree、完整
-contract 或 `START`；解除后由 Owner 立即 admission。
+认证或 closeout）填写；`blocked-by` 只是 GitHub 关系事实，不自动成为 `hard`，父子关系也不会自动传播
+blocker。每条 `hard` 依赖必须能回读 [scheduling.md](scheduling.md) 定义的安全开始反事实证明；只有写了
+Issue 编号而没有该证明时，本项为 `planning_not_ready`。blocked successor 可提前由 Owner/direct
+Subagent/共享只读 checkout 完成 readiness，但在 residual hard dependency resolution 和 verified wake
+condition 之前不得建立正式 execution branch/worktree、完整 contract 或 `START`；解除后由 Owner 立即
+admission。resolution 不限于 Git merge：可以是上游能力、权限、运行时或其他真实条件已满足且可回读。
+
+### 基础设施/安全/平台 hard blocker 的最小纵向切片证明
+
+当基础设施、安全或平台 Work Item 被声明为产品工作的 `hard` blocker 时，Issue 必须额外提供首个
+直接消费者（含可回读 locator）和最小可观察结果的证明；平台工作本身若有独立、已确认的用户或运营价值，应拆为独立
+Work Item，而不是用产品 Issue 承担平台完备性：
+
+```text
+first_consumer: <第一个真实消费者；可回读 locator>
+smallest_consumer_verifiable_increment: <最小可观察产品结果>
+hard_dependency_proof:
+  - dependency: <locator>
+    unsafe_to_start_without: <为何缺失时连安全开始都不可能>
+    fixture_or_recorded_contract_insufficient_because: <为何不能用固定证据先跑薄切片>
+    residual_integration_boundary: <哪些部分仍需真实上游；无残余则写 none>
+deferred_boundary: <与 residual_integration_boundary 一一对应的延期完备性；无延期则写 none>
+```
+
+对这类 hard blocker，以上每个顶层字段和每条 `hard_dependency_proof` 的嵌套字段都是必填：
+`first_consumer` 必须同时给出真实消费者和可回读 locator；`smallest_consumer_verifiable_increment` 必须是
+首个消费者可观察的结果；`dependency` 必须是具体 locator；`unsafe_to_start_without`、
+`fixture_or_recorded_contract_insufficient_because` 与 `residual_integration_boundary` 必须逐条说明，
+无残余时显式写 `none`；`deferred_boundary` 必须与 residual 边界逐项对应，不能另造一套范围。任一字段缺失、
+空白、只有占位文字或 locator 不可回读，直接为 `planning_not_ready`。
+
+以下任一情况直接为 `planning_not_ready`：
+
+- First-slice proof 任一顶层或嵌套必填字段缺失（包括真实消费者 locator、最小消费者增量、安全开始反事实、
+  fixture/recorded contract 不足理由、residual 边界或对应的 deferred boundary）；
+- 一个 Issue 同时承担多个可独立交付的职责，且没有共享 carrier、验证矩阵、closeout lane 或统一回滚边界的证明；
+- 基础设施范围超过首个直接消费者所需，且没有将平台自身的独立价值拆为独立 Work Item；
+- `blocked-by` 只有 GitHub 关系，没有“未满足就不能安全开始”的语义证明；
+- `Done when` 主要证明平台完备性，而不是首个用户可验证结果。
+
+能以 fixture、recorded contract、只读准备或隔离 carrier 安全开始的薄切片，不得被整体 hard 依赖阻塞；仍需
+真实上游才能安全进行的残余集成部分保留为 residual `hard`，并同时写入同一语义的
+`residual_integration_boundary` 与 `deferred_boundary`，在 resolution 和 verified wake condition 满足前不 admission
+该残余部分。
 
 首次调度、重大 closeout/replan 或用户效率复盘必须建立/刷新 acceptance/backlog matrix：
 `acceptance → Work Item/owner → hard/soft/convergence → shared carrier → parallel lane → closeout consumer`。
@@ -46,9 +87,9 @@ Work Item 必须为每项提供短而可验证的证据；缺项标记 `planning
 | 检查 | 通过条件 | 常见缺口 |
 |---|---|---|
 | 目标/价值 | 说明要达到的最终结果，以及用户/项目为什么受益 | 只有“实现/处理/优化”动作，没有结果或价值 |
-| 可验证完成 | 有可观察的 acceptance/done when，覆盖成功、失败或不可用状态 | “完成后看起来正常”“没有问题” |
+| 可验证完成 | 有可观察的 acceptance/done when，覆盖首个用户结果及成功、失败或不可用状态 | “完成后看起来正常”“没有问题”，或只证明平台完备 |
 | 范围边界 | 明确 In、Out/non-goals，以及允许触碰的文件/模块/外部对象 | 任务可无限扩张，未说明不做什么 |
-| 依赖约束 | 列出 hard/soft/convergence 依赖和兼容性、安全、数据、权限、成本等约束 | 把未知依赖当作已解除，或漏写安全/权限边界 |
+| 依赖约束 | 列出 hard/soft/convergence 依赖和兼容性、安全、数据、权限、成本等约束；每条 hard 依赖有安全开始反事实证明 | 把 `blocked-by` 当 hard、缺 `unsafe_to_start_without`，或漏写安全/权限边界 |
 | 验证证据 | 每条检查有准确命令/产物/外部状态和 concrete success criterion | 只有“已测试”或没有证据定位 |
 | 暂停/决策 | 明确缺事实、权限、语义、产品/安全决策或重复失败时暂停，并写明决策者 | 缺口出现时继续猜测或自动写入 |
 
@@ -83,6 +124,15 @@ Done when / Acceptance:
 - <可观察的完成标准和失败/不可用状态>
 Scope: In <范围>; Out / Non-goals <边界>
 Dependencies / Constraints: <hard/soft/convergence 依赖和约束>
+First-slice proof (required for infrastructure/security/platform hard blocker; every field is required):
+first_consumer: <第一个真实消费者；可回读 locator>
+smallest_consumer_verifiable_increment: <最小可观察产品结果>
+hard_dependency_proof:
+  - dependency: <locator>
+    unsafe_to_start_without: <安全开始反事实>
+    fixture_or_recorded_contract_insufficient_because: <为何固定证据不能先跑薄切片>
+    residual_integration_boundary: <仍需真实上游的边界；无残余则写 none>
+deferred_boundary: <与 residual_integration_boundary 对应的延期完备性；无延期则写 none>
 Verification evidence:
 - Check: <准确命令/产物/外部状态>; Success: <具体通过判据>
 Pause / Decision conditions: <暂停条件和决策者>

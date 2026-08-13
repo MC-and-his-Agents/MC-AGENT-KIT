@@ -117,10 +117,15 @@ recent same-class findings           -> evidence/check
 readiness、CI 或旧 review 替代。preflight 不替代 CI、hosted checks、fresh exact-head、scope integrity
 或 PR metadata。
 
-若首次独立 review 为 `fix-first`，Owner 必须先做 sibling/systemic scan，再完成一个有界修复并重新生成
-fresh preflight/review。第二次实质 finding（不是同一 `blocker_class` 的重复说明）触发 Owner `rethink`、
-`split`、`reassign` 或 `user_decision`；不得继续让 reviewer 探测式循环。重复同一 blocker 仍遵循
-[scope-integrity.md](scope-integrity.md) 的 circuit breaker。
+若首次独立 review 为 `fix-first`，Owner 必须先做 sibling/systemic scan，再对已 admission 的 finding
+完成一个有界修复并重新生成 fresh preflight/review。审查意见必须先经过
+[scope-integrity.md](scope-integrity.md) 的 `review_finding_disposition` admission；reviewer 只报告
+finding，不写修复。
+
+`review_fix_round_count` 按一次 finding disposition 到下一次 writer quiescence + fresh review 的写入
+回合计算。多个 finding 可以合并在同一回合；计数不按 finding、文件、reviewer、`blocker_class`、head/
+commit 或 execution generation 重置。计数达到 `1` 后，同一 `task_key + scope_revision` 禁止第二轮
+finding-driven 写入，必须 `shrink`、`split`、`reassign`、`defer`、`reject` 或 `user_decision`。
 
 最小审查记录增加：
 
@@ -129,7 +134,14 @@ preflight_locator / preflight_status / preflight_revision
 review_cycle: first | fix_first | second_substantive
 blocker_classes_seen / sibling_scan_locator / bounded_fix_locator
 review_churn_action: continue | rethink | split | reassign | user_decision
+review_finding_disposition: <scope-integrity.md 中的逐 finding 结构>
+review_fix_round_count: <0 | 1>
+review_fix_scope_key: <task_key + scope_revision>
 ```
+
+`defer`、`split`、`reassign` 必须引用 carrier locator；`reject` 必须有 rejection basis；`user_decision`
+必须引用真实产品、权限或外部结果决策 locator；P2/P3 默认延期，但若有当前验收/不变量映射且延期会使交付失真或不安全，可以按 admission 规则 `fix_now`。Pause 文本、
+自然语言 blocker 或 severity 本身不能替代 disposition/counter 门禁。
 
 ## Scope integrity evidence
 

@@ -1,8 +1,8 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以有效交付批次统筹结果，按统一 control loop 同回合消费事件、执行 owner_action、派发 successor 并以前置 review preflight 收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付，并在发布/清理前收敛写入者、消费最终事件；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
+description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以首个消费者薄切片、可证明 hard dependency 和有界 review 修复预算统筹有效交付批次，按统一 control loop 消费事件、执行 owner_action、派发 successor 并收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
 metadata:
-  version: "0.18.0"
+  version: "0.19.0"
 ---
 
 # 结果负责的 GitHub 项目 Owner
@@ -75,6 +75,16 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
 - scope integrity、material delta、repeat-blocker、exact-head review、cleanup 保护和 ownership 检查互相独立。
 - 适用 `AGENTS.md`、正式 branch/worktree、runtime evidence 和用户授权是实现前置条件；不得直接在 `main` 实施。
 - 回归评测与真实证据边界见 `evals/`、`reports/`；recorded fixture 不冒充 provider/model 或人工证据。
+
+## v0.19 批次范围与审查收敛
+
+- 基础设施、安全或平台工作若要成为产品工作的 hard blocker，必须证明首个真实消费者、最小可验证增量、
+  无法用 fixture/recorded contract 安全先行的原因，以及明确延期边界；GitHub `blocked-by` 本身不是 hard 证明。
+- 每个 review finding 先按 [scope-integrity.md](references/scope-integrity.md) admission；同一
+  `task_key + scope_revision` 在首次 fresh review 后只允许一个 finding-driven 写入回合，不能靠更换 reviewer、
+  blocker、文件、head 或 execution generation 重置。其余问题进入既有 carrier、拆成更窄任务或交由用户决策。
+- `critical_path_width=1` 连续两个事实未变化的控制周期必须产生依赖重分类、并行 tight batch，或逐项不可并行
+  证据；只有审计声明不算实际动作。
 
 ## v0.18 生命周期硬门禁
 

@@ -60,7 +60,7 @@ def run(path: Path) -> list[str]:
     for rule, counts in coverage.items():
         if not counts["pass"] or not counts["fail"]:
             failures.append(f"coverage: {rule} requires pass and fail cases")
-    if not {"app_thread", "direct", "convergence", "cleanup", "heartbeat"}.issubset(modes):
+    if not {"app_thread", "direct", "convergence", "cleanup", "heartbeat", "review"}.issubset(modes):
         failures.append("coverage: all trajectory modes are required")
     return failures
 
@@ -75,6 +75,9 @@ def self_test(path: Path) -> list[str]:
         ("direct_wake", "direct-pass", lambda c: c["events"][2].update(turn="owner-turn-2")),
         ("direct_wake", "direct-pass", lambda c: c["events"][0]["args"].update(model="gpt-5.6-terra")),
         ("heartbeat_backoff", "heartbeat-pass", lambda c: c["events"][4]["facts"].update(current_interval_seconds=1)),
+        ("review_disposition", "review-multifinding-single-round-pass", lambda c: c["events"][1]["facts"].update(disposition="defer", carrier_locator="none")),
+        ("review_disposition", "review-p2-defer-with-carrier-pass", lambda c: c["events"][1]["facts"].update(carrier_locator="none")),
+        ("review_disposition", "review-multifinding-single-round-pass", lambda c: c["events"][4]["facts"].update(task_key="issue-107")),
     ]
     for rule, case_id, mutate in mutations:
         source = next(case for case in cases if case["id"] == case_id)
@@ -82,6 +85,91 @@ def self_test(path: Path) -> list[str]:
         mutate(candidate)
         if rule not in evaluate(candidate):
             failures.append(f"mutation for {rule} was not rejected")
+
+    # A ship verdict cannot hide a finding that never received a disposition.
+    source = next(case for case in cases if case["id"] == "review-p2-defer-with-carrier-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"] = candidate["events"][:1]
+    candidate["events"][0]["facts"].update(verdict="ship", finding_locators=["f-p2"])
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("unresolved ship finding mutation was not rejected")
+
+    # user_decision needs a locator for the real product/permission/external decision.
+    source = next(case for case in cases if case["id"] == "review-user-decision-with-locator-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][1]["facts"]["user_decision_locator"] = "none"
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("missing user decision locator mutation was not rejected")
+
+    # The counter is an explicit review contract field, not an implicit zero default.
+    source = next(case for case in cases if case["id"] == "review-multifinding-single-round-pass")
+    candidate = copy.deepcopy(source)
+    candidate["initial"].pop("review_fix_round_count")
+    if not _schema_errors(candidate):
+        failures.append("missing review fix round counter was not rejected")
+
+    # A second finding-driven write must fail even when the reviewer and generation
+    # change.  This is the mutation form of the generation-wide circuit breaker.
+    source = next(case for case in cases if case["id"] == "review-multifinding-single-round-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][4]["facts"].update(
+        verdict="fix-first",
+        reviewer_locator="reviewer:b",
+        execution_generation="g2",
+        finding_locators=["f3"],
+    )
+    candidate["events"].append({
+        "seq": 6,
+        "turn": "owner-turn-2",
+        "actor": "owner",
+        "kind": "finding_disposition",
+        "locator": "finding:mutation-f3",
+        "unit_id": None,
+        "generation": "g2",
+        "tool": "reviewer_result",
+        "args": {},
+        "facts": {
+            "finding_locator": "f3",
+            "severity": "P1",
+            "acceptance_or_invariant_locator": "done:consumer",
+            "current_outcome_unsafe_without_fix": True,
+            "unsafe_evidence_locator": "risk:f3",
+            "disposition": "fix_now",
+            "carrier_locator": "none",
+            "rejection_basis": "none",
+            "boundary_expansion": "none",
+            "task_key": "issue-106",
+            "scope_revision": "s1",
+            "reviewed_head": "h1",
+            "reviewer_locator": "reviewer:b",
+            "execution_generation": "g2",
+            "blocker_class": "new-class",
+        },
+    })
+    candidate["events"].append({
+        "seq": 7,
+        "turn": "owner-turn-2",
+        "actor": "owner",
+        "kind": "review_write",
+        "locator": "write:mutation-round-2",
+        "unit_id": None,
+        "generation": "g2",
+        "tool": "git_commit",
+        "args": {},
+        "facts": {
+            "task_key": "issue-106",
+            "scope_revision": "s1",
+            "execution_generation": "g2",
+            "base_reviewed_head": "h1",
+            "new_head": "h2",
+            "finding_locators": ["f3"],
+            "writer_evidence_locator": "writer:g2:r2",
+            "writer_quiescence": "verified",
+            "boundary_expansion": "none",
+        },
+    })
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("review generation/reviewer reset mutation was not rejected")
     schema_case = copy.deepcopy(cases[0])
     schema_case["events"][0]["kind"] = "noop"
     if not _schema_errors(schema_case):
