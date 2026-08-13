@@ -1,17 +1,18 @@
 ---
 name: code-atlas
-description: Read-only CodeAtlas workflows for repository understanding, request tracing, change impact and maintainability decisions. Route work through UNDERSTAND, TRACE, CHANGE or ASSESS; use the worktree-local CodeGraph index when available and label evidence as observed, inferred or unknown.
+description: CodeAtlas analysis workflows are read-only; SessionStart maintains only the current worktree's .codegraph index and any required .gitignore. Route work through UNDERSTAND, TRACE, CHANGE or ASSESS; use the worktree-local CodeGraph index and label evidence as observed, inferred or unknown.
 metadata:
   internal: true
-  version: 0.3.0
+  version: 0.3.1
 ---
 
 # CodeAtlas
 
-CodeAtlas is one private skill with four narrow lanes. It builds evidence for the
-current Git worktree and does not edit code, create issues, initialize indexes,
-install software or run mutating commands unless the user explicitly requests a
-separate action and authorizes it.
+CodeAtlas is one private skill with four narrow lanes. The analysis workflows
+remain read-only: they do not edit source code or create issues. The lifecycle
+hook keeps the current worktree's CodeGraph index usable by automatically
+running a bounded `init` or `sync` at `SessionStart`; it never installs the CLI,
+configures MCP, installs Git hooks or starts a daemon/watcher.
 
 ## Route first
 
@@ -53,33 +54,47 @@ capabilities with `tools/list` when the host exposes it. Default to
 not assume `codegraph_status`, `codegraph context`, or any undocumented tool.
 
 If the local database or CLI is absent, proceed with conservative file/Git
-inspection and report `unavailable`. A CLI plus local database without explicit
-MCP runtime evidence is `cli-only`; never imply that MCP is active.
+inspection and report `unavailable` or `needs-agent`. A successful lifecycle
+action is `ready`; a present CLI/index without explicit MCP runtime evidence is
+`cli-only` (the normal SubagentStart observation). Never imply that MCP is active.
 
 The shared `hooks/claude-codex-hooks.json` runner receives `SessionStart` or
 `SubagentStart` as its argument. Native Claude receives raw SessionStart context
 and `hookSpecificOutput` JSON for SubagentStart; Codex (`PLUGIN_DATA`) receives
-`systemMessage` plus `hookSpecificOutput`. Subagent context is intentionally
-shorter and contains only worktree/CLI/index evidence and the observed/inferred/
-unknown rules.
+`systemMessage` plus `hookSpecificOutput`. SessionStart preserves the current
+worktree boundary and reports the action/result. SubagentStart is intentionally
+cheap: it never repeats `init`/`sync` and only carries the current evidence and
+the observed/inferred/unknown rules.
 
 ## Authorization boundaries
 
-The following actions require a separate user authorization after explaining
-the value, official source, exact write scope and side effects:
+The lifecycle hook is already authorized as part of installing CodeAtlas and may
+write only the current worktree's `.codegraph` directory and an init-required
+`.gitignore` change. It runs with a short timeout, disables download/update,
+telemetry and daemon behavior. Init forces the normal watcher policy to avoid
+CodeGraph's interactive Git-hook fallback; sync disables watcher behavior. A
+fresh `.codegraph/codegraph.lock` is observed read-only and handed to the Agent;
+the hook never deletes or unlocks it.
+
+The following actions still require a separate user authorization after
+explaining the value, official source, exact write scope and side effects:
 
 - installing CodeGraph (for example, the official package source);
 - `codegraph install` (state the target host/config file);
-- `codegraph init <worktree-root>` (writes the requested worktree's `.codegraph`
-  data, may update `.gitignore`, perform a full build, and may prompt for
-  watcher or Git-hook side effects);
+- manual `codegraph init <worktree-root>` outside the lifecycle hook (writes the
+  requested worktree's `.codegraph` data, may update `.gitignore`, and performs
+  a full build);
 - any live MCP or daemon smoke.
 
 The initialization shape is exactly `codegraph init <worktree-root>`; do not add
-`-i`. CodeAtlas does not run `codegraph --version`, `status`, `serve`, `install`,
-`init`, `index` or `sync` from a lifecycle hook. The hook only reports PATH and
-the exact local database file. `status` and live MCP may write state, so run
-them only after authorization or in an isolated temporary smoke.
+`-i`. The hook runs only `init` for a missing index or `sync --quiet` for an
+existing index. A timeout, non-zero exit, lock conflict, interaction risk or
+partial database becomes `needs-agent` with the exact takeover command; the
+Agent may run it in the same session after explaining any additional scope.
+After `init`/`sync`, it performs one bounded `codegraph status --json` check and
+requires the exact worktree path, initialized state and zero pending changes
+before reporting `ready`. The hook never runs `codegraph install`, configures MCP,
+installs Git hooks or uses a parent/other-worktree index.
 
 ## Read-only maintainability behavior
 

@@ -1,7 +1,7 @@
 {
   "name": "code-atlas",
-  "version": "0.3.0",
-  "description": "Read-only CodeAtlas workflows for repository exploration, tracing, change analysis and maintainability decisions.",
+  "version": "0.3.1",
+  "description": "CodeAtlas analysis workflows are read-only; SessionStart maintains only the current worktree's .codegraph index and any required .gitignore.",
   "author": {
     "name": "mcontheway"
   },

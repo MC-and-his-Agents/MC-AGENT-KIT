@@ -1,7 +1,7 @@
 {
   "name": "code-atlas",
-  "version": "0.3.0",
-  "description": "Read-only CodeAtlas workflows for repository exploration, tracing, change analysis and maintainability decisions.",
+  "version": "0.3.1",
+  "description": "CodeAtlas analysis workflows are read-only; SessionStart maintains only the current worktree's .codegraph index and any required .gitignore.",
   "author": {
     "name": "mcontheway"
   },
@@ -19,8 +19,8 @@
   "hooks": "./hooks/claude-codex-hooks.json",
   "interface": {
     "displayName": "CodeAtlas",
-    "shortDescription": "Read-only graph-assisted workflows for understanding, tracing, changing and assessing code.",
-    "longDescription": "CodeAtlas is one private skill with four routed lanes: UNDERSTAND, TRACE, CHANGE and ASSESS. It uses a worktree-local CodeGraph index when available, negotiates visible MCP tools at runtime, defaults to codegraph_explore, and reports CLI-only or unavailable evidence honestly. It never edits code, creates issues or runs CodeGraph commands by itself.",
+    "shortDescription": "Read-only analysis workflows; SessionStart maintains the current worktree's .codegraph index and required .gitignore.",
+    "longDescription": "CodeAtlas is one private skill with four routed lanes: UNDERSTAND, TRACE, CHANGE and ASSESS. Analysis workflows are read-only. SessionStart may initialize or sync only the exact current worktree's .codegraph index and any required .gitignore, with bounded no-download/no-daemon/no-watcher behavior; failures become same-session Agent takeover instructions. It negotiates visible MCP tools at runtime and reports ready, cli-only, needs-agent or unavailable evidence honestly.",
     "developerName": "mcontheway",
     "category": "Developer Tools",
     "capabilities": ["Read"],

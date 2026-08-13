@@ -1,8 +1,9 @@
 # CodeAtlas
 
-CodeAtlas 是一个面向 Codex 与 Claude Code 的只读代码地图插件。它只有一
-个私有 Skill：`code-atlas`，按 UNDERSTAND、TRACE、CHANGE、ASSESS 四路
-组织仓库探索、请求追踪、变更影响和维护性决策。
+CodeAtlas 是一个面向 Codex 与 Claude Code 的代码地图插件：源码分析和
+维护性工作流保持只读，生命周期 hook 负责保障当前 worktree 的 CodeGraph
+索引。它只有一个私有 Skill：`code-atlas`，按 UNDERSTAND、TRACE、CHANGE、
+ASSESS 四路组织仓库探索、请求追踪、变更影响和维护性决策。
 
 ## 运行边界
 
@@ -12,18 +13,23 @@ CodeGraph 是可选的外部运行时依赖，不随插件分发。只有当前 
 worktree 的索引。原生 MCP 由宿主提供，运行时通过 `tools/list` 协商；默认
 只使用可见的 `codegraph_explore`，其他工具必须先确认实际可见。
 
-没有 CLI 或索引时，继续做保守的本地文件/Git 分析并诚实标为
-`unavailable`；CLI 与索引存在但没有明确 MCP 运行时证据时标为
-`cli-only`。所有结论标注 `observed`、`inferred` 或 `unknown`。
+每次 `SessionStart` 都优先保障当前 worktree 的索引：缺少精确
+`.codegraph/codegraph.db` 时自动执行 `codegraph init <worktree-root>`，已有
+索引时自动执行 `codegraph sync --quiet <worktree-root>`，随后用一次有界的
+`codegraph status --json` 校验精确 worktree、初始化状态和 pending changes。
+成功标为 `ready`；
+CLI 与索引存在但没有明确 MCP 运行时证据时标为 `cli-only`。超时、非零退出、
+锁/交互风险或部分索引标为 `needs-agent`，并把已尝试动作、原因和精确接管
+命令注入当前会话。没有 CLI 时不自动安装，交给 Agent 说明官方来源后在同一
+会话继续。所有结论标注 `observed`、`inferred` 或 `unknown`。
 
-插件不声明或分发 MCP server，不执行 CodeGraph 子命令，不初始化索引，不
-安装软件，不启动 daemon/watcher，也不创建 issue。生命周期 hook 只读识别
-cwd、Git worktree/common-dir、PATH 中的 CLI 和精确数据库文件，静默失败且
-不写 stderr。任何安装、`codegraph install` 或
-`codegraph init <worktree-root>` 都要先说明官方来源、准确写入范围（可能写入
-worktree 的 `.codegraph`、`.gitignore` 并执行完整 build）和副作用（可能提示
-watcher/Git hook、host 配置、telemetry 或 daemon），再取得用户授权；初始化
-命令不带 `-i`。
+插件不声明或分发 MCP server，不自动安装软件、不运行 `codegraph install`、
+不启动残留 daemon/watcher、不安装 Git hooks，也不创建 issue。生命周期 hook
+只会写当前 worktree 的 `.codegraph` 和 CodeGraph init 必需的 `.gitignore`；
+命令带有短超时和下载/update/telemetry/daemon 禁用环境。init 强制正常 watcher
+策略以避免 CodeGraph 询问 Git hooks，sync 禁用 watcher 行为。若自动化失败，
+它不会阻断会话，而是把 Agent 同会话接管信息注入上下文。初始化命令不带
+`-i`，不同 worktree 不共享索引。
 双宿主只注册一次 `hooks/claude-codex-hooks.json`；它不是标准自动加载的
 `hooks/hooks.json` 路径，命令直接调用 Node runner 并显式传入事件名。
 

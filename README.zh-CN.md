@@ -62,13 +62,16 @@ Plugin 内部 skills 只随 plugin 分发，不作为独立条目进入 `npx ski
 
 | Plugin | Harness | 分类 | 版本 | 描述 |
 |---|---|---|---:|---|
-| [code-atlas](./plugins/code-atlas/README.md) | Codex, Claude Code | Developer Tools | 0.3.0 | Read-only graph-assisted workflows for understanding, tracing, changing and assessing code. |
+| [code-atlas](./plugins/code-atlas/README.md) | Codex, Claude Code | Developer Tools | 0.3.1 | Read-only analysis workflows; SessionStart maintains the current worktree's .codegraph index and required .gitignore. |
 <!-- PLUGINS_END -->
 
-CodeAtlas 只读运行：CodeGraph 是外部运行时依赖，原生 MCP 在运行时协商而不
-随插件分发；只有当前 worktree 的精确 `.codegraph/codegraph.db` 才能提供图
-证据。生命周期 hook 只报告 cwd/Git identity、PATH 中 CLI 和该文件，不执行
-`codegraph --version`、`status`、`serve`、`install`、`init`、`index` 或 `sync`。
+CodeAtlas 的源码分析保持只读，但生命周期 hook 会维护当前 worktree 的外部
+CodeGraph 索引。每次 SessionStart 在精确数据库缺失时自动执行
+`codegraph init <worktree-root>`，存在时执行 `codegraph sync --quiet
+<worktree-root>`。有界尝试只允许写当前 worktree 的 `.codegraph`（以及 init 必需
+的 `.gitignore`），关闭下载、更新检查、遥测、daemon 和 watcher，不安装 Git
+hooks 或配置 MCP。失败会注入 `needs-agent` 和同会话精确接管命令；
+SubagentStart 只复用状态，不重复昂贵操作。
 
 ### Codex
 
