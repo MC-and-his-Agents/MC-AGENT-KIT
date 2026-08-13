@@ -62,14 +62,17 @@ Plugin-contained skills stay inside their plugin and are distributed only throug
 
 | Plugin | Harness | Category | Version | Description |
 |---|---|---|---:|---|
-| [code-atlas](./plugins/code-atlas/README.md) | Codex, Claude Code | Developer Tools | 0.3.0 | Read-only graph-assisted workflows for understanding, tracing, changing and assessing code. |
+| [code-atlas](./plugins/code-atlas/README.md) | Codex, Claude Code | Developer Tools | 0.3.1 | Read-only analysis workflows; SessionStart maintains the current worktree's .codegraph index and required .gitignore. |
 <!-- PLUGINS_END -->
 
-CodeAtlas is read-only: CodeGraph is an external runtime, native MCP is negotiated
-at runtime rather than bundled, and the exact worktree-local
-`.codegraph/codegraph.db` is required for graph evidence. Its lifecycle hook only
-reports cwd/Git identity, CLI PATH evidence and that file; it never runs
-`codegraph --version`, `status`, `serve`, `install`, `init`, `index` or `sync`.
+CodeAtlas keeps source analysis read-only while its lifecycle hook maintains the
+external CodeGraph runtime for the exact current worktree. On SessionStart it
+automatically runs `codegraph init <worktree-root>` when the local database is
+missing, or `codegraph sync --quiet <worktree-root>` when it exists. The bounded
+attempt only writes the worktree `.codegraph` (and an init-required `.gitignore`),
+disables downloads, update checks, telemetry, daemon and watcher behavior, and
+never installs Git hooks or configures MCP. A failure becomes `needs-agent` with
+an exact same-session takeover command; SubagentStart only observes the result.
 
 ### Codex
 

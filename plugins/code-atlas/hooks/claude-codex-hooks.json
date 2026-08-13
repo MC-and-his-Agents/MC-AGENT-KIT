@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js\" SessionStart",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js\" SubagentStart",
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }

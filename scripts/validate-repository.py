@@ -31,6 +31,13 @@ CODE_ATLAS_NAME = "code-atlas"
 CODE_ATLAS_HOOKS = "./hooks/claude-codex-hooks.json"
 CODE_ATLAS_HOOK_FILE = "hooks/claude-codex-hooks.json"
 CODE_ATLAS_RUNNER = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/code-atlas-hook.js"'
+CODE_ATLAS_INTERNAL_TIMEOUT_SECONDS = 18
+CODE_ATLAS_HOOK_TIMEOUT_SECONDS = 30
+CODE_ATLAS_LIFECYCLE_DESCRIPTION_MARKERS = (
+    "analysis",
+    ".codegraph",
+    ".gitignore",
+)
 CODE_ATLAS_SKILL_FILES = (
     "skills/code-atlas/agents/openai.yaml",
     "skills/code-atlas/assets/config.example.yml",
@@ -219,6 +226,25 @@ def validate_code_atlas(
 
     hook_paths: list[str] = []
     for manifest_path, manifest in manifests:
+        description_fields = [("description", manifest.get("description"))]
+        interface = manifest.get("interface")
+        if isinstance(interface, dict):
+            description_fields.extend(
+                (field, interface.get(field))
+                for field in ("shortDescription", "longDescription")
+            )
+        for field, value in description_fields:
+            if not isinstance(value, str) or not all(
+                marker.lower() in value.lower()
+                for marker in CODE_ATLAS_LIFECYCLE_DESCRIPTION_MARKERS
+            ):
+                errors.append(
+                    failure(
+                        manifest_path.relative_to(root),
+                        "code-atlas-lifecycle-description",
+                        f"{field} must distinguish read-only analysis from SessionStart writes to .codegraph/.gitignore",
+                    )
+                )
         if "mcpServers" in manifest:
             errors.append(
                 failure(
@@ -298,12 +324,17 @@ def validate_code_atlas(
                 elif isinstance(command, str):
                     runner_bases.add(command.rsplit(" ", 1)[0])
                 timeout = hook.get("timeout")
-                if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout > 5:
+                if (
+                    not isinstance(timeout, (int, float))
+                    or isinstance(timeout, bool)
+                    or timeout <= CODE_ATLAS_INTERNAL_TIMEOUT_SECONDS
+                    or timeout > CODE_ATLAS_HOOK_TIMEOUT_SECONDS
+                ):
                     errors.append(
                         failure(
                             hook_file.relative_to(root),
                             "code-atlas-hook-timeout",
-                            "set every lifecycle hook timeout to at most 5 seconds",
+                            f"set every lifecycle hook timeout above the {CODE_ATLAS_INTERNAL_TIMEOUT_SECONDS}s internal bound and at most {CODE_ATLAS_HOOK_TIMEOUT_SECONDS}s",
                         )
                     )
     if runner_bases != {CODE_ATLAS_RUNNER}:
@@ -312,6 +343,39 @@ def validate_code_atlas(
         errors.append(failure(hook_file.relative_to(root), "code-atlas-no-shell-fallback", "do not use POSIX `${A:-...}` fallback syntax"))
     if "UserPromptSubmit" in json.dumps(document, ensure_ascii=False):
         errors.append(failure(hook_file.relative_to(root), "code-atlas-no-user-prompt-hook", "do not register UserPromptSubmit"))
+    runner_path = plugin_dir / "scripts" / "code-atlas-hook.js"
+    if runner_path.is_file():
+        runner_source = runner_path.read_text(encoding="utf-8")
+        required_markers = (
+            "codegraph init",
+            "codegraph sync --quiet",
+            "CODEGRAPH_NO_DOWNLOAD",
+            "CODEGRAPH_NO_DAEMON",
+            "CODEGRAPH_NO_WATCH",
+            "CODEGRAPH_FORCE_WATCH",
+            "CODEGRAPH_NO_UPDATE_CHECK",
+            "DO_NOT_TRACK",
+            "codegraph.lock",
+            "--git-path",
+            "git-hooks-dir",
+            "git-hooks-probe",
+            "lock-conflict",
+            "status --json",
+            "STATUS_TIMEOUT_MS",
+            "status-pending",
+            "status-index-path",
+            "needs-agent",
+            "SubagentStart does not run init or sync",
+        )
+        for marker in required_markers:
+            if marker not in runner_source:
+                errors.append(
+                    failure(
+                        runner_path.relative_to(root),
+                        "code-atlas-lifecycle-contract",
+                        f"keep lifecycle marker `{marker}`",
+                    )
+                )
     return errors
 
 def validate_plugins(
