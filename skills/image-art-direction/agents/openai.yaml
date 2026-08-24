@@ -1,4 +1,4 @@
 interface:
   display_name: "AI 视觉导演"
-  short_description: "将静态图像需求转成连贯、可生成、可验收的视觉规格方案"
-  default_prompt: "使用 $image-art-direction 将我的静态图像需求转成连贯的视觉规格，并按需生成、评审或定向修订。"
+  short_description: "将静态图像需求转成连贯、可执行的视觉规格与生图提示"
+  default_prompt: "使用 $image-art-direction 将我的静态图像需求转成连贯的视觉规格，并按需输出提示词、生成或编辑图像。"
