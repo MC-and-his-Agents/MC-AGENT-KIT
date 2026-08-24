@@ -26,7 +26,7 @@
 | Controlled Imperfection | 摄影自然主义、编辑摄影与本 skill 工作综合 | 选择符合媒介和意图的有限不完美，不把结构错误当真实感 |
 | Pose Naturalism | Blocking、人物摄影、人体重心与本 skill 工作综合 | 用重心、支撑、微不对称和关节放松避免模板化摆姿 |
 | Exposure Strategy | 摄影曝光与动态范围控制 | 确定曝光锚点，以及允许 clipping 或暗部下降的区域 |
-| Haptic-to-Visual Translation | 材料外观、摄影布光与本 skill 工作综合 | 将触觉语言转成粗糙度、反射、微纹理、形变和褶皱 |
+| Haptic-to-Visual Translation | 材料外观、摄影布光与本 skill 工作综合 | 仅将具有稳定视觉对应的触觉语言转成粗糙度、反射、微纹理、形变和褶皱，不由触觉词自行决定颜色 |
 | Framing Anchors | 摄影构图与前景组织的操作化 | 用部分裁切的空间元素建立深度与语境 |
 | Aesthetic / Genre Drift Control | 生成实践与本 skill 工作综合 | 抑制与目标媒介或审美意图冲突的高概率视觉模板 |
 
