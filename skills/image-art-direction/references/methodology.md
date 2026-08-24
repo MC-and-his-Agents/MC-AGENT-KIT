@@ -20,6 +20,7 @@
 | Contact / Occlusion Geometry | Blocking、遮挡关系与文生图组合性实践的操作化 | 明确接触双方、方向、受力、遮挡顺序和必须保留的边界 |
 | Frame Participation | 摄影构图、cropping 与 blocking 的操作化 | 控制局部主体的画内、画外范围和进入画面的边缘 |
 | Decision Closure by Salience | 本 skill 的工作综合 | 闭合高显著性分支，并把同作用的低显著性选项抽象为共同类别 |
+| Minimum Sufficient Completion | Visual Hierarchy、constraint satisfaction 与本 skill 工作综合 | 只补足画面成立所需的具体性，区分 Completion、Closure 与 Invention |
 | Salience-weighted Specification | Visual Hierarchy 与 Failure-aware Prompting 的综合 | 按视觉显著性和失败风险分配描述密度 |
 | Positive Geometry → Negative Disambiguation | 生成实践中的操作策略 | 先定义正确几何，再排除最可能的错误解释 |
 | Locked / Editable | 参考图编辑实践 | 控制参考图编辑漂移，只重新设计用户允许改变的部分 |
