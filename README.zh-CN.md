@@ -37,7 +37,7 @@ npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skill
 
 `skills/` 子路径隔离了 plugin 内部 skills；`--full-depth` 同时发现扁平 skill 和二级 collection。Claude Code 使用 `--agent claude-code`。按主题批量安装请查看 collection 页面：
 
-- [`creativity`](./skills/creativity/README.md)：视觉创意、静态图像导演与内容制作。
+- [`creativity`](./skills/creativity/README.md)：内容创作。
 - [`dev`](./skills/dev/README.md)：软件开发与工程决策。
 - [`design`](./skills/design/README.md)：产品、交互与界面设计。
 

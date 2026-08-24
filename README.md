@@ -37,7 +37,7 @@ npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skill
 
 The `skills/` subpath excludes plugin-internal skills; `--full-depth` discovers both flat skills and two-level collections. Use `--agent claude-code` for Claude Code. See the collection pages for theme-specific batch commands:
 
-- [`creativity`](./skills/creativity/README.md) — visual creativity, static-image direction, and content production.
+- [`creativity`](./skills/creativity/README.md) — content creation.
 - [`dev`](./skills/dev/README.md) — software development and engineering decisions.
 - [`design`](./skills/design/README.md) — product, interaction and interface design.
 
