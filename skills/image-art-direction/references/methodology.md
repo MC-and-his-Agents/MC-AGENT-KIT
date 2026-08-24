@@ -6,6 +6,8 @@
 
 ## 概念来源映射
 
+表中标为“本 skill 工作综合”的名称是对成熟视觉实践与生成行为的操作化，不代表已有同名独立理论。
+
 | Skill 概念 | 主要领域依据 | 在本 Skill 中的操作化 |
 |---|---|---|
 | Mise-en-scène | 电影研究与电影制作 | 把人物、造型、道具、空间、色彩和灯光组织为同一个视觉世界 |
@@ -14,8 +16,19 @@
 | Figure–Ground / Visual Hierarchy | 视觉感知与设计 | 区分主视觉、支撑信息和环境语境 |
 | Material Definition | 摄影布光与表面反射 | 根据黑色、金属、玻璃、织物、皮肤等不同表面选择光线与描述 |
 | Attribute / Spatial Binding / Numeracy | 文生图组合性研究 | 用“实体 → 属性 → 关系”降低颜色、数量和位置错配 |
-| Causal Coherence / Visibility / Decision Closure | 本 skill 的工作综合 | 消除视觉结果无原因、关键信息不可见和最终 prompt 仍在 brainstorming 的问题 |
-| Locked / Editable / Failure-aware Prompting | 生成与编辑实践综合 | 控制参考图漂移，并只针对当前构图的主要失败风险加约束 |
+| Causal Coherence | 电影摄影、物理可信度与本 skill 的工作综合 | 为关键视觉结果建立合理原因，同时允许符合媒介的低显著性氛围处理 |
+| Contact / Occlusion Geometry | Blocking、遮挡关系与文生图组合性实践的操作化 | 明确接触双方、方向、受力、遮挡顺序和必须保留的边界 |
+| Frame Participation | 摄影构图、cropping 与 blocking 的操作化 | 控制局部主体的画内、画外范围和进入画面的边缘 |
+| Decision Closure by Salience | 本 skill 的工作综合 | 闭合高显著性分支，并把同作用的低显著性选项抽象为共同类别 |
+| Salience-weighted Specification | Visual Hierarchy 与 Failure-aware Prompting 的综合 | 按视觉显著性和失败风险分配描述密度 |
+| Positive Geometry → Negative Disambiguation | 生成实践中的操作策略 | 先定义正确几何，再排除最可能的错误解释 |
+| Locked / Editable | 参考图编辑实践 | 控制参考图编辑漂移，只重新设计用户允许改变的部分 |
+| Controlled Imperfection | 摄影自然主义、编辑摄影与本 skill 工作综合 | 选择符合媒介和意图的有限不完美，不把结构错误当真实感 |
+| Pose Naturalism | Blocking、人物摄影、人体重心与本 skill 工作综合 | 用重心、支撑、微不对称和关节放松避免模板化摆姿 |
+| Exposure Strategy | 摄影曝光与动态范围控制 | 确定曝光锚点，以及允许 clipping 或暗部下降的区域 |
+| Haptic-to-Visual Translation | 材料外观、摄影布光与本 skill 工作综合 | 将触觉语言转成粗糙度、反射、微纹理、形变和褶皱 |
+| Framing Anchors | 摄影构图与前景组织的操作化 | 用部分裁切的空间元素建立深度与语境 |
+| Aesthetic / Genre Drift Control | 生成实践与本 skill 工作综合 | 抑制与目标媒介或审美意图冲突的高概率视觉模板 |
 
 ## 核心参考
 
