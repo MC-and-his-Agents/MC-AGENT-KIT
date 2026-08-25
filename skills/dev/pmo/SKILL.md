@@ -2,7 +2,7 @@
 name: pmo
 description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # PMO
