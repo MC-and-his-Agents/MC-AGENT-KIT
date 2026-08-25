@@ -10,7 +10,7 @@
 
 ## 唯一 authority contract
 
-`pmo_authority_contract` 是唯一的 PMO 授权事实。它只引用用户来源、仓库与 target 范围、产品/优先级基线、规划与依赖关系写权、Owner 创建/恢复、finding 裁决、merge/closeout、重试/收敛、排除项、独立的 automation 授权，以及 `observed_at`、`expiry`、`invalidation`。合同不授予新权限；authority checkpoint/handoff 只保存 `locator`、`digest`、`revision`、`freshness`、`status` 和合同恢复位置，运行 checkpoint 的最小索引仍按 [automation.md](automation.md) 执行。
+`pmo_authority_contract` 是唯一的 PMO 授权事实，必须有唯一 `contract_locator`、`digest`、`revision`，并与用户来源、仓库和 target 范围、产品/优先级基线、规划与依赖关系写权、Owner 创建/恢复、finding 裁决、merge/closeout、重试/收敛、排除项、独立的 automation 授权，以及 `observed_at`、`expiry`、`invalidation` 交叉绑定。合同不授予新权限；authority checkpoint/handoff 只保存该合同的 `contract_locator`、`digest`、`revision`、`freshness`、`status` 和合同恢复位置，运行 checkpoint 的最小索引仍按 [automation.md](automation.md) 执行。
 
 合同有效且可回读时按原授权恢复；缺失、过期或冲突时只暂停受影响动作并记录 wake condition，不能从历史行为、Issue、Heartbeat、摘要或工具成功反推权限。规划、关系、Owner、finding、merge 和 closeout 仍分别受合同边界约束。
 
@@ -112,7 +112,7 @@ machine_projection:
 
 ## 不可变事件 payload
 
-只有 notification decision 为 `aggregate` 或 `immediate` 且存在 human projection 时，才在投递/展示时附最多三行普通语言摘要，再附不可变 machine payload；`silent` 或 machine-only 事件只记录/传递 machine projection，不生成占位的人类消息。payload 只放发送前已经成立的事实；它是 machine projection 的事件部分，不是 human projection：
+只有 notification decision 为 `aggregate` 或 `immediate` 且存在 human projection 时，默认人类消息才附最多三行普通中文摘要和按需展开的 evidence locator；完整 machine payload 只进入机器/控制通道，不追加到默认人类消息。`silent` 或 machine-only 事件只记录/传递 machine projection，不生成占位的人类消息。payload 只放发送前已经成立的事实；它是 machine projection 的事件部分，不是 human projection：
 
 ```text
 orchestration_event_payload:

@@ -84,6 +84,8 @@ PMO 可以提出建议，但不能把建议伪装成用户批准，也不能把�
 pmo_authority_contract:
   version: <合同 schema 版本>
   revision: <单调 scope revision>
+  contract_locator: <唯一合同 locator>
+  digest: <合同内容摘要>
   user_source_locator: <用户授权来源 locator>
   repo_locator: <唯一仓库>
   target_ref: <目标 ref/head 范围>
@@ -102,7 +104,7 @@ pmo_authority_contract:
   invalidation: <失效条件>
 ```
 
-authority contract 的 checkpoint 与 handoff 只保存 `locator`、`digest`、`revision`、`freshness`、`status` 及必要的合同恢复位置；PMO 自身的运行 checkpoint 仍按 [automation.md](references/automation.md) 保留最小恢复索引，不复制授权事实。合同有效且可回读时恢复继续；缺失、过期或冲突时只暂停受影响动作并保留 wake condition，绝不从历史行为推断权限。任何新产品含义、优先级、重大风险/成本、权限/数据边界或不可逆外部结果仍须用户决定。
+`contract_locator`、`digest`、`revision` 必须与 `repo_locator`、`target_ref`、`user_source_locator`、权限范围、`expiry` 和 `invalidation` 绑定并可交叉核验。authority contract 的 checkpoint 与 handoff 只保存该合同的 `contract_locator`、`digest`、`revision`、`freshness`、`status` 及必要的合同恢复位置；PMO 自身的运行 checkpoint 仍按 [automation.md](references/automation.md) 保留最小恢复索引，不复制授权事实。合同有效且可回读时恢复继续；缺失、过期或冲突时只暂停受影响动作并保留 wake condition，绝不从历史行为推断权限。任何新产品含义、优先级、重大风险/成本、权限/数据边界或不可逆外部结果仍须用户决定。
 
 ## 控制结论
 

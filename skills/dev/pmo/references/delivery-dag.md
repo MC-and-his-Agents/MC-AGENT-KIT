@@ -141,14 +141,14 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 `critical_path_width` 只计无冲突、可实际实施的路径；review、readiness、占槽或计划数不计实现宽度。
 
-当目标未完成、容量大于 1、宽度连续两个事实稳定周期为 1 时，当轮必须执行至少一项：
+当目标未完成、容量大于 1 且宽度为 1 时，只有在没有产品/使能进展，或不可并行证明因新事实、TTL、sentinel 失效时，才在当轮执行至少一项：
 
 - 重分类没有安全开始证明的 hard dependency；
 - admission 独立 carrier 的首个消费者薄切片；
 - 将共享 carrier 合为一个 tight batch，释放其他路径；
 - 为每个候选留下具体不可并行证据和 wake condition。
 
-“已审计”“同 milestone”“单一收敛 lane”或一般谨慎不算 fan-out 动作。没有真实 execution-ready 单元时不创建空 Owner。
+“已审计”“同 milestone”“单一收敛 lane”或一般谨慎不算 fan-out 动作；并行证明仍新鲜时直接复用，不重复审计。没有真实 execution-ready 单元时不创建空 Owner。
 
 当目标未完成且宽度为 0、admission 也为 0 时，先执行 Remaining-gap classification。存在任何
 `owner_actionable` 差距即执行 shaping/Owner 恢复；只有全部差距都由逐项 external/user/task 证据覆盖时才可保持 width=0。

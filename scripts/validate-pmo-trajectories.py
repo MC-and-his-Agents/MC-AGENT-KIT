@@ -57,6 +57,44 @@ PROOF_FIELDS = (
 )
 AUDIT_PATHS = {"Fast", "Affected-slice", "Deep Audit"}
 FULL_AUDIT_MARKERS = {"full_dag", "full_handoff", "all_owner_runtime", "repository_wide"}
+FAST_CHANGE_VECTOR_FIELDS = frozenset(
+    {
+        "new_events",
+        "source_revision_changed",
+        "generation_changed",
+        "pending_receipts",
+        "due_sentinel",
+        "semantic_delta",
+        "truth_invalidated",
+        "runtime_invalidated",
+        "skill_invalidated",
+        "evidence_expired",
+        "cursor_gap",
+    }
+)
+FAST_ACTIONS = {"cursor_check", "cache_reuse", "cas_read", "proof_reuse", "dedupe_event"}
+LOCATOR_SENTINELS = {"", "none", "null", "missing", "unknown", "n/a", "na", "tbd"}
+AUTHORITY_REQUIRED = {
+    "contract_locator",
+    "digest",
+    "revision",
+    "user_source_locator",
+    "repo_locator",
+    "target_ref",
+    "permission_scope",
+    "freshness",
+    "observed_at",
+    "expiry",
+    "invalidation",
+}
+AUTHORITY_PERMISSION_KEYS = {
+    "planning_write",
+    "dependency_relation_write",
+    "owner_create_recover",
+    "finding_adjudication",
+    "merge_closeout",
+    "automation",
+}
 MACHINE_FIELDS = {
     "event_key",
     "semantic_revision",
@@ -72,7 +110,7 @@ MACHINE_FIELDS = {
 KNOWN_FACT_KEYS = frozenset(
     """
     active_owner_count admission_pending affected_scope aggregation_state audit_actions audit_path
-    authority authorization authorized_repo authorized_scope candidate_safe_slice canonical_fact
+    authority authorization authorized_repo authorized_scope authority_contract authority_contract_summary candidate_safe_slice canonical_fact
     canonical_fact_id capability_domain capability_status capacity chain change_entity change_vector
     checkpoint_cas checkpoint_identity ci clean_vm clean_vm_verification closed_children closure
     closure_status consumed_at consumer_owner consumer_scope_owns_upstream_seam critical_path_stable_cycles
@@ -108,6 +146,18 @@ KNOWN_FACT_KEYS = frozenset(
 
 def nonempty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def real_locator(value: Any) -> bool:
+    return nonempty(value) and value.strip().lower() not in LOCATOR_SENTINELS
+
+
+def real_evidence(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(real_evidence(item) for item in value.values())
+    if isinstance(value, list):
+        return bool(value) and all(real_evidence(item) for item in value)
+    return real_locator(value)
 
 
 def contains_cjk(value: Any) -> bool:
@@ -239,10 +289,10 @@ def _incident_improvement_errors(facts: dict[str, Any]) -> list[str]:
         if trigger != "repeat_incident" or not isinstance(count, int) or count < 2:
             errors.append("bounded incident improvement requires repeated incidents")
         for key in required_bounded:
-            if not nonempty(improvement.get(key)):
+            if not real_locator(improvement.get(key)):
                 errors.append(f"bounded incident improvement missing {key}")
-        if improvement.get("heartbeat_triggered") is True:
-            errors.append("Heartbeat cannot trigger incident improvement")
+        if improvement.get("heartbeat_triggered") is not False:
+            errors.append("bounded incident improvement requires heartbeat_triggered=false")
     elif status == "not_triggered":
         if trigger not in {"single_incident", "heartbeat", "ordinary_event"} or count != 1:
             errors.append("not-triggered incident improvement must remain single and low-frequency")
@@ -260,9 +310,22 @@ def _audit_errors(facts: dict[str, Any]) -> list[str]:
     if path not in AUDIT_PATHS:
         return ["change_vector cases require audit_path"]
     actions = facts.get("audit_actions", [])
-    if not isinstance(actions, list) or not all(nonempty(item) for item in actions):
-        return ["audit_actions must be a list of action names"]
+    if not isinstance(actions, list) or not actions or not all(nonempty(item) for item in actions):
+        return ["audit_actions must be a non-empty list of action names"]
     errors: list[str] = []
+    if path == "Fast":
+        if set(change_vector) != FAST_CHANGE_VECTOR_FIELDS:
+            missing = sorted(FAST_CHANGE_VECTOR_FIELDS - set(change_vector))
+            extra = sorted(set(change_vector) - FAST_CHANGE_VECTOR_FIELDS)
+            errors.append(f"Fast change_vector must be complete (missing={missing}, extra={extra})")
+        if any(item not in FAST_ACTIONS for item in actions):
+            errors.append("Fast audit_actions must stay within the light-action allowlist")
+        cache = facts.get("evidence_cache")
+        cache_fresh = cache == "fresh" or (isinstance(cache, dict) and cache.get("status") == "fresh")
+        if not cache_fresh:
+            errors.append("Fast requires a fresh evidence cache")
+        if facts.get("checkpoint_identity") != "verified":
+            errors.append("Fast requires a verified checkpoint identity")
     empty = all(value in (False, 0, None, "", "none") for value in change_vector.values())
     if empty:
         if path != "Fast":
@@ -315,6 +378,146 @@ def _width_errors(facts: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _authority_contract_errors(facts: dict[str, Any]) -> list[str]:
+    contract = facts.get("authority_contract")
+    if contract is None:
+        return []
+    if not isinstance(contract, dict):
+        return ["authority_contract must be an object"]
+    errors = [f"authority_contract missing {key}" for key in sorted(AUTHORITY_REQUIRED - set(contract))]
+    for key in ("contract_locator", "digest", "user_source_locator", "repo_locator", "target_ref", "invalidation"):
+        if key in contract and not real_locator(contract.get(key)):
+            errors.append(f"authority_contract {key} must be a real locator or statement")
+    revision = contract.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        errors.append("authority_contract revision must be positive")
+    if contract.get("repo_locator") and "MC-AGENT-KIT" not in contract["repo_locator"]:
+        errors.append("authority_contract repo_locator crosses repository boundary")
+    target = contract.get("target_ref")
+    if target and not (target.startswith("origin/main@") or target.startswith("main@")):
+        errors.append("authority_contract target_ref must identify this repository main target")
+    if contract.get("user_source_locator") and not (
+        contract["user_source_locator"].startswith("github:") or contract["user_source_locator"].startswith("issue:")
+    ):
+        errors.append("authority_contract user_source_locator must identify the user source")
+    scope = contract.get("permission_scope")
+    if not isinstance(scope, dict):
+        errors.append("authority_contract permission_scope must be an object")
+    else:
+        missing = sorted(AUTHORITY_PERMISSION_KEYS - set(scope))
+        if missing:
+            errors.append(f"authority_contract permission_scope missing {missing}")
+        if any(not real_locator(value) for value in scope.values()):
+            errors.append("authority_contract permission_scope entries must be explicit")
+    if contract.get("freshness") != "fresh":
+        errors.append("authority_contract freshness must be fresh")
+    if not is_iso(contract.get("observed_at")):
+        errors.append("authority_contract observed_at must be ISO-8601")
+    if freshness(contract.get("expiry")) != "fresh":
+        errors.append("authority_contract expiry is not fresh")
+    summary = facts.get("authority_contract_summary")
+    if not isinstance(summary, dict):
+        errors.append("authority_contract summary is missing")
+    else:
+        for key in ("contract_locator", "digest", "revision"):
+            if summary.get(key) != contract.get(key):
+                errors.append(f"authority_contract summary conflicts on {key}")
+    return errors
+
+
+def _require_incident_fields(facts: dict[str, Any], keys: tuple[str, ...], errors: list[str]) -> None:
+    for key in keys:
+        if not real_evidence(facts.get(key)):
+            errors.append(f"incident {facts.get('incident_family')}/{facts.get('matrix_path')} missing fact {key}")
+
+
+def _incident_fact_errors(facts: dict[str, Any]) -> list[str]:
+    family = facts.get("incident_family")
+    path = facts.get("matrix_path")
+    if family not in INCIDENT_FAMILIES or path not in MATRIX_PATHS:
+        return []
+    errors: list[str] = []
+    _require_incident_fields(facts, ("product_goal",), errors)
+    if path == "advance":
+        if family == "desktop-asar-pnpm":
+            _require_incident_fields(facts, ("reproduced_failure", "current_fix", "evidence"), errors)
+            if facts.get("dmg_build") != "ready" or facts.get("clean_vm") != "ready" or not real_evidence(facts.get("authority")):
+                errors.append("Desktop closeout requires ready DMG, Clean VM and authority facts")
+        elif family == "release-acceptance-gating":
+            pre = facts.get("pre_increment")
+            if not isinstance(pre, dict) or pre.get("safe_to_start") is not True or not real_evidence(pre.get("contract")):
+                errors.append("release advance requires a safe, contracted pre-increment")
+            if facts.get("shared_carrier") != "available" or facts.get("authority") != "authorized":
+                errors.append("release advance requires shared carrier and authority")
+        elif family == "activity-without-product-progress":
+            if not isinstance(facts.get("engineering_activity"), dict) or not real_evidence(facts.get("shortest_product_validation")):
+                errors.append("activity advance requires observed activity and shortest product validation")
+        elif family == "heartbeat-recovery":
+            if not isinstance(facts.get("change_vector"), dict) or not real_evidence(facts.get("affected_scope")) or not real_evidence(facts.get("recovery_evidence")):
+                errors.append("Heartbeat advance requires changed scope and recovery evidence")
+        elif family == "human-communication":
+            canonical = facts.get("canonical_fact")
+            if not isinstance(canonical, dict) or not real_locator(canonical.get("event_key")) or not real_locator(canonical.get("evidence_locator")):
+                errors.append("human advance requires canonical event and evidence")
+            if facts.get("human_projection") != "required" or not real_evidence(facts.get("human_summary")):
+                errors.append("human advance requires a product summary projection")
+        elif family == "autonomous-closeout":
+            _require_incident_fields(facts, ("review", "target_head", "evidence"), errors)
+            if facts.get("authorization") != "confirmed" or facts.get("ci") != "passed" or facts.get("merge_gate") != "satisfied":
+                errors.append("autonomous closeout requires authorization, CI and merge gate facts")
+    elif path == "wait":
+        if family == "desktop-asar-pnpm":
+            if not real_evidence(facts.get("current_path_evidence")) or not isinstance(facts.get("clean_vm_verification"), dict) or facts.get("dmg_build") != "ready":
+                errors.append("Desktop wait requires current-path and Clean VM evidence")
+        elif family == "release-acceptance-gating":
+            pre = facts.get("pre_increment")
+            if not isinstance(pre, dict) or pre.get("safe_to_start") is not False or not real_evidence(pre.get("evidence")):
+                errors.append("release wait requires a blocked pre-increment with evidence")
+        elif family == "activity-without-product-progress":
+            if not isinstance(facts.get("engineering_activity"), dict) or not isinstance(facts.get("external_gate"), dict) or facts.get("internal_successor") != "none":
+                errors.append("activity wait requires external gate and no internal successor")
+        elif family == "heartbeat-recovery":
+            if not isinstance(facts.get("change_vector"), dict) or facts.get("safe_path") != "none":
+                errors.append("Heartbeat wait requires an empty change vector and no safe path")
+        elif family == "human-communication":
+            if not isinstance(facts.get("canonical_fact"), dict) or facts.get("human_projection") != "not_required" or facts.get("notification") != "none":
+                errors.append("human wait requires canonical fact and silent notification")
+        elif family == "autonomous-closeout":
+            _require_incident_fields(facts, ("review", "target_head"), errors)
+            if facts.get("ci") != "failed" or facts.get("merge_gate") != "blocked":
+                errors.append("autonomous wait requires failed CI and blocked merge gate")
+    elif path == "defer":
+        if family == "desktop-asar-pnpm" and not real_evidence(facts.get("deferred_carrier")):
+            errors.append("Desktop defer requires a deferred carrier")
+        elif family == "release-acceptance-gating":
+            pre = facts.get("pre_increment")
+            if not isinstance(pre, dict) or pre.get("safe_to_start") is not True or not real_evidence(facts.get("deferred_carrier")):
+                errors.append("release defer requires a safe pre-increment and carrier")
+        elif family == "activity-without-product-progress":
+            if not isinstance(facts.get("engineering_activity"), dict) or not real_evidence(facts.get("deferred_carrier")):
+                errors.append("activity defer requires observed activity and carrier")
+        elif family == "heartbeat-recovery":
+            vector = facts.get("change_vector")
+            if not isinstance(vector, dict) or facts.get("receipt") != "already-consumed" or vector.get("retry") is not True or vector.get("semantic_delta") is not False:
+                errors.append("Heartbeat defer requires consumed receipt and a no-delta retry")
+        elif family == "human-communication":
+            if not isinstance(facts.get("canonical_fact"), dict) or facts.get("human_projection") != "machine-only" or not real_evidence(facts.get("deferred_detail")):
+                errors.append("human defer requires canonical machine-only detail")
+        elif family == "autonomous-closeout":
+            if not isinstance(facts.get("finding"), dict) or not real_evidence(facts.get("review")) or not real_evidence(facts.get("target_head")):
+                errors.append("autonomous defer requires review, target and finding facts")
+    elif path == "escalate":
+        if not _decision_fields(facts):
+            errors.append("incident escalation requires a structured user decision")
+        if family == "human-communication" and (not isinstance(facts.get("canonical_fact"), dict) or facts.get("human_projection") != "immediate"):
+            errors.append("human escalation requires canonical immediate projection")
+        if family == "autonomous-closeout" and not all(real_evidence(facts.get(key)) for key in ("review", "target_head")):
+            errors.append("autonomous escalation requires review and target facts")
+        if family == "heartbeat-recovery" and (not isinstance(facts.get("change_vector"), dict) or not real_evidence(facts.get("affected_scope"))):
+            errors.append("Heartbeat escalation requires affected scope and change vector")
+    return errors
+
+
 def _projection_errors(facts: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     canonical = facts.get("canonical_fact")
@@ -339,10 +542,23 @@ def _projection_errors(facts: dict[str, Any]) -> list[str]:
             errors.append("human projection requires a plain Chinese summary")
         elif any(field in summary for field in MACHINE_FIELDS):
             errors.append("default human projection leaks machine payload")
+        canonical_identity = nonempty(facts.get("canonical_fact_id")) or (
+            isinstance(canonical, dict) and real_locator(canonical.get("event_key"))
+        )
+        canonical_evidence = canonical.get("evidence_locator") if isinstance(canonical, dict) else None
+        source = facts.get("source_locator") or canonical_evidence
+        effect = facts.get("product_effect") or (canonical.get("product_effect") if isinstance(canonical, dict) else None)
+        if not canonical_identity or not real_locator(source):
+            errors.append("human projection must attach to a canonical event/fact and evidence locator")
+        if not real_evidence(effect) or str(effect).strip().lower() in {"unchanged", "no_change", "none"}:
+            errors.append("human projection requires a product semantic change")
     if human_projection == "same canonical source" and not isinstance(canonical, dict):
         errors.append("machine projection must point to the canonical fact")
-    if facts.get("human_default") and not contains_cjk(facts["human_default"]):
-        errors.append("human_default must use plain Chinese")
+    if facts.get("human_default"):
+        if not contains_cjk(facts["human_default"]):
+            errors.append("human_default must use plain Chinese")
+        if human_projection not in {"required", "present", "immediate"}:
+            errors.append("human_default must be attached to a canonical human projection")
     if facts.get("user_requested_detail") is False and isinstance(facts.get("technical_sources"), list) and facts.get("human_default"):
         if any(field in facts["human_default"] for field in {"checkpoint", "DAG", "Skill", "receipt"}):
             errors.append("technical machine sources must stay out of the default summary")
@@ -517,6 +733,7 @@ def validate_case(case: dict[str, Any]) -> list[str]:
         errors.append("unknown matrix_path")
     if family is not None:
         errors.extend(_incident_improvement_errors(facts))
+        errors.extend(_incident_fact_errors(facts))
     if path == "wait" or isinstance(facts.get("waiting_proof"), dict):
         errors.extend(waiting_proof_errors(facts.get("waiting_proof"), require_fresh=path == "wait"))
         if path == "wait" and _surface_open(facts):
@@ -524,6 +741,7 @@ def validate_case(case: dict[str, Any]) -> list[str]:
     errors.extend(_audit_errors(facts))
     errors.extend(_width_errors(facts))
     errors.extend(_projection_errors(facts))
+    errors.extend(_authority_contract_errors(facts))
     derived = derive_verdict(facts)
     if derived is None:
         errors.append("facts do not form a supported policy result")
@@ -537,6 +755,7 @@ def validate_document(cases: list[dict[str, Any]]) -> list[str]:
     ids: set[str] = set()
     matrix: set[tuple[str, str]] = set()
     bounded_improvements: dict[str, int] = {}
+    authority_locators: list[str] = []
     legacy = 0
     for index, case in enumerate(cases, 1):
         line = case.get("_line", index)
@@ -553,6 +772,9 @@ def validate_document(cases: list[dict[str, Any]]) -> list[str]:
             if facts.get("incident_family") and isinstance(improvement, dict) and improvement.get("status") == "bounded_revision":
                 family = facts.get("incident_family")
                 bounded_improvements[family] = bounded_improvements.get(family, 0) + 1
+            contract = facts.get("authority_contract")
+            if isinstance(contract, dict):
+                authority_locators.append(contract.get("contract_locator"))
         if isinstance(facts, dict) and facts.get("incident_family"):
             pair = (facts.get("incident_family"), facts.get("matrix_path"))
             if pair in matrix:
@@ -573,6 +795,12 @@ def validate_document(cases: list[dict[str, Any]]) -> list[str]:
     for family, count in sorted(bounded_improvements.items()):
         if count > 1:
             failures.append(f"incident improvement: {family} has more than one bounded revision")
+    if len(authority_locators) != 1:
+        failures.append(f"authority contract: expected exactly one contract, found {len(authority_locators)}")
+    elif not real_locator(authority_locators[0]):
+        failures.append("authority contract: contract_locator must be a real unique locator")
+    elif len(set(authority_locators)) != len(authority_locators):
+        failures.append("authority contract: contract_locator must be unique")
     return failures
 
 
@@ -634,6 +862,68 @@ def self_test(path: Path) -> list[str]:
     width = _find(width_loop, lambda facts: facts.get("critical_path_width") == 1)
     width["facts"]["width_health"].update(parallel_proof="fresh", audit_count=2)
     rejects("healthy width=1 repeated audit", width_loop, "repeatedly audited")
+
+    detached_summary = copy.deepcopy(cases)
+    summary_case = _find(detached_summary, lambda facts: facts.get("human_default"))
+    for key in ("canonical_fact_id", "source_locator", "evidence", "product_effect", "human_projection", "human_summary", "projection_sources"):
+        summary_case["facts"].pop(key, None)
+    rejects("human summary without canonical fact", detached_summary, "human_default must be attached")
+
+    for key in ("product_goal", "reproduced_failure", "current_fix", "evidence"):
+        candidate = copy.deepcopy(cases)
+        _find(candidate, lambda facts: facts.get("incident_family") == "desktop-asar-pnpm" and facts.get("matrix_path") == "advance")["facts"].pop(key)
+        rejects(f"Desktop closeout missing {key}", candidate, "missing fact")
+
+    for key in ("review", "target_head", "evidence"):
+        candidate = copy.deepcopy(cases)
+        _find(candidate, lambda facts: facts.get("incident_family") == "autonomous-closeout" and facts.get("matrix_path") == "advance")["facts"].pop(key)
+        rejects(f"autonomous closeout missing {key}", candidate, "missing fact")
+
+    for key in sorted(FAST_CHANGE_VECTOR_FIELDS):
+        candidate = copy.deepcopy(cases)
+        fast_case = _find(candidate, lambda facts: facts.get("audit_path") == "Fast")
+        fast_case["facts"]["change_vector"].pop(key)
+        rejects(f"Fast missing change vector field {key}", candidate, "Fast change_vector must be complete")
+    fast_cache = copy.deepcopy(cases)
+    _find(fast_cache, lambda facts: facts.get("audit_path") == "Fast")["facts"]["evidence_cache"] = "stale"
+    rejects("Fast stale evidence cache", fast_cache, "fresh evidence cache")
+    fast_checkpoint = copy.deepcopy(cases)
+    _find(fast_checkpoint, lambda facts: facts.get("audit_path") == "Fast")["facts"]["checkpoint_identity"] = "unverified"
+    rejects("Fast unverified checkpoint", fast_checkpoint, "verified checkpoint identity")
+    fast_action = copy.deepcopy(cases)
+    _find(fast_action, lambda facts: facts.get("audit_path") == "Fast")["facts"]["audit_actions"] = []
+    rejects("Fast empty light actions", fast_action, "non-empty list")
+
+    bounded_heartbeat = copy.deepcopy(cases)
+    bounded = _find(bounded_heartbeat, lambda facts: isinstance(facts.get("incident_improvement"), dict) and facts["incident_improvement"].get("status") == "bounded_revision")
+    bounded["facts"]["incident_improvement"]["heartbeat_triggered"] = None
+    rejects("bounded improvement heartbeat trigger", bounded_heartbeat, "heartbeat_triggered=false")
+    bounded_locator = copy.deepcopy(cases)
+    bounded = _find(bounded_locator, lambda facts: isinstance(facts.get("incident_improvement"), dict) and facts["incident_improvement"].get("status") == "bounded_revision")
+    bounded["facts"]["incident_improvement"]["root_cause_revision"] = "none"
+    rejects("bounded improvement sentinel locator", bounded_locator, "missing root_cause_revision")
+
+    authority_missing = copy.deepcopy(cases)
+    authority_case = _find(authority_missing, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_case["facts"]["authority_contract"].pop("digest")
+    rejects("authority contract missing digest", authority_missing, "authority_contract missing digest")
+    authority_conflict = copy.deepcopy(cases)
+    authority_case = _find(authority_conflict, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_case["facts"]["authority_contract_summary"]["revision"] = 99
+    rejects("authority contract summary conflict", authority_conflict, "summary conflicts on revision")
+    authority_repo = copy.deepcopy(cases)
+    authority_case = _find(authority_repo, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_case["facts"]["authority_contract"]["repo_locator"] = "github:other/repository"
+    rejects("authority contract cross repository", authority_repo, "crosses repository boundary")
+    authority_expired = copy.deepcopy(cases)
+    authority_case = _find(authority_expired, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_case["facts"]["authority_contract"]["expiry"] = "past"
+    rejects("authority contract expired", authority_expired, "authority_contract expiry is not fresh")
+    authority_duplicate = copy.deepcopy(cases)
+    authority_case = _find(authority_duplicate, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_duplicate[0]["facts"]["authority_contract"] = copy.deepcopy(authority_case["facts"]["authority_contract"])
+    authority_duplicate[0]["facts"]["authority_contract_summary"] = copy.deepcopy(authority_case["facts"]["authority_contract_summary"])
+    rejects("duplicate authority contract locator", authority_duplicate, "expected exactly one contract")
     return failures
 
 
