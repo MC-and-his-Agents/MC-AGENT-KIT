@@ -7,11 +7,12 @@
 
 | Skill | 版本 | 描述 |
 |---|---:|---|
+| [pmo](./pmo/SKILL.md) | 0.1.0 | 编排同一 GitHub 仓库内多个相互独立的长期 Owner：将 FR 塑形为有界 Work Item，审计和修正 blocked-by，重建交付单元 DAG，维护唯一 Owner、跨 Owner carrier、依赖和并发，并由 Heartbeat 每轮重载本 Skill、核验编排者与 Owner runtime，在 merge、交付完成或 Owner terminal 后重算 successor。 |
 | [tasks-owner](./tasks-owner/SKILL.md) | 0.19.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以首个消费者薄切片、可证明 hard dependency 和有界 review 修复预算统筹有效交付批次，按统一 control loop 消费事件、执行 owner_action、派发 successor 并收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 
 从 Preview / latest source 安装本主题当前全部 skills：
 
 ```bash
-npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill tasks-owner
+npx skills add https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills --full-depth --skill pmo --skill tasks-owner
 ```
 <!-- COLLECTION_MEMBERS_END -->

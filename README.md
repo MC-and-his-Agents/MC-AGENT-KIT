@@ -50,6 +50,7 @@ Each standalone skill owns an independent SemVer in its `SKILL.md` `metadata.ver
 |---|---|---:|---|
 | [image-art-direction](./skills/creativity/image-art-direction/SKILL.md) | creativity | 0.6.3 | 将人物、角色、产品、食物、建筑、室内、电影或纪实场景的静态图像需求转为连贯、可执行、可检视的视觉规格，并按需生成、编辑、评审或定向修订图像。 |
 | [codex-like-app-design](./skills/design/codex-like-app-design/SKILL.md) | design | 0.1.0 | Design, build, adapt, or review dense desktop AI workbenches using source-grounded patterns from Codex Desktop. |
+| [pmo](./skills/dev/pmo/SKILL.md) | dev | 0.1.0 | 编排同一 GitHub 仓库内多个相互独立的长期 Owner：将 FR 塑形为有界 Work Item，审计和修正 blocked-by，重建交付单元 DAG，维护唯一 Owner、跨 Owner carrier、依赖和并发，并由 Heartbeat 每轮重载本 Skill、核验编排者与 Owner runtime，在 merge、交付完成或 Owner terminal 后重算 successor。 |
 | [tasks-owner](./skills/dev/tasks-owner/SKILL.md) | dev | 0.19.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以首个消费者薄切片、可证明 hard dependency 和有界 review 修复预算统筹有效交付批次，按统一 control loop 消费事件、执行 owner_action、派发 successor 并收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 | [skill-release](./skills/skill-release/SKILL.md) | — | 0.4.0 | 检查、预检、发布并配置手动、Tag 或按变更自动发布 Skill 到腾讯 SkillHub 或 ClawHub。 |
 | [write-a-goal](./skills/write-a-goal/SKILL.md) | — | 0.2.0 | 起草、优化或设置符合 OpenAI《Follow a goal》指南的 Codex goal，并为 GitHub Issue 提供创建前草案、更新、修订、补全和校验。 |
