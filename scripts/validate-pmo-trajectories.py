@@ -95,6 +95,7 @@ AUTHORITY_PERMISSION_KEYS = {
     "merge_closeout",
     "automation",
 }
+AUTHORITY_REPO_LOCATOR = "github:MC-and-his-Agents/MC-AGENT-KIT"
 MACHINE_FIELDS = {
     "event_key",
     "semantic_revision",
@@ -150,6 +151,10 @@ def nonempty(value: Any) -> bool:
 
 def real_locator(value: Any) -> bool:
     return nonempty(value) and value.strip().lower() not in LOCATOR_SENTINELS
+
+
+def normalized_identity(value: Any) -> str:
+    return value.strip().rstrip("/").casefold() if nonempty(value) else ""
 
 
 def real_evidence(value: Any) -> bool:
@@ -280,7 +285,7 @@ def _incident_improvement_errors(facts: dict[str, Any]) -> list[str]:
         errors.append("incident_improvement status is invalid")
     if not isinstance(count, int) or isinstance(count, bool) or count < 1:
         errors.append("incident_improvement occurrence_count must be positive")
-    if not nonempty(improvement.get("stable_locator")) or not nonempty(improvement.get("real_impact")):
+    if not real_locator(improvement.get("stable_locator")) or not real_locator(improvement.get("real_impact")):
         errors.append("incident_improvement needs a stable locator and real impact")
     if improvement.get("reporting") != "none":
         errors.append("incident improvement must not create a report")
@@ -391,10 +396,11 @@ def _authority_contract_errors(facts: dict[str, Any]) -> list[str]:
     revision = contract.get("revision")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         errors.append("authority_contract revision must be positive")
-    if contract.get("repo_locator") and "MC-AGENT-KIT" not in contract["repo_locator"]:
+    if contract.get("repo_locator") and normalized_identity(contract["repo_locator"]) != normalized_identity(AUTHORITY_REPO_LOCATOR):
         errors.append("authority_contract repo_locator crosses repository boundary")
     target = contract.get("target_ref")
-    if target and not (target.startswith("origin/main@") or target.startswith("main@")):
+    target_ref, separator, target_head = target.partition("@") if nonempty(target) else ("", "", "")
+    if target and (target_ref not in {"origin/main", "main"} or separator != "@" or not real_locator(target_head)):
         errors.append("authority_contract target_ref must identify this repository main target")
     if contract.get("user_source_locator") and not (
         contract["user_source_locator"].startswith("github:") or contract["user_source_locator"].startswith("issue:")
@@ -542,7 +548,9 @@ def _projection_errors(facts: dict[str, Any]) -> list[str]:
             errors.append("human projection requires a plain Chinese summary")
         elif any(field in summary for field in MACHINE_FIELDS):
             errors.append("default human projection leaks machine payload")
-        canonical_identity = nonempty(facts.get("canonical_fact_id")) or (
+        if "canonical_fact_id" in facts and not real_locator(facts.get("canonical_fact_id")):
+            errors.append("canonical_fact_id must be a real locator")
+        canonical_identity = real_locator(facts.get("canonical_fact_id")) or (
             isinstance(canonical, dict) and real_locator(canonical.get("event_key"))
         )
         canonical_evidence = canonical.get("evidence_locator") if isinstance(canonical, dict) else None
@@ -661,7 +669,7 @@ def derive_verdict(facts: dict[str, Any]) -> str | None:
         return "SHAPE_WORK_ITEMS"
     if any(item.get("classification") == "unclassified" for item in facts.get("remaining_gaps", []) if isinstance(item, dict)):
         return "SHAPE_WORK_ITEMS"
-    if facts.get("canonical_fact_id") or isinstance(facts.get("canonical_fact"), dict):
+    if real_locator(facts.get("canonical_fact_id")) or isinstance(facts.get("canonical_fact"), dict):
         if facts.get("human_projection") in {"present", "required", "immediate"}:
             return "ROUTE_INFO"
     if facts.get("urgent_risk"):
@@ -869,6 +877,11 @@ def self_test(path: Path) -> list[str]:
         summary_case["facts"].pop(key, None)
     rejects("human summary without canonical fact", detached_summary, "human_default must be attached")
 
+    canonical_sentinel = copy.deepcopy(cases)
+    summary_case = _find(canonical_sentinel, lambda facts: facts.get("human_default"))
+    summary_case["facts"]["canonical_fact_id"] = "none"
+    rejects("canonical fact sentinel locator", canonical_sentinel, "canonical_fact_id must be a real locator")
+
     for key in ("product_goal", "reproduced_failure", "current_fix", "evidence"):
         candidate = copy.deepcopy(cases)
         _find(candidate, lambda facts: facts.get("incident_family") == "desktop-asar-pnpm" and facts.get("matrix_path") == "advance")["facts"].pop(key)
@@ -900,8 +913,9 @@ def self_test(path: Path) -> list[str]:
     rejects("bounded improvement heartbeat trigger", bounded_heartbeat, "heartbeat_triggered=false")
     bounded_locator = copy.deepcopy(cases)
     bounded = _find(bounded_locator, lambda facts: isinstance(facts.get("incident_improvement"), dict) and facts["incident_improvement"].get("status") == "bounded_revision")
-    bounded["facts"]["incident_improvement"]["root_cause_revision"] = "none"
-    rejects("bounded improvement sentinel locator", bounded_locator, "missing root_cause_revision")
+    bounded["facts"]["incident_improvement"]["stable_locator"] = "none"
+    bounded["facts"]["incident_improvement"]["real_impact"] = "none"
+    rejects("bounded improvement sentinel locator", bounded_locator, "stable locator and real impact")
 
     authority_missing = copy.deepcopy(cases)
     authority_case = _find(authority_missing, lambda facts: isinstance(facts.get("authority_contract"), dict))
@@ -913,8 +927,12 @@ def self_test(path: Path) -> list[str]:
     rejects("authority contract summary conflict", authority_conflict, "summary conflicts on revision")
     authority_repo = copy.deepcopy(cases)
     authority_case = _find(authority_repo, lambda facts: isinstance(facts.get("authority_contract"), dict))
-    authority_case["facts"]["authority_contract"]["repo_locator"] = "github:other/repository"
+    authority_case["facts"]["authority_contract"]["repo_locator"] = "github:evil/MC-AGENT-KIT-fork"
     rejects("authority contract cross repository", authority_repo, "crosses repository boundary")
+    authority_target = copy.deepcopy(cases)
+    authority_case = _find(authority_target, lambda facts: isinstance(facts.get("authority_contract"), dict))
+    authority_case["facts"]["authority_contract"]["target_ref"] = "github:other/MC-AGENT-KIT@deadbeef"
+    rejects("authority contract cross target", authority_target, "target_ref must identify")
     authority_expired = copy.deepcopy(cases)
     authority_case = _find(authority_expired, lambda facts: isinstance(facts.get("authority_contract"), dict))
     authority_case["facts"]["authority_contract"]["expiry"] = "past"
