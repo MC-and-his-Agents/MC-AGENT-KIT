@@ -30,10 +30,12 @@ Skill 只在被激活、skill_locator 改变、skill_digest 变化或 Skill evid
 | path | entry gate | exit gate |
 |---|---|---|
 | Fast | change vector 为空；没有新 canonical event/source revision/generation/semantic delta/pending receipt/due sentinel；所需 evidence cache 未过期且未命中 invalidation；checkpoint identity 可回读 | 只确认 cursor、cache 和轻量 CAS；发现新变化立即转 Affected-slice 或 Deep |
-| Affected-slice | 有新事件或有限 truth delta；change entity 可解析；closure 可完整、有限计算 | 仅重算闭包内事实、必要 evidence 和 successor；closure complete 且 CAS 成功，否则 Deep |
+| Affected-slice | 有新事件、有限 truth delta 或 due sentinel；change entity 可解析；closure 可完整、有限计算 | 仅重算闭包内事实、必要 evidence 和 successor；closure complete 且 CAS 成功，否则 Deep |
 | Deep Audit | 漏事件/游标断裂、generation 冲突或回退、unknown/incomplete closure、checkpoint/CAS 冲突、truth/skill/runtime evidence 不可信、waiting proof 失效，或安全/权限/数据损失/错误外部结果不确定 | 完整回读受影响事实、纠偏、重建 closure/truth digest/cursor，给 pending receipt disposition，并以 CAS 写入新 checkpoint；下一次无变化才回 Fast |
 
 Fast 不重读完整 DAG、handoff 或全员 runtime/title/pin；Deep 是异常路径，不能成为永久默认。重复唤醒不得重复创建 Owner、派工、写 GitHub 或发送人类通知。
+
+due sentinel 本身是 Affected-slice 入口，不等待查询结果才选路；范围只包含该 waiting proof 的 subject 及其有限闭包。查询结果未变化且 evidence 可验证时，以 checkpoint CAS 刷新 observed_at、expires_at 和 sentinel_due_at，保持 semantic revision 与人类通知不变，下一次空 change vector 才走 Fast。查询发现 mismatch/new fact 时立即使旧 proof 失效并在该闭包内重算；查询不可用、结果 unknown 或闭包不完整时进入 Deep。
 
 ## Affected-slice closure
 
@@ -70,8 +72,8 @@ Fast 不重读完整 DAG、handoff 或全员 runtime/title/pin；Deep 是异常�
 waiting proof 必须绑定 subject identity、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、expires_at、sentinel source 和 sentinel_due_at。缺字段即 proof 无效，不能 KEEP_CURRENT。
 
 - TTL 和 sentinel_due_at 在形成 proof 时按事实波动性与影响确定；不臆测全局固定 TTL/interval。
-- sentinel 只在 due 时查询，不随每次 Heartbeat 重跑。
-- main、merge、Owner、Issue、证据、用户质疑、新 seam/new executable path、TTL 到期或 sentinel 命中都会使旧 proof 失效，并进入 Affected-slice 或 Deep。
+- sentinel 只在 due 时查询，不随每次 Heartbeat 重跑；sentinel_due_at 到期先生成该 proof 范围的 Affected-slice change vector。
+- main、merge、Owner、Issue、证据、用户质疑、新 seam/new executable path 或 TTL 到期都会使旧 proof 失效，并进入 Affected-slice 或 Deep；sentinel 查询命中 mismatch/new fact 时同样失效，查询未变化时只按上条刷新 proof，不增加 semantic revision。
 - proof 只能证明指定 subject 在指定 generation/head 上的等待，不得扩大到整个仓库或其他 Owner lane。
 
 ## Minimal checkpoint and handoff
@@ -99,7 +101,7 @@ PMO 与独立 Owner 的默认 runtime 仍为 gpt-5.6-sol/high、fallback forbidd
 
 ## Heartbeat cycle
 
-1. 直接事件立即触发；周期唤醒先读取 source cursor、pending receipt、invalidation 和 due sentinel，形成 change vector。
+1. 直接事件立即触发；周期唤醒先读取 source cursor、pending receipt、invalidation 和 due sentinel，形成 change vector；sentinel_due_at 到期明确进入该 waiting proof 的 Affected-slice，再执行查询。
 2. 选择 Fast、Affected-slice 或 Deep；按路径只读取其允许的 evidence。
 3. 以 checkpoint CAS 写入 cursor、digest、receipt disposition 和 next actor/action/wake；新变化覆盖旧路径并重新选择。
 4. 只有没有安全可执行动作且所有剩余差距都有有效 waiting proof 时才静默；DONT_NOTIFY 不跳过 verdict 或事实核验。
