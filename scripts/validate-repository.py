@@ -564,6 +564,14 @@ def validate_repository(root: Path, base_ref: str | None = None) -> list[str]:
             "fix structured Tasks Owner trajectory cases",
         )
     )
+    errors.extend(
+        run_check(
+            root,
+            [sys.executable, str(root / "scripts/validate-pmo-trajectories.py")],
+            "pmo-trajectories",
+            "fix structured PMO trajectory cases",
+        )
+    )
     if base_ref:
         changed = set(git_output(root, "diff", "--name-only", base_ref, "--").splitlines())
         errors.extend(
@@ -601,6 +609,15 @@ def main() -> int:
             )
             if result.returncode:
                 errors.append(failure("scripts/validate-tasks-owner-trajectories.py", "trajectory-self-test", result.stdout.strip()))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/validate-pmo-trajectories.py"), "--self-test"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode:
+                errors.append(failure("scripts/validate-pmo-trajectories.py", "trajectory-self-test", result.stdout.strip()))
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         errors = [failure(".", "validator-runtime", f"fix validator input or environment: {exc}")]
     for error in errors:

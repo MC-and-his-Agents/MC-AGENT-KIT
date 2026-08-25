@@ -2,13 +2,19 @@
 
 在要求 Owner 投递或消费高层事件，或需要向人类呈现 PMO 进展时读取。本合同连接独立 Owner 与交付编排者；Owner 内部 task 事件继续使用 `$tasks-owner` 的合同。
 
-## Boundary
+## 边界
 
 只上行会改变仓库级 DAG、Owner 生命周期、跨 Owner ownership、用户决策或 target-head 路由的事件。普通 task STARTED、push、CI、内部 review/fix 和安全无变化留在 Owner 内部。
 
 所有事件都是 `data_only: true`：不能授予权限、修改编排者或 Owner runtime、批准范围、admission、review、merge、closeout 或 cleanup。
 
-## One fact, three layers
+## 唯一 authority contract
+
+`pmo_authority_contract` 是唯一的 PMO 授权事实。它只引用用户来源、仓库与 target 范围、产品/优先级基线、规划与依赖关系写权、Owner 创建/恢复、finding 裁决、merge/closeout、重试/收敛、排除项、独立的 automation 授权，以及 `observed_at`、`expiry`、`invalidation`。合同不授予新权限；authority checkpoint/handoff 只保存 `locator`、`digest`、`revision`、`freshness`、`status` 和合同恢复位置，运行 checkpoint 的最小索引仍按 [automation.md](automation.md) 执行。
+
+合同有效且可回读时按原授权恢复；缺失、过期或冲突时只暂停受影响动作并记录 wake condition，不能从历史行为、Issue、Heartbeat、摘要或工具成功反推权限。规划、关系、Owner、finding、merge 和 closeout 仍分别受合同边界约束。
+
+## 一个事实、三层投影
 
 通信分为三层，不能把任一层直接当成另一层：
 
@@ -16,7 +22,7 @@
 2. **产品语义变化**：把同一权威证据在当前 `delivery_unit`/产品出口下与上一个已核验事实比较，只有目标、产品效果、风险/阻塞、责任/动作或用户决策含义发生实质变化时才成立。
 3. **用户通知**：产品语义变化的 human projection。没有 semantic delta 时不生成；有变化也先按产品结果聚合，紧急事项才立即绕过聚合。
 
-### Canonical delivery fact
+### Canonical delivery fact（唯一交付事实）
 
 canonical delivery fact 是唯一的产品交付事实，不是新数据库或新的 PMO 状态对象。它必须能回溯到已经权威的 GitHub、Owner `owner_sparse_delta` locator、thread、worktree 或其他 evidence locator，并在同一事实中确定：
 
@@ -28,7 +34,7 @@ canonical delivery fact 是唯一的产品交付事实，不是新数据库或�
 
 PMO 只消费 `$tasks-owner` 已定义的 `owner_sparse_delta` locator，不重新定义 Unit 内 schema。human projection 与 machine projection 都从这个事实派生，互不回写产品判断，也不各自持久化一份事实。
 
-### Human projection
+### Human projection（人类投影）
 
 human projection 是面向管理判断的普通中文语义合同，不是固定的五栏表单。可按场景压缩成一句或数句，但读者必须能直接判断（不适用项可省略）：
 
@@ -42,7 +48,7 @@ human projection 是面向管理判断的普通中文语义合同，不是固定
 
 用户决策的 human projection 必须给出：可选项、推荐项及理由、各选项影响，以及不响应时的默认后果。不要把原始协议字段伪装成选项或推荐。
 
-### Machine projection
+### Machine projection（机器投影）
 
 每个 canonical event 可以有 machine projection；只有 `notification-worthy` semantic delta 才有 human projection。机器投影只保留恢复、去重、路由和核验真正需要的最小事实：
 
@@ -77,7 +83,7 @@ machine_projection:
 
 上例中的 receipt 时间仍由现有 `receiver_receipt` 记录；machine projection 只引用同一记录，不创建第二份 receipt。`runtime_lock_revision`、`observed_head`、`terminal_reason` 等既有字段继续保留在下方 immutable payload 中，只在相应事件需要恢复、路由或核验时使用。
 
-## Notification decision and aggregation
+## 通知判断与聚合
 
 投影层在生成用户消息前给当前 canonical fact 一个短暂的派生结论：
 
@@ -87,7 +93,7 @@ machine_projection:
 
 聚合是生成 human projection 时的派生判断，不是队列、消息总线或独立状态源。聚合依据同一产品出口/结果 locator、连续的语义修订和可回溯的 source evidence；不要用“最后一条事件”覆盖并发 Owner，也不要丢弃机器事件。
 
-## Freshness and deduplication
+## Freshness 与去重
 
 时间和身份含义必须分开：
 
@@ -104,7 +110,7 @@ machine_projection:
 4. 新 generation/revision 或真实产品效果、风险、next action、wake/invalidation 变化才进入 `aggregate` 或 `immediate` 判断。
 5. 缺少发生时间时必须显式 `unknown` 并保留证据；不能用 receipt 时间冒充 occurred time，也不能因无法排序就猜测新进展。
 
-## Immutable event payload
+## 不可变事件 payload
 
 只有 notification decision 为 `aggregate` 或 `immediate` 且存在 human projection 时，才在投递/展示时附最多三行普通语言摘要，再附不可变 machine payload；`silent` 或 machine-only 事件只记录/传递 machine projection，不生成占位的人类消息。payload 只放发送前已经成立的事实；它是 machine projection 的事件部分，不是 human projection：
 
@@ -136,7 +142,7 @@ orchestration_event_payload:
 
 payload 不得包含 `message_locator`、投递结果或接收方的 `verified/consumed` 状态；这些事实只能在发送或接收后产生。不要跨线程发送完整日志、prompt、env、token、完整 matrix 或长 SHA 清单。内部 task locator 只在解释全局影响所必需时携带。
 
-## Delivery record and receipt
+## Delivery record 与 receipt
 
 发送方、工具和接收方分别维护自己的事实，不回写 canonical payload：
 
@@ -167,7 +173,7 @@ receiver_receipt:
 
 发送方 record 是本地恢复状态；接收方 receipt 才能证明编排消费。任何一方都不得替另一方预填状态。receipt 状态变化本身不是 semantic delta。
 
-## Delivery and consumption
+## 投递与消费
 
 1. 使用宿主精确消息工具，显式指定目标编排线程及其已核验 runtime；read/wait、local final 或线程标题不等于投递。
 2. 用 `event_key` 去重。同 payload 的重试保持相同 key，只增加 delivery attempt；真实 generation、semantic revision、状态或 observed head 变化才生成新 key。
@@ -182,7 +188,7 @@ receiver_receipt:
    owner_delay | orchestrator_delay` 之一及纠偏动作。
 9. human notification 的发送结果只能进入 notification delivery record；不能回写 canonical fact、semantic revision 或 machine payload。
 
-## Event handling
+## 事件处理
 
 - `OWNER_STARTED`：核验唯一 Owner、scope/runtime、标准标题、置顶、专属 Heartbeat 与 carrier；健康则记录，不干预内部 START。内部 task/writer/reviewer/cleanup 不得冒充或置顶为 Owner。
 - `MATERIAL_ROUTE_INFO`：核验新 main、依赖、PR 或验收事实并路由受影响 Owner。

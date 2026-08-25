@@ -1,16 +1,16 @@
-# Delivery-unit DAG
+# 交付单元 DAG
 
 在塑形 Work Item，或同步依赖、Owner 归属、ready wave、fan-out、跨 Owner 冲突时读取。
 
-## Contents
+## 内容
 
-- Graph model
-- FR coverage and Work Item shaping
-- Rebuild procedure and dependency maintenance
-- Conflict, cycle, and fan-out handling
-- Increment, completion, and terminal
+- 图模型
+- FR 覆盖与 Work Item 塑形
+- 重建流程与依赖维护
+- 冲突、环与 fan-out 处理
+- 增量、完成与 terminal
 
-## Graph model
+## 图模型
 
 本图只覆盖 checkpoint 中 `repo_locator` 指定的单一仓库；跨仓库依赖不由本 Skill 编排。用最小恢复索引描述每个交付单元：
 
@@ -39,7 +39,7 @@ delivery_unit:
 
 不要在 DAG 中复制完整 Issue、日志、合同、prompt 或任务内部状态。GitHub/项目规划事实和实时线程状态始终是权威来源；checkpoint/handoff 只能索引这些事实。`pmo_admission_contract`、`owner_sparse_delta`、`convergence_chain` 和 `next_unlock` 只存 locator/短状态；Unit 内字段细节以 `$tasks-owner` 的 contracts/scope-integrity 为唯一来源。
 
-## FR coverage and Work Item shaping
+## FR 覆盖与 Work Item 塑形
 
 在创建 Owner 前，先审计用户委任范围内的 FR 验收是否由有界 Work Item 承载：
 
@@ -84,7 +84,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 模式选择只描述执行拓扑，不改变全局容量、不授予额外权限，也不要求实际并发宽度大于 execution-ready、无冲突单元数。
 
-## Rebuild procedure
+## 重建流程
 
 1. 回读唯一仓库范围内所有 milestone/FR/Issue、parent/sub-issue/blocked-by、PR 与 `target_ref`/`verified_head`，并记录每个必需来源的 `truth_status`。
 2. 回读活动 Owner 的真实 thread/runtime/status、其声明的 delivery unit、写入 carrier、下一动作和专属 Heartbeat。
@@ -101,7 +101,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 若 truth 为 `partial`，只重算完全落在 verified slice 内的节点和边；若为 `unavailable`，保留上次状态作为历史索引但不得据此创建 Owner、重分类依赖、转移 carrier 或声明完成。记录缺失 locator 与 wake condition，其他已核验 lane 继续。
 
-## Dependency maintenance
+## 依赖维护
 
 每轮都对原生 parent/sub-issue/blocked-by 与实际 DAG 做差异审计：
 
@@ -112,7 +112,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 - 关闭上游、重复边、依赖环、未来完备性阻塞当前首切或关系与 Owner/carrier 归属不一致时，判为 `CORRECT_DRIFT` 并重算 ready wave。
 - 只有 `dependency_relation_writes` 已授权且 truth 已核验时才修改 GitHub 原生关系；否则输出 exact add/remove/reclassify 草案。关系修订不能顺带改写 FR/Work Item 的产品范围、优先级或验收。
 
-## Uniqueness and conflict audit
+## 唯一性与冲突审计
 
 把以下情况判为 drift：
 
@@ -125,7 +125,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 发现冲突时只暂停冲突 carrier，保留并路由已有成果；不停止无冲突路径。用稳定 `task_key + scope revision` 去重，不按线程标题或最新摘要去重。
 
-## Cycle handling
+## 环处理
 
 对每条环记录 `A requires B` 的具体产物、Owner 和证据。优先依次处理：
 
@@ -137,7 +137,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 不要通过新增通用基础设施或伪造 accepted/real 事实打破环。
 
-## Critical path and fan-out
+## 关键路径与 fan-out
 
 `critical_path_width` 只计无冲突、可实际实施的路径；review、readiness、占槽或计划数不计实现宽度。
 
@@ -153,7 +153,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 当目标未完成且宽度为 0、admission 也为 0 时，先执行 Remaining-gap classification。存在任何
 `owner_actionable` 差距即执行 shaping/Owner 恢复；只有全部差距都由逐项 external/user/task 证据覆盖时才可保持 width=0。
 
-## Increment, completion, and terminal
+## 增量、完成与 terminal
 
 三类事实必须分开处理：
 
