@@ -2,6 +2,18 @@
 
 在创建、唤醒、恢复、去重或关闭独立 Owner 时读取。Owner 的内部执行始终交给 `$tasks-owner`。
 
+## `tasks-owner` 依赖门禁
+
+首次执行 Owner 生命周期动作前，必须先完成主 Skill 的依赖检查：
+
+1. 从当前可用 Skill 清单发现名称精确为 `tasks-owner` 的 Skill；
+2. 读取其当前 `SKILL.md` 和所引用的合同，确认 PMO admission、Owner sparse delta、单 Owner 执行、有界 finding 修复及 PR/merge/closeout 语义兼容；
+3. 缺失或不兼容时停止本节全部写入与生命周期动作，回到仅分析模式；
+4. 只有当前请求确实需要执行时才询问安装或更新，且必须取得用户明确同意；
+5. 安装或更新后重新执行前两项，兼容性通过前不得创建、唤醒、恢复或接管 Owner。
+
+不要复制 `$tasks-owner` 的内部合同，也不要为这项检查建立新的依赖数据库。当前请求和安装状态没有变化时复用检查结论，不在每次 Heartbeat 重复询问。
+
 ## 生命周期状态
 
 ```text
@@ -26,6 +38,7 @@ initializing/active/recovering -> retiring -> terminal
 5. 用户授权覆盖创建/唤醒 Owner；
 6. 编排者 runtime 与创建所需 GitHub/宿主 truth 均已核验；
 7. Owner runtime 使用用户有效 override；没有 override 时显式传入本 Skill 默认 `gpt-5.6-sol/high`，禁止 fallback，随后按当前 `$tasks-owner/references/runtime-and-review-evidence.md` 用目标 turn metadata 核验。
+8. `tasks-owner` 依赖门禁已通过，当前模式为完整模式。
 
 创建后把以下内容交给 Owner：唯一 `repo_locator`、`target_ref`/`verified_head`、scope locator、confirmed authority、相邻 carrier ownership、已验证 hard/soft/convergence 边界、本 Skill 的高层事件合同，以及“内部按当前 `$tasks-owner` 执行”。不要替 Owner 生成 task admission 合同。
 

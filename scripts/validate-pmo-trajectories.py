@@ -108,6 +108,26 @@ MACHINE_FIELDS = {
     "tool",
     "prompt",
 }
+TASKS_OWNER_CAPABILITIES = {
+    "pmo_admission",
+    "owner_sparse_delta",
+    "single_owner_execution",
+    "bounded_finding_fix",
+    "delivery_closeout",
+}
+TASKS_OWNER_DEPENDENCY_FIELDS = {
+    "status",
+    "execution_required",
+    "mode",
+    "user_decision",
+    "install_attempted",
+    "install_target",
+    "prompt_count",
+    "compatibility_evidence",
+    "observed_version",
+    "capabilities",
+    "rechecked_after_install",
+}
 KNOWN_FACT_KEYS = frozenset(
     """
     active_owner_count admission_pending affected_scope aggregation_state audit_actions audit_path
@@ -138,7 +158,7 @@ KNOWN_FACT_KEYS = frozenset(
     requested_change retry_same_event_key review risk runtime_recovery safe_path security_risk semantic_revision semantic_revisions
     sentinel_query shared_carrier shared_carriers shared_product_effect shortest_product_validation
     skill_locator skill_status source_cursor source_locator stale_handoff_claims_ready_unit target_head receipt finding
-    technical_sources terminal_reason theoretical_pnpm_edge title trigger truth_status unaffected_scope
+    tasks_owner_dependency technical_sources terminal_reason theoretical_pnpm_edge title trigger truth_status unaffected_scope
     uncommitted_work urgent_risk user_approval user_challenge user_requested_detail verified_at waiting_proof
     wake_condition width_health writer_started writers_needed
     """.split()
@@ -304,6 +324,77 @@ def _incident_improvement_errors(facts: dict[str, Any]) -> list[str]:
         for key in ("root_cause_revision", "behavior_trajectory", "independent_verification"):
             if improvement.get(key) not in {None, "none"}:
                 errors.append(f"not-triggered incident improvement must not fill {key}")
+    return errors
+
+
+def _tasks_owner_dependency_errors(facts: dict[str, Any]) -> list[str]:
+    dependency = facts.get("tasks_owner_dependency")
+    if dependency is None:
+        return []
+    if not isinstance(dependency, dict):
+        return ["tasks_owner_dependency must be an object"]
+    errors: list[str] = []
+    missing = sorted(TASKS_OWNER_DEPENDENCY_FIELDS - set(dependency))
+    extra = sorted(set(dependency) - TASKS_OWNER_DEPENDENCY_FIELDS)
+    if missing or extra:
+        errors.append(f"tasks_owner_dependency fields mismatch (missing={missing}, extra={extra})")
+        return errors
+
+    status = dependency.get("status")
+    mode = dependency.get("mode")
+    decision = dependency.get("user_decision")
+    execution_required = dependency.get("execution_required")
+    attempted = dependency.get("install_attempted")
+    prompt_count = dependency.get("prompt_count")
+    capabilities = dependency.get("capabilities")
+    rechecked = dependency.get("rechecked_after_install")
+
+    if status not in {"compatible", "missing", "incompatible"}:
+        errors.append("tasks_owner_dependency status is invalid")
+    if mode not in {"full", "analysis_only", "install_pending"}:
+        errors.append("tasks_owner_dependency mode is invalid")
+    if decision not in {"not_needed", "not_asked", "pending", "accepted", "declined"}:
+        errors.append("tasks_owner_dependency user_decision is invalid")
+    if not isinstance(execution_required, bool) or not isinstance(attempted, bool) or not isinstance(rechecked, bool):
+        errors.append("tasks_owner_dependency boolean fields are invalid")
+    if not isinstance(prompt_count, int) or isinstance(prompt_count, bool) or prompt_count not in {0, 1}:
+        errors.append("tasks_owner_dependency prompt_count must be zero or one")
+    if not isinstance(capabilities, list) or not all(nonempty(item) for item in capabilities):
+        errors.append("tasks_owner_dependency capabilities must be a string array")
+        capabilities = []
+    if not real_locator(dependency.get("compatibility_evidence")):
+        errors.append("tasks_owner_dependency needs compatibility evidence")
+
+    if decision in {"pending", "accepted", "declined"}:
+        if prompt_count != 1 or not real_locator(dependency.get("install_target")):
+            errors.append("tasks_owner_dependency install question needs one prompt and a real target")
+    elif prompt_count != 0 or dependency.get("install_target") != "none":
+        errors.append("tasks_owner_dependency must not invent an install prompt")
+    if attempted and decision != "accepted":
+        errors.append("tasks_owner_dependency install requires explicit user consent")
+
+    has_capabilities = TASKS_OWNER_CAPABILITIES <= set(capabilities)
+    if status == "compatible":
+        if mode != "full" or not has_capabilities:
+            errors.append("compatible tasks-owner must enable full mode with required capabilities")
+        if decision == "accepted" and (not attempted or not rechecked):
+            errors.append("accepted tasks-owner installation must be attempted and rechecked")
+        if decision not in {"not_needed", "accepted"}:
+            errors.append("compatible tasks-owner has an invalid user decision")
+    else:
+        if mode == "full" or has_capabilities:
+            errors.append("missing or incompatible tasks-owner cannot enable full mode")
+        if not execution_required:
+            if mode != "analysis_only" or decision != "not_asked":
+                errors.append("analysis-only work must not ask to install tasks-owner")
+        elif decision == "pending" and (mode != "install_pending" or attempted):
+            errors.append("pending tasks-owner install must wait for consent")
+        elif decision == "declined" and (mode != "analysis_only" or attempted):
+            errors.append("declined tasks-owner install must remain analysis-only")
+        elif decision == "accepted" and mode != "install_pending":
+            errors.append("unverified tasks-owner install cannot leave pending mode")
+        elif decision not in {"pending", "declined", "accepted"}:
+            errors.append("execution work without tasks-owner must ask once or remain declined")
     return errors
 
 
@@ -621,6 +712,17 @@ def derive_verdict(facts: dict[str, Any]) -> str | None:
     """Derive a verdict from facts only; expected prose is intentionally unused."""
     if "incident_family" in facts or "matrix_path" in facts:
         return _derive_incident(facts)
+    dependency = facts.get("tasks_owner_dependency")
+    if isinstance(dependency, dict):
+        if (
+            dependency.get("status") == "compatible"
+            and dependency.get("mode") == "full"
+            and dependency.get("execution_required") is True
+            and facts.get("owner") == "none"
+            and facts.get("delivery_unit") == "execution_ready"
+        ):
+            return "CREATE_OR_WAKE_OWNER"
+        return "ROUTE_INFO"
     if isinstance(facts.get("owner_events"), list):
         return "ROUTE_INFO"
     if facts.get("delivery_attempt", {}).get("status") == "failed":
@@ -750,6 +852,7 @@ def validate_case(case: dict[str, Any]) -> list[str]:
     errors.extend(_width_errors(facts))
     errors.extend(_projection_errors(facts))
     errors.extend(_authority_contract_errors(facts))
+    errors.extend(_tasks_owner_dependency_errors(facts))
     derived = derive_verdict(facts)
     if derived is None:
         errors.append("facts do not form a supported policy result")
@@ -791,8 +894,8 @@ def validate_document(cases: list[dict[str, Any]]) -> list[str]:
         else:
             legacy += 1
         failures.extend(f"line {line}: {error}" for error in validate_case(case))
-    if legacy != 41:
-        failures.append(f"coverage: expected 41 legacy product cases, found {legacy}")
+    if legacy != 47:
+        failures.append(f"coverage: expected 47 non-incident product cases, found {legacy}")
     expected_matrix = {(family, path) for family in INCIDENT_FAMILIES for path in MATRIX_PATHS}
     missing = sorted(expected_matrix - matrix)
     extra = sorted(matrix - expected_matrix)
@@ -942,6 +1045,53 @@ def self_test(path: Path) -> list[str]:
     authority_duplicate[0]["facts"]["authority_contract"] = copy.deepcopy(authority_case["facts"]["authority_contract"])
     authority_duplicate[0]["facts"]["authority_contract_summary"] = copy.deepcopy(authority_case["facts"]["authority_contract_summary"])
     rejects("duplicate authority contract locator", authority_duplicate, "expected exactly one contract")
+
+    dependency_install_without_consent = copy.deepcopy(cases)
+    dependency_case = _find(
+        dependency_install_without_consent,
+        lambda facts: isinstance(facts.get("tasks_owner_dependency"), dict)
+        and facts["tasks_owner_dependency"].get("user_decision") == "pending",
+    )
+    dependency_case["facts"]["tasks_owner_dependency"]["install_attempted"] = True
+    rejects("tasks-owner install without consent", dependency_install_without_consent, "requires explicit user consent")
+
+    dependency_analysis_prompt = copy.deepcopy(cases)
+    dependency_case = _find(
+        dependency_analysis_prompt,
+        lambda facts: isinstance(facts.get("tasks_owner_dependency"), dict)
+        and facts["tasks_owner_dependency"].get("execution_required") is False,
+    )
+    dependency_case["facts"]["tasks_owner_dependency"].update(
+        user_decision="pending", mode="install_pending", prompt_count=1, install_target="codex-skill-home:tasks-owner"
+    )
+    rejects("tasks-owner prompt during analysis", dependency_analysis_prompt, "must not ask to install")
+
+    dependency_false_compatibility = copy.deepcopy(cases)
+    dependency_case = _find(
+        dependency_false_compatibility,
+        lambda facts: isinstance(facts.get("tasks_owner_dependency"), dict)
+        and facts["tasks_owner_dependency"].get("status") == "compatible",
+    )
+    dependency_case["facts"]["tasks_owner_dependency"]["capabilities"].remove("delivery_closeout")
+    rejects("tasks-owner version-only compatibility", dependency_false_compatibility, "required capabilities")
+
+    dependency_unchecked_install = copy.deepcopy(cases)
+    dependency_case = _find(
+        dependency_unchecked_install,
+        lambda facts: isinstance(facts.get("tasks_owner_dependency"), dict)
+        and facts["tasks_owner_dependency"].get("user_decision") == "accepted",
+    )
+    dependency_case["facts"]["tasks_owner_dependency"]["rechecked_after_install"] = False
+    rejects("tasks-owner install without recheck", dependency_unchecked_install, "attempted and rechecked")
+
+    dependency_repeated_prompt = copy.deepcopy(cases)
+    dependency_case = _find(
+        dependency_repeated_prompt,
+        lambda facts: isinstance(facts.get("tasks_owner_dependency"), dict)
+        and facts["tasks_owner_dependency"].get("user_decision") == "declined",
+    )
+    dependency_case["facts"]["tasks_owner_dependency"]["prompt_count"] = 2
+    rejects("tasks-owner repeated prompt", dependency_repeated_prompt, "zero or one")
     return failures
 
 
