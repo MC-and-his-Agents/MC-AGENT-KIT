@@ -2,7 +2,7 @@
 name: pmo
 description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
 metadata:
-  version: "0.6.0"
+  version: "0.7.0"
 ---
 
 # PMO
@@ -75,6 +75,36 @@ PMO 可以提出建议，但不能把建议伪装成用户批准，也不能把�
 - Heartbeat、checkpoint 和 handoff：阅读 [automation.md](references/automation.md)。
 
 这些 reference 是协议和 schema 的唯一细节来源；主 Skill 只说明判断与行动，不复制事件、DAG 或 Heartbeat 字段表。
+
+## 可恢复的 PMO authority contract
+
+仓库级授权只存在一个 `pmo_authority_contract`。它是用户授权的可回读索引，不授予超出用户确认范围的权限，也不因为历史动作、Issue、Heartbeat、handoff 或工具可用而扩权。合同至少包含：
+
+```text
+pmo_authority_contract:
+  version: <合同 schema 版本>
+  revision: <单调 scope revision>
+  contract_locator: <唯一合同 locator>
+  digest: <合同内容摘要>
+  user_source_locator: <用户授权来源 locator>
+  repo_locator: <唯一仓库>
+  target_ref: <目标 ref/head 范围>
+  product_baseline: <产品结果与验收基线>
+  priority_baseline: <优先级基线>
+  planning_write_authority: <规划写权或 none>
+  dependency_relation_write_authority: <关系写权或 none>
+  owner_create_recover_authority: <创建/恢复 Owner 的授权>
+  finding_adjudication: <finding 裁决边界>
+  merge_closeout_policy: <merge 与 closeout 边界>
+  retry_convergence_policy: <重试、收敛与一次修复预算>
+  exclusions: <明确排除项>
+  automation_authorization: <与观察授权分开的自动化授权>
+  observed_at: <合同事实观察时间>
+  expiry: <到期条件>
+  invalidation: <失效条件>
+```
+
+`contract_locator`、`digest`、`revision` 必须与 `repo_locator`、`target_ref`、`user_source_locator`、权限范围、`expiry` 和 `invalidation` 绑定并可交叉核验。authority contract 的 checkpoint 与 handoff 只保存该合同的 `contract_locator`、`digest`、`revision`、`freshness`、`status` 及必要的合同恢复位置；PMO 自身的运行 checkpoint 仍按 [automation.md](references/automation.md) 保留最小恢复索引，不复制授权事实。合同有效且可回读时恢复继续；缺失、过期或冲突时只暂停受影响动作并保留 wake condition，绝不从历史行为推断权限。任何新产品含义、优先级、重大风险/成本、权限/数据边界或不可逆外部结果仍须用户决定。
 
 ## 控制结论
 

@@ -1,8 +1,8 @@
-# Owner lifecycle
+# Owner 生命周期
 
 在创建、唤醒、恢复、去重或关闭独立 Owner 时读取。Owner 的内部执行始终交给 `$tasks-owner`。
 
-## Lifecycle states
+## 生命周期状态
 
 ```text
 absent -> initializing -> active <-> recovering
@@ -15,7 +15,7 @@ initializing/active/recovering -> retiring -> terminal
 - `retiring`：Owner 已停止接收新工作并撤销写入路由，正在完成 Heartbeat/置顶等展示收口。
 - `terminal`：Owner 因 `completed|cancelled|superseded` 退出活动 DAG，交付或保留事实和展示收口均已独立核验。
 
-## Create
+## 创建
 
 同时满足以下条件才创建 Owner：
 
@@ -43,7 +43,7 @@ Owner 标准标题为 `【Owner】<仓库简称>｜<能力域>｜<交付结果>`
 
 Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并核验自身 actual runtime；观察 Heartbeat 仍负责对所有活动 Owner 做仓库级巡检。
 
-## Wake and route
+## 唤醒与路由
 
 使用真实 `owner_thread_id` 和 Owner 自身已核验 runtime 精确投递。读/等工具不构成投递；发送前 payload 不含 locator，只有发送工具成功返回并写入 sender delivery record 后才可声称已投递。Owner 是否已消费只能由接收方 receipt/readback 证明。
 
@@ -62,7 +62,7 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 
 编排者 runtime 未核验时不发送唤醒；目标 Owner runtime 未核验时隔离该 lane，不发送写能力动作、不消费其事件、不转移 carrier。公开 metadata 与 allowlisted 本机证据冲突时 fail closed，不 fallback 或修改配置。
 
-## Recover runtime anomaly
+## 恢复 runtime 异常
 
 实际 model/reasoning 与有效用户 policy 不符或证据无法核验时：
 
@@ -71,7 +71,7 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 3. 新目标 turn 的 actual metadata 符合 desired runtime 后才恢复事件消费、写能力路由和 closeout；恢复请求或 Owner 自报本身不能证明成功。
 4. 无恢复机制或恢复失败时报告 runtime evidence、缺失能力和 wake condition；其他已核验 Owner lane 继续。
 
-## Recover owner-actionable stalls
+## 恢复 owner-actionable 停滞
 
 已授权 in-scope 动作进入 `waitingOnApproval`/`waiting_user` 时：
 
@@ -83,7 +83,7 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 
 “没有可并行 successor”不免除这项恢复责任。
 
-## Dedupe and ownership
+## 去重与归属
 
 - 在委任的单一仓库内以 `stable task_key + scope revision` 识别 delivery unit，以真实 threadId 识别 Owner。
 - 发现重复 Owner 时选择范围/runtime/authority/实时状态均可验证的 canonical Owner；冻结未获写权或较新的重复单元，保留证据并路由给 canonical Owner。
@@ -91,7 +91,7 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 - 发现重复 writer 时不在编排层挑选文件级修复；暂停冲突 carrier并要求各 Owner报告 ownership，其他 carrier 继续。
 - 不复用 terminal Owner 承担新的独立 delivery unit；新 unit 建新 Owner，除非用户明确规定长期同域 Owner。
 
-## Cancel or supersede
+## 取消或 supersede
 
 用户明确撤销 Owner，或去重审计选出 canonical Owner 后：
 
