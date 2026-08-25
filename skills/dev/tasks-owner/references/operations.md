@@ -155,8 +155,8 @@ Subagent。满足后 Owner 才能派专用 Luna/max cleanup Subagent，随后独
    shaping、合法拆分、依赖/归属修复、reassign、已授权 direct 调度或纠偏。direct 仍由原生 Subagent
    执行实现，Owner 不借此绕过 branch/worktree 与 admission 门禁。遇到产品含义、优先级、权限、隐私、
    风险或不可逆外部动作时转 `waiting_user`，不猜测。
-5. **readiness / admission**：对要实施的 Work Item 执行 [issue-readiness.md](issue-readiness.md)。
-   `ready` 后才按 [scheduling.md](scheduling.md) 计算容量、填 ready wave、创建任务并完成
+5. **readiness / admission**：对要实施的 Work Item 执行 [issue-readiness.md](issue-readiness.md)，先核验首个消费者 capability 的存在性和 required/observed semantics。
+   `ready` 且 `capability_compatibility=compatible|provided_by_current_batch|not_applicable` 后才按 [scheduling.md](scheduling.md) 选择 execution mode、计算容量、填 ready wave、创建任务并完成
    `contract_ack → execution_release_ack → STARTED` admission；每个 bootstrap/full task prompt 还必须携带
    `upstream_delivery_contract`；App task 在 contract_ack 后、release/START 前只用
    `codex_app__send_message_to_thread` 主动投递一次 `DELIVERY_ROUTE_ACK`，Owner 逐任务回读
@@ -234,6 +234,16 @@ contract 或 `START`。依赖解除后同一控制周期立刻创建正式现场
 - `external_blocked`：当前回合在既有授权、宿主能力和本地事实内无法解除的外部条件；必须保留 evidence
   locator、责任方和 wake condition。存在任何 owner-actionable 路径时不得整体归为 external。
 
+### PMO 稀疏结果与 blocker/finding 路由
+
+Unit Owner 不把内部控制循环上报成 heartbeat 表单；仅在会改变 PMO 全局判断时发送 `owner_sparse_delta`，字段细节和枚举以 [contracts.md](contracts.md#pmo--unit-owner-双向结果合同) 为唯一来源。最小内容是实际产品效果/证据、blocker、finding、scope change、`remaining_executable_surface` 和 `next_unlock`。
+
+- **局部 blocker**：用普通语言指出缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor、wake/invalidation 和证据；只限制本 Unit 的该阶段，Owner 仍推进剩余可执行面。
+- **全局等待**：仅在没有剩余可执行面，且 next actor 为 PMO、外部或用户时成立；PMO 可据 delta 区分等待原因，不重审整个 Unit。
+- **Finding**：分别记录 `exit_impact`、`treatment`、`authority`、`lifecycle`；`uncertain` 只允许暂时 hold，证据明确后必须入路。常规 finding 由 Unit Owner 自主处置；跨 Unit、超 product-exit 修复预算或出口裁决才上行 PMO，越过产品/成本/风险/权限边界才交用户。
+
+PMO 只保留 admission/sparse-delta/convergence/next-unlock locator 与短状态，不新增 FINDING 事件或第二状态数据库。产品出口、finding 因果链与 scope 共用同一收敛预算；新 Issue、Owner 或 generation 不得重置，熔断只停止未经裁决的范围扩张。
+
 ## Issue readiness 与目标级 recovery
 
 Issue readiness 是 implementation admission 的规划质量门禁，不是目标级停机门禁：
@@ -307,6 +317,9 @@ checkpoint 至少保留：
 owner_thread_id / scope / execution_mode
 confirmed_owner_authority / owner_authority_locator
 goal_status / gap_locator / critical_path / work_classification
+pmo_admission_contract_locator / owner_sparse_delta_locator
+remaining_executable_surface / parent_outcome_locator / product_exit_locator
+convergence_chain_locator / finding_budget_status / next_unlock_locator / next_unlock_status
 task_key -> threadId/agentId/clientThreadId -> status
 task_key -> contract_revision/digest/runtime_lock_revision/status
 task_key -> workspace_entry/runtime_evidence_locator/status/target

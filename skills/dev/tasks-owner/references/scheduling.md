@@ -76,6 +76,21 @@ dispatch_available_slots = max(
 `host_cap` 缺失时忽略第二项；同一执行单元不得重复扣除；没有 host locator 的计划不得计入
 `slot_consuming_pending`。
 
+## Admission 前 execution mode selection
+
+在 capability compatibility 通过后、创建 branch/worktree 或发送 `START` 前，记录一次拓扑选择：
+
+```text
+execution_mode_selection:
+  mode: <direct | flat | hierarchical>
+  independently_admissible_subunits: <locators 或 none>
+  write_carrier_overlap: <none | shared + locators>
+  acceptance_and_rollback_independence: <verified | not_verified + evidence>
+  critical_path_benefit: <true + 说明 | not_applicable>
+```
+
+`flat` 是单一 writer、共享 carrier、统一验证/收口路径的默认值；`hierarchical` 只有至少两个可独立 admission 的子单元、carrier 不相交、验收与回滚独立且确实缩短关键路径时才成立；`direct` 仅用于当前 Owner 回合可完成且由原生 wait 消费的有界动作。模式选择不改变容量、权限或 review 预算；未能证明独立性时保持 `flat`。
+
 ## 稳定身份与 ready buffer
 
 1. 一次性回读 GitHub truth、acceptance/backlog matrix 和现有线程，使用不可变 `task_key` 区分活动、待创建、已结束和状态不明。
@@ -165,6 +180,8 @@ condition；不改变全局 cap。补偿重试保持同一 `task_key` 并递增 
   任务完成后仍有未完成目标时，回到 [operations.md](operations.md) 依据 matrix 形成最小有效 successor batch。
 - cleanup 是独立 lane，按 [cleanup.md](cleanup.md) 串行，不计实现 actual，也不以清理槽位降低 cap。
 
+收敛期间可以预塑形下一解锁：回读稳定的 successor Issue、依赖、只读 readiness 和 wake condition，但不把它当作正式 admission。hard/shared carrier/exact-main 未释放前，不创建正式 branch/worktree、完整合同或 `START`；释放且 readiness/capability/mode 通过后，同一控制周期可正式 admission。预算仍绑定当前 product exit、finding 因果链和 scope，不因 successor 预塑形而重置。
+
 ## Checkpoint 最小调度载体
 
 ```text
@@ -175,6 +192,7 @@ implementation_admitted_inflight / slot_consuming_pending / dispatch_available_s
 task_key -> threadId/agentId/clientThreadId -> dispatch_generation -> status
 task_key -> branch/worktree/workspace_entry -> runtime_evidence_locator/status/target
 task_key -> upstream_delivery_contract / delivery_route_status / delivery_route_locator / native_agent_locator
+task_key -> execution_mode_selection / capability_compatibility / next_unlock_locator / next_unlock_status
 execution_generation -> quarantine_status / slot_impact / replacement_forbidden
 task_key -> not_selected_reason / dependency_locator / last_capacity_failure
 acceptance_matrix_locator / matrix_revision / matrix_status / matrix_truth_revision / matrix_truth_digest

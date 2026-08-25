@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以首个消费者薄切片、可证明 hard dependency 和有界 review 修复预算统筹有效交付批次，按统一 control loop 消费事件、执行 owner_action、派发 successor 并收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。
 metadata:
-  version: "0.19.0"
+  version: "0.22.0"
 ---
 
 # 结果负责的 GitHub 项目 Owner
@@ -85,6 +85,12 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
   blocker、文件、head 或 execution generation 重置。其余问题进入既有 carrier、拆成更窄任务或交由用户决策。
 - `critical_path_width=1` 连续两个事实未变化的控制周期必须产生依赖重分类、并行 tight batch，或逐项不可并行
   证据；只有审计声明不算实际动作。
+
+## v0.22 PMO 双向合同桥
+
+PMO admission 通过一个 locator 传入产品目标、贡献、验收、范围、产品出口/修复预算、权限边界和 exact-main 基线；本 Skill 的 [contracts.md](references/contracts.md) 与 [scope-integrity.md](references/scope-integrity.md) 是 Unit 内字段、finding 正交维度、blocker 语言、scope/convergence 和稀疏回报的唯一来源。Owner 只在全局判断改变时向 PMO 发送 sparse delta，routine 内部动作不变成 heartbeat 表单或新状态源。
+
+START 前还需完成 capability existence/semantic compatibility、acceptance→invariant→code→positive/negative preflight、有界 sibling scan 与 [scheduling.md](references/scheduling.md) 的 execution mode selection；共享 carrier 默认 `flat`。收敛可预塑形 next unlock，但 hard/shared carrier/exact-main 未释放前不得 START。仅迁移与这些门禁对应的 trajectory cases，不迁移效率实验规则。
 
 ## v0.18 生命周期硬门禁
 

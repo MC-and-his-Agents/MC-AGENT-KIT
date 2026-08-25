@@ -73,6 +73,17 @@ review_finding_disposition:
   boundary_expansion: <none | production_subsystem | permission_or_runtime>
 ```
 
+finding 的出口影响、处理、权限和生命周期是四个正交维度；不得再用一个 `disposition` 混合表达：
+
+```text
+exit_impact: <blocks_current_exit | does_not_block_current_exit | uncertain>
+treatment: <fix_now | defer_followup | reject_not_applicable>
+authority: <unit_owner_authorized | pmo_authority_required | user_authority_required>
+lifecycle: <pending_evidence | decided | in_progress | verified | closed>
+```
+
+既有 `disposition` 保留用于兼容历史 review 记录：`fix_now` 对应 `treatment=fix_now`，`defer`/`split`/`reassign` 进入 `defer_followup` 并引用已有 carrier，`reject` 对应 `reject_not_applicable`；`authority` 不由 severity 推导。`exit_impact=uncertain` 可暂时 hold，但 evidence 明确后必须进入 treatment/authority 路线；finding 成立本身不自动阻断当前出口。
+
 只有同时满足以下条件才允许 `fix_now`：
 
 - `acceptance_or_invariant_locator` 能精确映射本批 Done when/Accepted 不变量，或 `severity` 为
@@ -111,6 +122,19 @@ review_fix_round_locator: <disposition/write/fresh-review evidence>
 
 这条 generation-wide 门禁与 exact-head、writer quiescence、independent review、CI 和 cleanup 门禁
 相互独立，不能由其任一证据替代。
+
+### Product-exit convergence chain
+
+修复预算必须绑定同一条 `convergence_chain_locator`：
+
+```text
+product_exit_locator: <Parent/产品出口>
+convergence_chain_locator: <产品出口 + finding 因果链 + scope>
+review_fix_round_count: <0 | 1>
+reset_forbidden: true
+```
+
+新 Issue、Owner、branch/head 或 execution generation 不能重置该链。只有证据充分的 acceptance/ownership/scope 改变，并实际完成 `shrink`、`split` 或 `reassign` 形成更窄的新 `task_key`，才开始一条新的收敛链；这不是对原链的预算重置。熔断仅停止未经裁决的范围扩张，不削弱已证明的质量门禁。
 
 ## 下游反向信号
 

@@ -29,6 +29,14 @@ initializing/active/recovering -> retiring -> terminal
 
 创建后把以下内容交给 Owner：唯一 `repo_locator`、`target_ref`/`verified_head`、scope locator、confirmed authority、相邻 carrier ownership、已验证 hard/soft/convergence 边界、本 Skill 的高层事件合同，以及“内部按当前 `$tasks-owner` 执行”。不要替 Owner 生成 task admission 合同。
 
+### Admission 与稀疏结果回报
+
+PMO 在 admission 时只发送一个可回读的 `pmo_admission_contract` locator，摘要包含产品目标、预期贡献、验收、允许/排除范围、产品出口与收敛修复预算、Unit/PMO/用户权限边界、exact-main 和证据基线。合同字段、finding 维度、scope checkpoint 和修复回合由 `$tasks-owner` references 承载；PMO 只保留 locator 与短状态，不维护第二份 schema。
+
+Owner 对 PMO 只上报改变全局判断的 `owner_sparse_delta`：实际产品效果/证据、局部 blocker 与 remaining executable surface、finding 的出口/跨 Unit 影响、范围变化和 next unlock。常规实现、测试、finding 处置、PR、merge、closeout 与 cleanup 由 Owner 自主完成，PMO 不逐条审批，也不管理其临时 Writer/Reviewer/Cleanup。
+
+blocker 必须用普通语言标明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor 与 wake/invalidation 条件。局部 blocker 仍由 Owner 在剩余可执行面内推进；只有没有剩余可执行面且等待 PMO、外部或用户时才路由为全局等待。finding 的 `exit_impact`、`treatment`、`authority`、`lifecycle` 正交记录；跨 Unit、超预算或出口裁决交 PMO，越过产品/成本/风险/权限边界交用户。
+
 Owner 标准标题为 `【Owner】<仓库简称>｜<能力域>｜<交付结果>`：仓库简称取 `repo_locator` 的仓库名或用户指定别名；能力域与交付结果使用简短、可辨识的业务表述，不写 runtime、临时状态或内部 task 名。
 
 若宿主支持且 Owner 创建授权涵盖对应可逆展示操作，在 `initializing -> active` 前设置并回读标准标题、置顶，并创建绑定真实 thread 的专属 Heartbeat。标题、置顶或 Heartbeat 与期望不一致时保持 `initializing` 并 `CORRECT_DRIFT`；能力不可用或未授权时记录 `unavailable|unauthorized`，不得虚报已完成，但纯展示能力不作为产品 hard blocker。内部 task/writer/reviewer/cleanup 不使用 Owner 标题且不得置顶。观察 Heartbeat 不替代 Owner Heartbeat。
@@ -49,6 +57,8 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 - merge/terminal 后必须立即重算 successor。
 
 普通 `STARTED`、Owner 内部合法 fix、健康 active 状态或重复事件不唤醒。
+
+不因普通局部 blocker、常规 finding 或内部进度唤醒 PMO；仅在 sparse delta 改变跨 Unit/DAG、产品出口、收敛预算、范围归属或 next unlock 时路由高层事件。
 
 编排者 runtime 未核验时不发送唤醒；目标 Owner runtime 未核验时隔离该 lane，不发送写能力动作、不消费其事件、不转移 carrier。公开 metadata 与 allowlisted 本机证据冲突时 fail closed，不 fallback 或修改配置。
 

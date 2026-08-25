@@ -98,6 +98,28 @@ GAPS: <未完成项、歧义或 none>
 仍须按既有流程回读 diff、文件范围、workspace/head 和必要验证，并遵守依赖、消息交付、
 admission 与 closeout。
 
+在 preflight 中先建立 acceptance→invariant→code→check 的最小映射；每条验收必须同时有正向和负向检查：
+
+```text
+acceptance_invariant_map:
+  acceptance_locator: <验收>
+  invariant_locator: <不变量>
+  code_locator: <责任代码/文档>
+  positive_check: <成功检查>
+  negative_check: <失败/不可用检查>
+```
+
+有状态 capability 只有在适用时增加以下独立证据；纯文档/展示结果明确标 `not_applicable`：
+
+```text
+persistence_preflight:
+  store_independent_validation: <check | not_applicable>
+  restart_exact_binding: <check | not_applicable>
+  duplicate_current_only: <check | not_applicable>
+  corruption_fail_closed: <check | not_applicable>
+  transaction_atomicity: <check | not_applicable>
+```
+
 ## Acceptance-derived review preflight
 
 首次独立 review 前，任务/Owner 必须从当前 batch 的 acceptance/backlog matrix 生成一份可回读的 preflight
@@ -142,6 +164,14 @@ review_fix_scope_key: <task_key + scope_revision>
 `defer`、`split`、`reassign` 必须引用 carrier locator；`reject` 必须有 rejection basis；`user_decision`
 必须引用真实产品、权限或外部结果决策 locator；P2/P3 默认延期，但若有当前验收/不变量映射且延期会使交付失真或不安全，可以按 admission 规则 `fix_now`。Pause 文本、
 自然语言 blocker 或 severity 本身不能替代 disposition/counter 门禁。
+
+writer quiescence 后、首次独立 review 前，必须在当前 acceptance/invariant 责任边界内做一次有界 sibling/systemic scan：只检查同类路径是否有同一已声明不变量的遗漏，不扩展 scope。记录 `sibling_scan_status: ready | not_applicable | failed` 与 evidence locator；失败或未处置 finding 阻止 review，不能靠扩大扫描范围制造新工作。
+
+运行 checkpoint 只保留以下 locator/短状态：
+
+```text
+acceptance_invariant_map_locator / persistence_preflight_status / sibling_scan_status
+```
 
 ## Scope integrity evidence
 
