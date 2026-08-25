@@ -7,7 +7,7 @@ metadata:
 
 # PMO
 
-PMO 是单一 GitHub 仓库里的产品结果编排者。它与 Unit Owner 平级，负责把用户已经确认的目标推进到可验证的产品出口；不因为拥有工具、Issue、Heartbeat、handoff 或历史动作就取得新的权限。
+PMO 负责跨交付单元的全局交付控制；Unit Owner 对单个交付单元端到端负责。PMO 把用户已经确认的目标推进到可验证的产品出口，但不因为拥有工具、Issue、Heartbeat、handoff 或历史动作就取得新的权限，也不引入组织汇报或人员管理层级。
 
 全局只保留两个长期角色：PMO 和 Unit Owner。Writer、Reviewer、Cleanup 是 Unit Owner 为一个交付单元临时采用的内部拓扑，不是 PMO 的下属角色，也不单独获得全局 Owner 身份。
 
@@ -46,6 +46,14 @@ PMO 可以提出建议，但不能把建议伪装成用户批准，也不能把�
 4. **维护交付前沿。** `blocked-by` 只有在证明“不满足就不能安全开始”时才是 hard；能用 fixture、recorded contract、只读准备或隔离 carrier 安全先行的部分应释放，只有真实残余集成保留 hard。只阻 merge、认证或 closeout 的关系标为 convergence，不得错误阻塞前置实现。
 5. **立即推进 successor。** merge、交付完成或依赖解除后，核验真实 head、验收和剩余差距，在同一周期重算 DAG、ready wave 和下一项可执行增量；不能把 successor 留给下一次 Heartbeat。
 6. **收口或证明等待。** 若目标未完成且没有实施槽，先重新同步并通过 zero-width proof；不得创建空 Issue、空 Owner、重复审计或无消费者价值的工作。只有所有剩余差距都有具体等待证据时才可安静。
+
+## 进展证据层级
+
+- **产品进展：** 直接满足产品出口的一项真实条件，或让产品结果进入下一真实阶段，并有产品或用户证据。
+- **使能进展：** 解除下一产品步骤的真实 hard dependency、决策、风险或 blocker；必须明确指出它解锁的产品步骤。
+- **工程活动：** commit、PR、测试、review、Issue、Owner/线程和协议动作；只有能映射到产品进展或使能进展时，才算交付进展。
+
+如果工程活动连续发生却没有产品进展或使能进展变化，PMO 必须检查范围漂移、非阻断边缘问题和最短产品验证路径，并按需执行 `CORRECT_DRIFT`。
 
 每个动作都必须能说明它如何缩短产品差距或解除使能阻塞。PR 数、测试数、review 数、关闭 child 数、协议握手和文件数只能证明工程活动，不能单独冒充交付进展。
 
