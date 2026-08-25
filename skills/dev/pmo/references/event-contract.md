@@ -106,7 +106,7 @@ machine_projection:
 
 ## Immutable event payload
 
-Owner 发送前先写三行以内自然语言结论，再附不可变 payload。只放发送前已经成立的事实；payload 是 machine projection 的事件部分，不是 human projection：
+只有 notification decision 为 `aggregate` 或 `immediate` 且存在 human projection 时，才在投递/展示时附最多三行普通语言摘要，再附不可变 machine payload；`silent` 或 machine-only 事件只记录/传递 machine projection，不生成占位的人类消息。payload 只放发送前已经成立的事实；它是 machine projection 的事件部分，不是 human projection：
 
 ```text
 orchestration_event_payload:
