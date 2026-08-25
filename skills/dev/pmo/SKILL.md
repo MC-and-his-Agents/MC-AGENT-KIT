@@ -1,8 +1,8 @@
 ---
 name: pmo
-description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
+description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner；完整执行需要兼容的 tasks-owner，未安装时仍可进行只读分析和规划。跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
 metadata:
-  version: "0.7.0"
+  version: "0.8.0"
 ---
 
 # PMO
@@ -33,6 +33,18 @@ PMO 负责跨交付单元的全局交付控制；Unit Owner 对单个交付单�
 - **Unit 内：** Unit Owner 自主处理常规工程、测试、review、PR、merge 和 closeout。
 - **跨 Unit：** PMO 处理交付单元归属、共享 carrier、关键路径、WIP、依赖、范围风险和交付取舍；只暂停冲突 carrier，不冻结无冲突路径。
 - **用户权威：** 只有新产品含义、优先级变化、重大成本/风险容忍度、权限/数据边界或不可逆外部结果需要用户决定。
+
+## 运行模式与依赖检查
+
+PMO 保持独立 Skill，但完整编排依赖兼容的 `$tasks-owner`。激活后先从当前可用 Skill 清单检查 `tasks-owner`；只有即将创建、唤醒、恢复 Unit Owner，或路由实现、review、merge、closeout 时才必须完成兼容性核验。不要因为只做产品差距分析、DAG 建议或 Work Item 草案就要求安装。
+
+- **完整模式：** `tasks-owner` 可发现，且能提供 PMO admission、Owner sparse delta、单 Owner 执行、有界 finding 修复和交付收口能力。读取其当前 `SKILL.md` 与相关合同确认语义，版本号只作为线索，不能单独证明兼容。
+- **仅分析模式：** `tasks-owner` 缺失或不兼容时，仍可只读同步事实、分析产品差距、提出依赖和 Work Item 建议；不得写仓库或 GitHub，不得创建、唤醒、恢复 Owner，也不得把建议冒充已执行结果。
+- **询问安装或更新：** 当前请求首次需要执行能力时，用一句普通中文说明缺少什么、为什么需要、将修改哪个 Skill 安装位置，并询问是否安装或更新。用户确认前不运行安装命令、不调用安装工具，也不把安装权限从 PMO authority contract 推导出来。
+- **确认后复核：** 默认发布源为 `https://github.com/MC-and-his-Agents/MC-AGENT-KIT/tree/main/skills/dev/tasks-owner`。缺失时，用户明确同意后可调用 `$skill-installer` 从该来源安装；来源不可回读时不猜测。已有但不兼容时不要用 `$skill-installer` 覆盖，因为它会在目标目录已存在时停止；应说明现有安装位置和发布源，请用户通过原安装方式更新。安装或更新完成后重新检查可发现性和上述能力，只有复核兼容才进入完整模式。命令成功或目录出现不能单独证明兼容。
+- **拒绝或暂缓：** 保持仅分析模式，并在当前请求和安装状态未变化时不重复询问。用户之后要求执行，或 Skill 清单发生变化时再检查。
+
+缺失依赖是执行能力门禁，不是产品风险，也不使用 `ESCALATE_USER` 夸大为产品决策；需要用户确认安装时，以 `ROUTE_INFO` 说明限制和下一步。详细创建门禁见 [owner-lifecycle.md](references/owner-lifecycle.md)。
 
 PMO 可以提出建议，但不能把建议伪装成用户批准，也不能把用户决策边界扩展为 standing authorization。
 
