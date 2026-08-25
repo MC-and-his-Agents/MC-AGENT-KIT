@@ -5,7 +5,7 @@ metadata:
   version: "0.1.0"
 ---
 
-# Multi-Owner Delivery Orchestrator
+# PMO
 
 ## Mandate
 
