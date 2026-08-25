@@ -90,7 +90,7 @@ truth。未经确认不写 GitHub、部署、发布、删除、付费、发外�
 
 PMO admission 通过一个 locator 传入产品目标、贡献、验收、范围、产品出口/修复预算、权限边界和 exact-main 基线；本 Skill 的 [contracts.md](references/contracts.md) 与 [scope-integrity.md](references/scope-integrity.md) 是 Unit 内字段、finding 正交维度、blocker 语言、scope/convergence 和稀疏回报的唯一来源。Owner 只在全局判断改变时向 PMO 发送 sparse delta，routine 内部动作不变成 heartbeat 表单或新状态源。
 
-START 前还需完成 capability existence/semantic compatibility、acceptance→invariant→code→positive/negative preflight、有界 sibling scan 与 [scheduling.md](references/scheduling.md) 的 execution mode selection；共享 carrier 默认 `flat`。收敛可预塑形 next unlock，但 hard/shared carrier/exact-main 未释放前不得 START。仅迁移与这些门禁对应的 trajectory cases，不迁移效率实验规则。
+START 前只核验 capability existence/semantic compatibility，并按 [scheduling.md](references/scheduling.md) 完成 execution mode selection；共享 carrier 默认 `flat`。writer quiescence 后、首次独立 review 前，才完成 acceptance→invariant→code→positive/negative preflight 与有界 sibling scan。收敛可预塑形 next unlock，但 hard/shared carrier/exact-main 未释放前不得 START。仅迁移与这些门禁对应的 trajectory cases，不迁移效率实验规则。
 
 ## v0.18 生命周期硬门禁
 

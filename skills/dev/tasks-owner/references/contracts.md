@@ -265,7 +265,7 @@ pmo_admission_contract:
   excluded_scope: <明确排除范围>
   convergence_chain:
     product_exit_locator: <产品出口/Parent locator>
-    repair_budget: <finding 修复回合；本批为 1>
+    repair_budget: <由 admitted Unit contract 固定的 chain-level finding repair budget>
     reset_forbidden: true
   authority_boundary:
     unit_owner: <自主实现、测试、finding、PR、merge、closeout、cleanup>
