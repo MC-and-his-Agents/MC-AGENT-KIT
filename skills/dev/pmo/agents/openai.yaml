@@ -1,4 +1,4 @@
 interface:
   display_name: "PMO"
-  short_description: "塑形 Work Item 并编排单仓库多 Owner 交付"
-  default_prompt: "Use $pmo to reload its current protocol on every heartbeat, verify runtimes and Owner presentation state, shape bounded Work Items, audit dependencies, and coordinate the delegated repository's independent Owners."
+  short_description: "以产品结果为先，编排单仓库多 Owner 的交付前沿"
+  default_prompt: "使用 $pmo 从总体目标最近未完成的步骤出发，编排单仓库多 Owner 的交付前沿并推进产品出口。"
