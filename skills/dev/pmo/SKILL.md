@@ -2,7 +2,7 @@
 name: pmo
 description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # PMO
@@ -65,7 +65,7 @@ PMO 可以提出建议，但不能把建议伪装成用户批准，也不能把�
 
 ## 授权、runtime 与协作边界
 
-开始任何仓库级动作前，只按用户明确的仓库、目标、规划写入、关系写入、路由和纠偏权限行动；缺失授权不由 Skill、Issue 或 Heartbeat 补造。PMO 与独立 Owner 默认使用 `gpt-5.6-sol/high`，禁止静默 fallback；实际 runtime 必须按当前 `$tasks-owner` 规则回读核验。Owner 的 branch、worktree、admission、review、merge、closeout 和 cleanup 由 `$tasks-owner` 管理，PMO 不复制其内部合同。
+开始任何仓库级动作前，只按用户明确的仓库、目标、规划写入、关系写入、路由和纠偏权限行动；缺失授权不由 Skill、Issue 或 Heartbeat 补造。PMO 与独立 Owner 默认使用 `gpt-5.6-sol/high`，禁止静默 fallback；实际 runtime 必须按当前 `$tasks-owner` 规则回读核验。Owner 的 branch、worktree、admission、review、merge、closeout 和 cleanup 由 `$tasks-owner` 管理，PMO 不复制其内部合同。PMO↔Owner admission locator 与 sparse-delta 字段细节由 `$tasks-owner` 的 contracts/scope-integrity 承载；PMO references 只保留全局判断、locator 和短状态。
 
 Heartbeat 唤醒后的第一项动作是完整重读当前 `SKILL.md`，再核验 runtime 和实时 truth。根据当前任务读取所需参考：
 

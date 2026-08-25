@@ -93,6 +93,33 @@ Work Item 必须为每项提供短而可验证的证据；缺项标记 `planning
 | 验证证据 | 每条检查有准确命令/产物/外部状态和 concrete success criterion | 只有“已测试”或没有证据定位 |
 | 暂停/决策 | 明确缺事实、权限、语义、产品/安全决策或重复失败时暂停，并写明决策者 | 缺口出现时继续猜测或自动写入 |
 
+## 消费 seam 与 capability compatibility
+
+Issue readiness 还必须回答首个消费者如何消费上游 capability；以下六问只服务产品结果，不是效率指标：
+
+1. 用户/产品结果是什么，谁会实际消费它？
+2. 消费 seam 的 required semantics、输入输出和失败/不可用语义是什么？
+3. 该 seam 的独占/共享 carrier 与 ownership 是什么？
+4. 哪些 acceptance/invariant 必须保持，正向和负向检查分别是什么？
+5. 当前 capability 是否存在并与 required semantics 兼容，证据和最小 probe/contract check 在哪里？
+6. 完成后哪个 successor/产品出口被解锁；若没有 successor，为什么 `not_applicable`？
+
+对首个消费者记录以下最小兼容性事实：
+
+```text
+capability_compatibility:
+  consumer_acceptance: <消费者验收 locator>
+  capability_locator: <能力/接口 locator>
+  required_semantics: <消费者要求的语义>
+  observed_semantics: <回读到的语义>
+  existence_evidence: <存在性证据>
+  probe_or_contract_check: <最小 probe/contract 检查>
+  negative_or_unavailable_behavior: <缺失/不可用时的行为>
+  status: <compatible | missing | incompatible | provided_by_current_batch | not_applicable>
+```
+
+名称、类型、Issue 编号或 fixture 存在不能替代语义比较和 probe。`missing|incompatible` 时，先 shrink/split/reassign 或塑形最窄上游 Work Item；只有产品边界改变才交用户。能力自包含且无外部消费者时才可标 `not_applicable`。该门禁在 START 前完成；未通过不得以“已 ready”开始 writer。
+
 ## 可选 `write-a-goal` 增强
 
 只根据当前已加载的 skills catalog 元数据判断可用性，不扫描本机目录、不探测版本、不安装或

@@ -28,10 +28,16 @@ delivery_unit:
   capability_compatibility: <compatible | missing | incompatible | provided_by_current_batch | not_applicable + locator>
   execution_mode: <direct | flat | hierarchical + selection evidence locator>
   readiness: <planning_not_ready | execution_ready | owner_actionable | external_blocked>
+  pmo_admission_contract: <tasks-owner contract locator>
+  owner_sparse_delta: <canonical event/evidence locator or none>
+  parent_outcome: <Parent/Milestone exit evidence locator + short status>
+  remaining_executable_surface: <short status + evidence locator>
+  convergence_chain: <product exit/finding budget locator>
+  next_unlock: <candidate + wake condition locator>
   next_event: <事件或 wake condition>
 ```
 
-不要在 DAG 中复制完整 Issue、日志、合同、prompt 或任务内部状态。GitHub/项目规划事实和实时线程状态始终是权威来源；checkpoint/handoff 只能索引这些事实。
+不要在 DAG 中复制完整 Issue、日志、合同、prompt 或任务内部状态。GitHub/项目规划事实和实时线程状态始终是权威来源；checkpoint/handoff 只能索引这些事实。`pmo_admission_contract`、`owner_sparse_delta`、`convergence_chain` 和 `next_unlock` 只存 locator/短状态；Unit 内字段细节以 `$tasks-owner` 的 contracts/scope-integrity 为唯一来源。
 
 ## FR coverage and Work Item shaping
 
@@ -59,6 +65,14 @@ delivery_unit:
 塑形是规划动作，不是 implementation admission，也不产生 Owner、branch、worktree 或 runtime 合同。
 
 每个 Milestone/Parent 维护一个派生的产品闭环索引：`用户结果 → 已验证真实证据 → 已交付子切片 → 剩余差距 → external/deferred carrier → 下一可执行薄切片`。索引只保存 GitHub/证据 locator 和短状态，GitHub Milestone、Parent、Work Item、PR 仍是唯一规划事实；不得新增仓内 roadmap、状态页或第二进度数据库。PR 数、关闭 child 数、fixture/recorded-conformance 只能说明内部增量，不能替代 Parent exit。
+
+### PMO ↔ Unit Owner 结果边界
+
+admission 时 PMO 只通过一个可回读的 `pmo_admission_contract` locator 传递产品目标、预期贡献、验收、允许/排除范围、产品出口与收敛修复预算、Unit/PMO/用户权限边界，以及 exact-main 和证据基线。完整字段由 `$tasks-owner` 承载，PMO 不复制合同 schema。
+
+Owner 仅在会改变全局判断时上报 `owner_sparse_delta`：实际产品效果/证据、局部 blocker 与 `remaining_executable_surface`、finding 对当前出口或跨 Unit 的影响、范围变化和 `next_unlock`。局部 blocker 仍属于该 Unit 的阶段性限制；只有无剩余可执行面且等待 PMO、外部或用户时才是全局等待。PMO 不逐条审批 Owner 的常规实现、测试、finding、PR、merge 或 cleanup，也不把这些内部步骤变成 heartbeat 表单或新的状态源。
+
+blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 的哪一阶段、没有阻止什么、独立安全增量、next actor 和 wake/invalidation 条件。finding 的出口影响、处理、权限和生命周期保持正交；只有跨 Unit、超收敛预算或产品出口裁决才上行 PMO，越过产品/成本/风险/权限边界才交用户。
 
 每个准备 admission 的 Work Item 必须能由既有 Issue/readiness 证据回答：用户可观察结果、消费 seam 及语义、独占/共享 carrier、适用不变量、正负验证、完成后下一解锁条件。缺任一会影响安全开始的事实时先 shaping，不创建 Owner。
 
@@ -94,6 +108,7 @@ delivery_unit:
 - 对每条 blocked-by 写明被阻消费者、缺失产物和安全开始反事实；无法证明时不得保留为整体 hard。
 - 对每条消费者→上游 seam 边写明 required/observed semantics 与兼容证据；能力缺失或不兼容且消费者 scope 不拥有该 seam 时，先 shrink/split/reassign 或塑形最窄上游 Work Item，保留消费者成果和原 review budget。
 - fixture、recorded contract、只读准备或隔离 carrier 可安全开始时，把先行部分释放，真实集成只保留 residual hard；仅阻 merge/认证/closeout 的关系改为 convergence，单纯顺序或优先级不编码为 blocked-by。
+- 产品出口、finding 因果链和 scope 共享同一收敛预算；不得以新 Issue、Owner 或 execution generation 重置。熔断只停止未经裁决的范围扩张，不削弱已证明的真实质量门禁。
 - 关闭上游、重复边、依赖环、未来完备性阻塞当前首切或关系与 Owner/carrier 归属不一致时，判为 `CORRECT_DRIFT` 并重算 ready wave。
 - 只有 `dependency_relation_writes` 已授权且 truth 已核验时才修改 GitHub 原生关系；否则输出 exact add/remove/reclassify 草案。关系修订不能顺带改写 FR/Work Item 的产品范围、优先级或验收。
 

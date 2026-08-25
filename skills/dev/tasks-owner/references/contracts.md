@@ -252,6 +252,59 @@ OBJECTIVE / FILES AND OWNERSHIP / INTERFACES / CONSTRAINTS / VERIFICATION
 汇报门禁 / PR_READY 条件 / evidence locator
 ```
 
+### PMO ↔ Unit Owner 双向结果合同
+
+PMO 的 admission 只提供一个 `pmo_admission_contract` locator；以下是 Unit Owner 对该 locator 的字段解释和回报边界，避免 PMO references 复制可漂移 schema：
+
+```text
+pmo_admission_contract:
+  product_goal: <产品目标>
+  expected_contribution: <本 Unit 对产品出口的预期贡献>
+  acceptance: <可观察验收与失败/不可用出口>
+  allowed_scope: <允许写入与实现范围>
+  excluded_scope: <明确排除范围>
+  convergence_chain:
+    product_exit_locator: <产品出口/Parent locator>
+    repair_budget: <由 admitted Unit contract 固定的 chain-level finding repair budget>
+    reset_forbidden: true
+  authority_boundary:
+    unit_owner: <自主实现、测试、finding、PR、merge、closeout、cleanup>
+    pmo: <跨 Unit、超预算、出口与 DAG/范围裁决>
+    user: <产品/成本/风险/权限边界外的决定>
+  baseline:
+    exact_main: <exact-main SHA>
+    evidence_locators: <基线证据>
+  next_unlock: <可执行下一解锁与 wake condition>
+```
+
+Owner→PMO 只在全局判断会改变时发送稀疏 `owner_sparse_delta`；普通内部步骤不发送 heartbeat 表单、全量状态或新事件/状态源：
+
+```text
+owner_sparse_delta:
+  product_effect: <实际产品效果与证据 locator>
+  blocker: <none 或以下结构>
+    missing: <缺什么>
+    blocking_stage: <shaping | admission | implementation | verification | release | acceptance>
+    not_blocking: <没有阻止什么>
+    independent_safe_increment: <可独立完成的安全增量或 none>
+    next_actor: <unit_owner | pmo | user | external>
+    wake_condition: <唤醒条件>
+    invalidation_condition: <失效条件>
+    evidence_locator: <证据>
+  finding: <none 或以下结构>
+    finding_locator: <finding 证据>
+    exit_impact: <blocks_current_exit | does_not_block_current_exit | uncertain>
+    treatment: <fix_now | defer_followup | reject_not_applicable>
+    authority: <unit_owner_authorized | pmo_authority_required | user_authority_required>
+    lifecycle: <pending_evidence | decided | in_progress | verified | closed>
+    evidence_locator: <证据>
+  scope_change: <none 或 scope delta locator/短状态>
+  remaining_executable_surface: <短状态与证据 locator>
+  next_unlock: <下一解锁与 wake condition locator>
+```
+
+`uncertain` finding 可以暂时 hold，但证据明确后必须进入 treatment/authority 路线。`exit_impact` 不自动决定 treatment；`fix_now` 仍受 [scope-integrity.md](scope-integrity.md) 的验收、不变量和 generation-wide 修复预算约束。预算绑定同一 product exit、finding 因果链与 scope，不能用新 Issue、Owner 或 execution generation 重置；熔断只停止未经裁决的范围扩张，不削弱已证明的质量门禁。
+
 `planning_not_ready` 或 GitHub truth 缺失时不发送完整合同、不 admission；`issue_readiness` 只证明规划
 字段，不替代运行态合同、runtime evidence、scope integrity 或用户授权。
 
