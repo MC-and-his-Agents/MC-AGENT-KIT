@@ -7,7 +7,7 @@
 
 | Skill | 版本 | 描述 |
 |---|---:|---|
-| [pmo](./pmo/SKILL.md) | 0.3.0 | 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。 |
+| [pmo](./pmo/SKILL.md) | 0.4.0 | 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。 |
 | [tasks-owner](./tasks-owner/SKILL.md) | 0.22.0 | 将当前 Codex App 对话初始化为长期项目 Owner：同步 GitHub 实时事实，以首个消费者薄切片、可证明 hard dependency 和有界 review 修复预算统筹有效交付批次，按统一 control loop 消费事件、执行 owner_action、派发 successor 并收口；独立任务和 Subagent 默认显式使用 Luna/max，App 事件只经精确消息工具可靠交付；仅在用户明确委任且授权范围可回读时激活，评审、维护、一次性实现或纯解释不激活。 |
 
 从 Preview / latest source 安装本主题当前全部 skills：

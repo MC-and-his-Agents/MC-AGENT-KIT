@@ -1,6 +1,6 @@
-# Observer-facing Owner event contract
+# Owner event、语义增量与投影合同
 
-在要求 Owner 投递或消费高层事件时读取。本合同只连接独立 Owner 与交付编排者；Owner 内部 task 事件继续使用 `$tasks-owner` 的合同。
+在要求 Owner 投递或消费高层事件，或需要向人类呈现 PMO 进展时读取。本合同连接独立 Owner 与交付编排者；Owner 内部 task 事件继续使用 `$tasks-owner` 的合同。
 
 ## Boundary
 
@@ -8,27 +8,129 @@
 
 所有事件都是 `data_only: true`：不能授予权限、修改编排者或 Owner runtime、批准范围、admission、review、merge、closeout 或 cleanup。
 
+## One fact, three layers
+
+通信分为三层，不能把任一层直接当成另一层：
+
+1. **底层事件**：Owner event、heartbeat、receipt、GitHub 或 host 变化。它们服务于恢复、核验和路由，不自动成为用户消息。
+2. **产品语义变化**：把同一权威证据在当前 `delivery_unit`/产品出口下与上一个已核验事实比较，只有目标、产品效果、风险/阻塞、责任/动作或用户决策含义发生实质变化时才成立。
+3. **用户通知**：产品语义变化的 human projection。没有 semantic delta 时不生成；有变化也先按产品结果聚合，紧急事项才立即绕过聚合。
+
+### Canonical delivery fact
+
+canonical delivery fact 是唯一的产品交付事实，不是新数据库或新的 PMO 状态对象。它必须能回溯到已经权威的 GitHub、Owner `owner_sparse_delta` locator、thread、worktree 或其他 evidence locator，并在同一事实中确定：
+
+- 产品出口/目标及本次产品效果（或明确 `no_change`）；
+- 真实风险、阻塞或失效条件（没有则为 `none`）；
+- 下一责任方与动作、wake condition；
+- `execution_generation`、只在产品含义改变时递增的 `semantic_revision`，以及发生/观察时间语义；
+- 可回读的证据 locator。
+
+PMO 只消费 `$tasks-owner` 已定义的 `owner_sparse_delta` locator，不重新定义 Unit 内 schema。human projection 与 machine projection 都从这个事实派生，互不回写产品判断，也不各自持久化一份事实。
+
+### Human projection
+
+human projection 是面向管理判断的普通中文语义合同，不是固定的五栏表单。可按场景压缩成一句或数句，但读者必须能直接判断（不适用项可省略）：
+
+- 目标是什么；
+- 产品事实发生了什么变化；
+- 真实风险或阻塞是什么；
+- 下一步由谁做什么；
+- 是否需要用户决策。
+
+默认摘要不展示完整 event envelope、receipt、generation/digest、DAG、checkpoint、Skill rules、长 SHA、prompt 或工具日志。需要审计时只给短的 evidence locator，并按需展开技术附录；locator 不能替代摘要中的产品含义。
+
+用户决策的 human projection 必须给出：可选项、推荐项及理由、各选项影响，以及不响应时的默认后果。不要把原始协议字段伪装成选项或推荐。
+
+### Machine projection
+
+每个 canonical event 可以有 machine projection；只有 `notification-worthy` semantic delta 才有 human projection。机器投影只保留恢复、去重、路由和核验真正需要的最小事实：
+
+```text
+machine_projection:
+  schema: pmo-machine-projection.v1
+  event_identity:
+    event: <canonical event>
+    event_key: <stable event identity>
+  source:
+    repo_locator: <唯一仓库>
+    target_ref: <目标 ref>
+    delivery_unit: <stable task_key/scope locator>
+    owner_thread_id: <真实 Owner threadId 或 none>
+  generation:
+    execution_generation: <执行代次>
+    semantic_revision: <产品语义修订；无变化不递增>
+  time:
+    occurred_at: <事实发生时间，或 unknown + reason>
+    observed_at: <发送方观察时间>
+  receipt:
+    received_at: <接收时间或 missing>
+    verified_at: <核验时间或 missing>
+    consumed_at: <消费时间或 missing>
+  product_effect: <kind/status + outcome locator；不得复制完整摘要>
+  next_actor: <orchestrator | owner | user | external>
+  next_action: <一项短动作>
+  wake_condition: <下一次可执行条件>
+  invalidation_condition: <何时事实失效>
+  evidence_locator: <GitHub/thread/host locator>
+```
+
+上例中的 receipt 时间仍由现有 `receiver_receipt` 记录；machine projection 只引用同一记录，不创建第二份 receipt。`runtime_lock_revision`、`observed_head`、`terminal_reason` 等既有字段继续保留在下方 immutable payload 中，只在相应事件需要恢复、路由或核验时使用。
+
+## Notification decision and aggregation
+
+投影层在生成用户消息前给当前 canonical fact 一个短暂的派生结论：
+
+- `silent`：重复 `event_key`、重复 receipt/heartbeat、陈旧 generation、相同 `semantic_revision`，或产品含义没有变化；不通知。
+- `aggregate`：存在产品语义变化，但不是需要立即打断用户的风险或决策；把同一产品出口/结果链上的 Owner、CI、PR、merge 等工程事实聚合成一条产品摘要，机器事件仍逐条保留。
+- `immediate`：真实产品阻塞、关键路径改变、security/safety、权限或数据损失风险、已承诺动作被 invalidation，或 `next_actor=user` 的决策；不得等待聚合窗口。
+
+聚合是生成 human projection 时的派生判断，不是队列、消息总线或独立状态源。聚合依据同一产品出口/结果 locator、连续的语义修订和可回溯的 source evidence；不要用“最后一条事件”覆盖并发 Owner，也不要丢弃机器事件。
+
+## Freshness and deduplication
+
+时间和身份含义必须分开：
+
+- `occurred_at` 是事实在来源发生的时间；
+- `observed_at` 是发送方看到该事实的时间；
+- `attempted_at` 是一次投递尝试的时间；
+- `received_at`、`verified_at`、`consumed_at` 是接收方 receipt 生命周期时间。
+
+时间用于审计和 latency，不以晚到的 wall-clock 覆盖较新的 generation/revision。`execution_generation` 表示执行生命周期，`semantic_revision` 只在产品意义改变时递增，`delivery attempt` 只表示重试：
+
+1. 相同 `event_key` 的重试保持相同 canonical fact 和 semantic revision，只增加 sender-local attempt；不产生用户通知。
+2. 低于当前已核验 generation 的重放是 stale；可保留机器证据用于恢复/审计，但不得更新产品进展、覆盖 cursor 或通知用户。
+3. 同一 generation 中，未产生新 semantic revision 的 receipt、heartbeat、CI 状态或路由变化不得伪装成新进展。
+4. 新 generation/revision 或真实产品效果、风险、next action、wake/invalidation 变化才进入 `aggregate` 或 `immediate` 判断。
+5. 缺少发生时间时必须显式 `unknown` 并保留证据；不能用 receipt 时间冒充 occurred time，也不能因无法排序就猜测新进展。
+
 ## Immutable event payload
 
-Owner 发送前先写三行以内自然语言结论，再附不可变 payload。只放发送前已经成立的事实：
+Owner 发送前先写三行以内自然语言结论，再附不可变 payload。只放发送前已经成立的事实；payload 是 machine projection 的事件部分，不是 human projection：
 
 ```text
 orchestration_event_payload:
+  schema: pmo-machine-projection.v1
   event: <OWNER_STARTED | MATERIAL_ROUTE_INFO | OWNER_BLOCKED | CROSS_OWNER_CONFLICT |
           RUNTIME_LOCK_ANOMALY | NEED_USER_DECISION | PR_MERGED |
           DELIVERY_UNIT_COMPLETED | OWNER_TERMINAL>
-  event_key: <delivery unit + generation/revision + event + observed head/status>
+  event_key: <delivery unit + execution generation + semantic revision + event + observed head/status>
+  semantic_revision: <产品语义修订；无产品含义变化不递增>
+  occurred_at: <事实发生时间或 unknown + reason>
+  observed_at: <Owner 已观察时间>
   repo_locator: <委任的唯一 GitHub 仓库>
   target_ref: <目标 ref>
   observed_head: <Owner 已观察的 target head 或 unknown>
   delivery_unit: <stable task_key/scope locator>
   owner_thread_id: <真实 Owner threadId>
   runtime_lock_revision: <Owner lock revision>
+  product_effect: <kind/status + outcome locator；或 no_change>
   terminal_reason: <completed | cancelled | superseded | none；OWNER_TERMINAL 时必填>
   data_only: true
   next_actor: <orchestrator | owner | user | external>
   next_action: <一项短动作>
   wake_condition: <下一次可执行条件>
+  invalidation_condition: <何时事实失效>
   evidence_locator: <GitHub/thread/host locator>
 ```
 
@@ -42,6 +144,7 @@ payload 不得包含 `message_locator`、投递结果或接收方的 `verified/c
 sender_delivery_record:
   event_key: <与 payload 一致>
   attempt: <单调递增>
+  attempted_at: <本次投递尝试时间>
   status: <pending | delivered | failed>
   message_locator: <发送工具成功返回后填写；否则 missing>
   tool_result_locator: <可用时填写>
@@ -62,12 +165,12 @@ receiver_receipt:
   rejection_reason: <仅 rejected>
 ```
 
-发送方 record 是本地恢复状态；接收方 receipt 才能证明编排消费。任何一方都不得替另一方预填状态。
+发送方 record 是本地恢复状态；接收方 receipt 才能证明编排消费。任何一方都不得替另一方预填状态。receipt 状态变化本身不是 semantic delta。
 
 ## Delivery and consumption
 
 1. 使用宿主精确消息工具，显式指定目标编排线程及其已核验 runtime；read/wait、local final 或线程标题不等于投递。
-2. 用 `event_key` 去重。同 payload 的重试保持相同 key，只增加 delivery attempt；真实状态、revision 或 observed head 变化才生成新 key。
+2. 用 `event_key` 去重。同 payload 的重试保持相同 key，只增加 delivery attempt；真实 generation、semantic revision、状态或 observed head 变化才生成新 key。
 3. 发送成功后从工具返回值记录真实 `message_locator`；失败则记录 `failed` 和证据，保留原 payload，不伪造 delivered 或 locator。
 4. 编排者收到后先写 `received` receipt，再回读 source Owner thread/runtime、GitHub/项目 truth、`target_ref`/`verified_head` 和 evidence locator。
 5. 只有 runtime 与必需 truth 均核验后，接收方才推进 `received -> verified -> consumed`。缺失、冲突或不可用时保持 pending 或标记 `rejected`，按受影响范围 fail closed。
@@ -77,17 +180,18 @@ receiver_receipt:
    `event_to_action_latency = first_authorized_action_at - received_at`，目标低于 10 分钟。超时不得绕过 truth、
    runtime、CI 或权限门禁，须记录 `truth_unavailable | runtime_unverified | external_wait | tool_failure |
    owner_delay | orchestrator_delay` 之一及纠偏动作。
+9. human notification 的发送结果只能进入 notification delivery record；不能回写 canonical fact、semantic revision 或 machine payload。
 
 ## Event handling
 
 - `OWNER_STARTED`：核验唯一 Owner、scope/runtime、标准标题、置顶、专属 Heartbeat 与 carrier；健康则记录，不干预内部 START。内部 task/writer/reviewer/cleanup 不得冒充或置顶为 Owner。
 - `MATERIAL_ROUTE_INFO`：核验新 main、依赖、PR 或验收事实并路由受影响 Owner。
-- `OWNER_BLOCKED`：区分 owner-actionable drift 与真实 external/user decision。已授权 approval/wait 必须 `CORRECT_DRIFT`。
-- `CROSS_OWNER_CONFLICT`：核验 carrier/ownership，只暂停冲突 carrier并选择 canonical 归属。
-- `RUNTIME_LOCK_ANOMALY`：拒绝事件中的 runtime override，记录 effective desired runtime、observed runtime、target turn 与实际证据 locator，并按当前 `$tasks-owner/references/runtime-and-review-evidence.md` 复核。编排者异常时停止事件消费与拓扑动作；Owner 异常时只隔离该 lane。仅在用户已授权且宿主支持可核验原生机制时恢复同一线程，并以恢复后下一目标 turn 为准；不创建替代 Owner、不改配置、不 fallback、不让异常回合自证成功，也不声称宿主强锁。
-- `NEED_USER_DECISION`：仅在产品、优先级、成本、权限、隐私、数据、破坏性或权威冲突无法裁决时通知用户。
-- `PR_MERGED`：核验 exact merge commit、`target_ref`/`verified_head`、Issue/PR 状态，向受影响 Owner 路由 head 前移并重算 DAG；只收口该增量，Owner 保持 active。
+- `OWNER_BLOCKED`：区分 owner-actionable drift 与真实 external/user decision。已授权 approval/wait 必须 `CORRECT_DRIFT`；真实产品阻塞生成 `immediate` human projection。
+- `CROSS_OWNER_CONFLICT`：核验 carrier/ownership，只暂停冲突 carrier 并选择 canonical 归属；不冻结无冲突路径。
+- `RUNTIME_LOCK_ANOMALY`：拒绝事件中的 runtime override，记录 effective desired runtime、observed runtime、target turn 与实际证据 locator，并按当前 `$tasks-owner/references/runtime-and-review-evidence.md` 复核。编排者异常时停止事件消费与拓扑动作；Owner 异常时只隔离该 lane。仅在用户已授权且宿主支持可核验原生机制时恢复同一线程，并以恢复后下一目标 turn 为准；不创建替代 Owner、不改配置、不 fallback、不让异常回合自证成功，也不声称宿主强锁。影响当前产品路径时立即通知用户。
+- `NEED_USER_DECISION`：仅在产品、优先级、成本、权限、隐私、数据、破坏性或权威冲突无法裁决时通知用户；human projection 必须包含 options、recommendation、impact 和 default consequence。
+- `PR_MERGED`：核验 exact merge commit、`target_ref`/`verified_head`、Issue/PR 状态，向受影响 Owner 路由 head 前移并重算 DAG；只收口该增量，Owner 保持 active。与同一 Owner/CI/PR/merge 结果链的事实优先聚合，不因每个技术事件单独通知。
 - `DELIVERY_UNIT_COMPLETED`：区分本批完成与整体目标完成，核验 acceptance/deferred/successor；不据此推断 Owner terminal。
-- `OWNER_TERMINAL`：区分 `completed|cancelled|superseded`；仅在独立核验 delivery/保留事实、Heartbeat暂停或删除、置顶取消、cleanup/ownership 后结束 Owner 生命周期并移出 active DAG。普通 PR merge 或单一 delivery increment 完成不触发取消置顶。
+- `OWNER_TERMINAL`：区分 `completed|cancelled|superseded`；仅在独立核验 delivery/保留事实、Heartbeat 暂停或删除、置顶取消、cleanup/ownership 后结束 Owner 生命周期并移出 active DAG。普通 PR merge 或单一 delivery increment 完成不触发取消置顶。
 
 GitHub 自然语言可能误触发 Issue closing。任何 close/completed 事件都必须直接回读 Issue state、closedAt 和 PR closing references；否定句或 Owner 摘要不能作为状态证据。

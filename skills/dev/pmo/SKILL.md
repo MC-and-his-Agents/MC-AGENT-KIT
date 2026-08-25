@@ -2,7 +2,7 @@
 name: pmo
 description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner：维护交付前沿、关键路径、依赖、范围和产品出口，并在每个增量完成后推进 successor；跨仓库协调、单一交付单元内部执行、普通项目管理和一次性实现不使用本 Skill。
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # PMO
@@ -71,7 +71,7 @@ Heartbeat 唤醒后的第一项动作是完整重读当前 `SKILL.md`，再核�
 
 - Owner 创建、唤醒、恢复和 terminal：阅读 [owner-lifecycle.md](references/owner-lifecycle.md)。
 - Work Item 塑形、依赖、ready wave、carrier 和关键路径：阅读 [delivery-dag.md](references/delivery-dag.md)。
-- Owner 高层事件的边界、receipt 和路由：阅读 [event-contract.md](references/event-contract.md)。
+- Owner 高层事件的边界、receipt、语义增量、人类/机器投影和通知路由：阅读 [event-contract.md](references/event-contract.md)。
 - Heartbeat、checkpoint 和 handoff：阅读 [automation.md](references/automation.md)。
 
 这些 reference 是协议和 schema 的唯一细节来源；主 Skill 只说明判断与行动，不复制事件、DAG 或 Heartbeat 字段表。
