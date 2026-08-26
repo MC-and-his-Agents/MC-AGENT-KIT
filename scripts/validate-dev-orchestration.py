@@ -47,7 +47,7 @@ OWNER_ACTIONABLE_CLASSES = {
 }
 WAIT_CLASSES = {"active_execution", "waiting_external", "waiting_user"}
 GAP_REQUIRED_FIELDS = {
-    "gap_locator", "classification", "owner_or_next_actor", "evidence_locator",
+    "gap_locator", "product_exit_locator", "classification", "owner_or_next_actor", "evidence_locator",
     "wake_condition", "invalidation_condition",
 }
 WAITING_PROOF_FIELDS = {
@@ -72,6 +72,22 @@ CORE_FEEDBACK_FIELDS = {
 FINGERPRINT_FIELDS = {
     "affected_skill", "incident_root_cause_class", "governing_behavior_category", "platform_contract_major",
 }
+FEEDBACK_ACTIONS = {"search_issue", "read_issue", "create_issue", "add_comment"}
+FEEDBACK_FORBIDDEN_ACTIONS = {
+    "write_code", "create_branch", "create_pull_request", "merge_pull_request", "create_release",
+    "close_issue", "delete_issue", "update_milestone", "update_labels", "update_assignees",
+    "change_permissions", "install_skill", "update_skill", "reload_skill",
+}
+FEEDBACK_PRECONDITIONS = {
+    "skill_identity_match", "canonical_repository_match", "github_feedback_capability_available",
+    "dedupe_complete", "redaction_safe",
+}
+FEEDBACK_STATUSES = {"none", "candidate", "deduped", "submitted", "deferred_private"}
+FEEDBACK_TARGETS = {"pmo", "tasks-owner", "platform", "none"}
+SUBMISSION_FIELDS = {
+    "feedback_write_action", "feedback_submission_locator", "feedback_readback_verified", "skill_digest_unchanged",
+}
+OCCURRENCE_FIELDS = {"source_locator", "product_impact", "current_resolution", "root_cause_delta", "regression_delta"}
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -107,6 +123,53 @@ def feedback_fingerprint(facts: dict[str, Any], contract: dict[str, Any]) -> str
     return json.dumps([facts.get(field) for field in fields], ensure_ascii=False, separators=(",", ":"))
 
 
+def feedback_api_body(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "affected_skill": candidate.get("affected_skill"),
+        "retrospective_trigger": candidate.get("trigger"),
+        "observed_behavior": candidate.get("observed_behavior"),
+        "expected_behavior": candidate.get("expected_behavior"),
+        "product_impact": candidate.get("product_impact"),
+        "current_resolution": candidate.get("current_resolution"),
+        "generalizable_root_cause": candidate.get("generalizable_reason"),
+        "proposed_regression": candidate.get("regression_proposal"),
+        "redacted_evidence": candidate.get("source_locator"),
+        "fingerprint_occurrence": candidate.get("fingerprint_seed"),
+    }
+
+
+def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
+    if not facts.get("retrospective"):
+        return []
+    root_cause = facts.get("root_cause_target")
+    if root_cause not in {"project", "planning", "skill", "platform"}:
+        return ["执行复盘 root_cause_target 无效"]
+    if root_cause in {"project", "planning"}:
+        return []
+    if facts.get("current_delivery_action"):
+        return []
+    if facts.get("product_actions_complete") is not True:
+        return ["Skill feedback 必须后于产品恢复与纠偏"]
+    candidate = facts.get("feedback_candidate")
+    if not isinstance(candidate, dict) or set(candidate) != RETROSPECTIVE_CANDIDATE_FIELDS:
+        return ["Skill feedback candidate 字段不完整"]
+    if any(not real_locator(candidate.get(field)) for field in RETROSPECTIVE_CANDIDATE_FIELDS):
+        return ["Skill feedback candidate 字段必须可回读"]
+    if candidate.get("trigger") != facts.get("retrospective") or candidate.get("affected_skill") not in {"pmo", "tasks-owner"}:
+        return ["Skill feedback candidate 的 trigger 或 affected_skill 无效"]
+    if facts.get("feedback_write_action") == "create_issue":
+        body = facts.get("feedback_api_body")
+        if not isinstance(body, dict) or set(body) != CORE_FEEDBACK_FIELDS or body != feedback_api_body(candidate):
+            return ["create_issue 必须显式投影完整且等价的 API body"]
+    if facts.get("existing_feedback_issue") and facts.get("feedback_dedupe_complete") is True:
+        occurrence = facts.get("feedback_occurrence")
+        if not isinstance(occurrence, dict) or set(occurrence) != OCCURRENCE_FIELDS or any(
+            not real_locator(occurrence.get(field)) for field in OCCURRENCE_FIELDS
+        ):
+            return ["同 fingerprint occurrence comment 字段不完整"]
+    return []
+
+
 def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     exits = facts.get("product_exit_locators")
@@ -118,6 +181,7 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
     if not isinstance(gaps, list):
         return errors + ["gaps 必须是列表"]
     locators: set[str] = set()
+    linked_exits: set[str] = set()
     for gap in gaps:
         if not isinstance(gap, dict) or not GAP_REQUIRED_FIELDS <= set(gap):
             errors.append("gap 缺少机器合同字段")
@@ -128,6 +192,7 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
         if locator in locators:
             errors.append("gap_locator 重复")
         locators.add(locator)
+        linked_exits.add(gap.get("product_exit_locator"))
         classification = gap.get("classification")
         if classification not in FRONTIER_CLASSES:
             errors.append("gap classification 无效")
@@ -147,10 +212,18 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
         errors.append("产品出口未完成时必须枚举出口")
     if facts.get("frontier_closure_status") == "complete" and not facts.get("product_exit_complete") and not gaps:
         errors.append("完整前沿必须枚举剩余差距")
+    if (
+        facts.get("frontier_closure_status") == "complete"
+        and isinstance(exits, list)
+        and linked_exits != set(exits)
+    ):
+        errors.append("完整前沿必须让每个产品出口至少关联一个已分类 gap，且不能引用未知出口")
     return errors
 
 
 def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
+    if cycle_fact_errors(facts):
+        return "progressed", ["recompute_product_frontier"]
     actions: list[str] = []
     gaps = facts.get("gaps") if isinstance(facts.get("gaps"), list) else []
     classes = {gap.get("classification") for gap in gaps if isinstance(gap, dict)}
@@ -209,13 +282,15 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
         trigger = facts.get("retrospective")
         if trigger not in RETROSPECTIVE_TRIGGERS:
             return "continue_delivery"
-        if facts.get("root_cause_target") in {"project", "planning"} or facts.get("feedback_candidate_complete") is not True:
+        if facts.get("root_cause_target") in {"project", "planning"}:
+            return "continue_delivery"
+        if facts.get("root_cause_target") not in {"skill", "platform"} or feedback_fact_errors(facts):
             return "continue_delivery"
         if facts.get("feedback_redaction_safe") is not True:
             return "deferred_private"
         if facts.get("skill_identity_match") is not True or facts.get("canonical_repository_match") is not True:
             return "deferred_private"
-        if facts.get("feedback_write_action") not in {None, "search_issue", "read_issue", "create_issue", "add_comment"}:
+        if facts.get("feedback_write_action") not in FEEDBACK_ACTIONS | {None}:
             return "deferred_private"
         if facts.get("feedback_dedupe_complete") is not True:
             return "candidate"
@@ -324,10 +399,16 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     }
     if not required_feedback <= set(feedback):
         errors.append("Skill 反馈合同不完整")
-    elif set(feedback.get("allowed_actions", [])) != {"search_issue", "read_issue", "create_issue", "add_comment"}:
+    elif set(feedback.get("allowed_actions", [])) != FEEDBACK_ACTIONS:
         errors.append("Skill 反馈动作 allowlist 错误")
-    elif set(feedback.get("canonical_repositories", {}).values()) != {"MC-and-his-Agents/MC-AGENT-KIT"}:
+    elif feedback.get("canonical_repositories") != {
+        "pmo": "MC-and-his-Agents/MC-AGENT-KIT", "tasks-owner": "MC-and-his-Agents/MC-AGENT-KIT",
+    }:
         errors.append("Skill 反馈 canonical repository 错误")
+    elif set(feedback.get("forbidden_actions", [])) != FEEDBACK_FORBIDDEN_ACTIONS:
+        errors.append("Skill 反馈 forbidden actions 不完整")
+    elif set(feedback.get("submission_preconditions", [])) != FEEDBACK_PRECONDITIONS:
+        errors.append("Skill 反馈提交前置条件漂移或重新引入逐次授权")
     elif set(feedback.get("core_semantic_fields", [])) != CORE_FEEDBACK_FIELDS:
         errors.append("Skill 反馈核心语义字段错误")
     elif set(feedback.get("fingerprint_fields", [])) != FINGERPRINT_FIELDS:
@@ -338,6 +419,10 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("Skill 反馈 occurrence 字段错误")
     elif set(feedback.get("checkpoint_fields", [])) != {"feedback_fingerprint", "feedback_issue_locator", "last_occurrence_locator", "feedback_status", "next_action"}:
         errors.append("Skill 反馈 checkpoint 复制了长期正文")
+    elif set(feedback.get("feedback_status", [])) != FEEDBACK_STATUSES or set(feedback.get("feedback_target", [])) != FEEDBACK_TARGETS:
+        errors.append("Skill 反馈状态或目标枚举不完整")
+    elif set(feedback.get("submission_required_fields", [])) != SUBMISSION_FIELDS:
+        errors.append("Skill 反馈 submitted readback 门不完整")
     elif feedback.get("failure_status") != {
         "candidate": ["dedupe_incomplete", "tool_unavailable", "write_failed", "readback_unavailable"],
         "deferred_private": ["redaction_unsafe", "canonical_repository_mismatch", "skill_identity_mismatch", "action_not_allowed"],
@@ -355,15 +440,29 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
 
 def feedback_form_errors(contract: dict[str, Any], text: str) -> list[str]:
     feedback = contract["skill_feedback"]
-    form_ids = re.findall(r"^\s+id:\s*([a-z0-9_-]+)\s*$", text, re.MULTILINE)
+    blocks = re.split(r"(?m)(?=^  - type:)", text)
+    controls: dict[str, str] = {}
+    for block in blocks:
+        kind = re.search(r"(?m)^  - type:\s*([a-z0-9_-]+)\s*$", block)
+        if not kind or kind.group(1) == "markdown":
+            continue
+        identifier = re.search(r"(?m)^ {4}id:\s*([a-z0-9_-]+)\s*$", block)
+        if not identifier or identifier.group(1) in controls:
+            return ["Skill feedback Form 控件缺少唯一直接 id"]
+        controls[identifier.group(1)] = block
+    form_ids = list(controls)
     if len(form_ids) != len(set(form_ids)):
         return ["Skill feedback Form 存在重复字段"]
     if set(form_ids) != set(feedback["core_semantic_fields"]):
         return ["Skill feedback Form 与机器 schema 的核心语义字段漂移"]
-    if text.count("required: true") != len(form_ids):
+    if any(not re.search(r"(?m)^ {6}required:\s*true\s*$", block) for block in controls.values()):
         return ["Skill feedback Form 的核心语义字段必须全部必填"]
-    if any(trigger not in text for trigger in contract["execution_retrospective"]["triggers"]):
+    trigger_options = set(re.findall(r"(?m)^ {8}-\s*(.+?)\s*$", controls.get("retrospective_trigger", "")))
+    if trigger_options != set(contract["execution_retrospective"]["triggers"]):
         return ["Skill feedback Form 的 retrospective trigger 投影不完整"]
+    affected_options = set(re.findall(r"(?m)^ {8}-\s*(.+?)\s*$", controls.get("affected_skill", "")))
+    if affected_options != {"pmo", "tasks-owner", "platform / host"}:
+        return ["Skill feedback Form 的 affected skill 投影不完整"]
     if feedback["canonical_issue_form"] != str(FEEDBACK_FORM.relative_to(ROOT)):
         return ["Skill feedback Form locator 与机器合同不一致"]
     if "dev-orchestration-contract.json" not in text:
@@ -504,6 +603,7 @@ def validate_integration(rows: list[dict[str, Any]]) -> list[str]:
             errors.append(f"integration line {line}: ID 重复")
         ids.add(row["id"])
         outcomes.add(row["expected"])
+        errors.extend(f"integration line {line}: {error}" for error in feedback_fact_errors(row["facts"]))
         if derive_integration(row["facts"]) != row["expected"]:
             errors.append(f"integration line {line}: 期望与事实不一致")
         if row["expected"] in {"activate_owner", "admit_unit_writer"}:
@@ -576,6 +676,9 @@ def self_test() -> list[str]:
         ("复盘 trigger", lambda value: value["execution_retrospective"]["triggers"].remove("explicit_skill_correction")),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
+        ("逐次反馈授权", lambda value: value["skill_feedback"]["submission_preconditions"].append("skill_feedback_authority")),
+        ("canonical Skill 映射", lambda value: value["skill_feedback"]["canonical_repositories"].pop("pmo")),
+        ("反馈状态", lambda value: value["skill_feedback"]["feedback_status"].remove("candidate")),
         ("fingerprint 字段", lambda value: value["skill_feedback"]["fingerprint_fields"].append("head")),
         ("反馈失败状态", lambda value: value["skill_feedback"]["failure_status"]["candidate"].remove("write_failed")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
@@ -607,6 +710,11 @@ def self_test() -> list[str]:
         mutate(wait_case["facts"])
         if not validate_cycles(bad_wait):
             failures.append(f"{label}变异未被拒绝")
+    missing_exit_gap = copy.deepcopy(cycles)
+    multi_exit = next(row for row in missing_exit_gap if row["id"] == "multi-exit-closure")
+    multi_exit["facts"]["gaps"].pop()
+    if not validate_cycles(missing_exit_gap):
+        failures.append("漏掉整个产品出口 gap 的闭包变异未被拒绝")
     integration = load_jsonl(INTEGRATION)
     bad_integration = copy.deepcopy(integration)
     next(row for row in bad_integration if row["id"] == "head-change-keeps-unit")["expected"] = "new_unit"
@@ -664,11 +772,33 @@ def self_test() -> list[str]:
         mutate(submission["facts"])
         if not validate_integration(bad_submission):
             failures.append(f"缺少{label}的反馈提交变异未被拒绝")
+    for label, mutate in (
+        ("产品动作优先", lambda facts: facts.update(product_actions_complete=False)),
+        ("根因枚举", lambda facts: facts.update(root_cause_target="unclassified")),
+        ("candidate 字段", lambda facts: facts["feedback_candidate"].pop("product_impact")),
+        ("API body 字段", lambda facts: facts["feedback_api_body"].pop("product_impact")),
+    ):
+        bad_payload = copy.deepcopy(integration)
+        payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-no-per-run-authority")
+        mutate(payload_case["facts"])
+        if not validate_integration(bad_payload):
+            failures.append(f"破坏{label}的反馈变异未被拒绝")
+    bad_occurrence = copy.deepcopy(integration)
+    next(row for row in bad_occurrence if row["id"] == "existing-feedback-occurrence")["facts"]["feedback_occurrence"].pop("source_locator")
+    if not validate_integration(bad_occurrence):
+        failures.append("缺少 occurrence 字段的反馈变异未被拒绝")
     form_text = FEEDBACK_FORM.read_text(encoding="utf-8")
     if not feedback_form_errors(contract, form_text.replace("id: product_impact", "id: product_value")):
         failures.append("Form 与机器 schema 漂移的变异未被拒绝")
     if not feedback_form_errors(contract, form_text.replace("required: true", "required: false", 1)):
         failures.append("Form 核心必填字段失效的变异未被拒绝")
+    forged_form = re.sub(
+        r"(?ms)^  - type: textarea\n    id: product_impact\n.*?(?=^  - type:|\Z)",
+        "",
+        form_text,
+    ).replace("value: |\n", "value: |\n        id: product_impact\n        required: true\n", 1)
+    if not feedback_form_errors(contract, forged_form):
+        failures.append("藏在 markdown 中的伪 Form 字段绕过了结构校验")
     fingerprint_facts = {
         "affected_skill": "pmo", "incident_root_cause_class": "skill",
         "governing_behavior_category": "frontier-closure", "platform_contract_major": 1,

@@ -151,6 +151,7 @@
     ],
     "gap_required_fields": [
       "gap_locator",
+      "product_exit_locator",
       "classification",
       "owner_or_next_actor",
       "evidence_locator",
