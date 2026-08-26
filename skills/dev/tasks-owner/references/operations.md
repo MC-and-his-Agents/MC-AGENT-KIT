@@ -29,7 +29,9 @@ Heartbeat、handoff 和历史动作不能扩权。
 
 1. **同步：** 核验目标、验收、范围、授权、GitHub、线程、工作树、PR、head 和未消费事件。
 2. **差距：** 更新产品出口、最近未完成步骤、关键路径、验收矩阵、ownership 和下一解锁条件。
-3. **分类：** 逐条判断 `execution_ready | owner_actionable | external_blocked`；旧 ready 或 handoff 只作线索。
+3. **分类：** 逐条判断共享机器合同的 `execution_ready | admission_pending | active_execution | waiting_external |
+   waiting_user | replan_or_reownership_pending | closeout_pending`；旧 `owner_actionable/external_blocked`、ready 或 handoff
+   只作迁移线索，不能作为当前分类或等待证明。
 4. **行动：** 在授权内完成调查、规划修订、依赖/归属纠偏、调度和收口；需要产品或权限权威时只暂停受影响动作。
 5. **准入：** readiness、能力兼容、系统性闭包（适用时）、执行模式、正式工作树、合同、运行证据和启动握手全部通过后，writer 才能开始。
 6. **监督：** 回读真实状态，处理 scope delta、重复 blocker、下游反向信号和交付异常；无冲突工作继续。

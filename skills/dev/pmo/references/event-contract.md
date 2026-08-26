@@ -16,6 +16,7 @@ PMO 不再用一个互斥 verdict 代表整个周期。每个周期从已核验�
 product_exit_locators: <全部未完成产品出口>
 gaps:
   - gap_locator: <稳定差距 locator>
+    product_exit_locator: <该 gap 所属的未完成产品出口>
     classification: execution_ready | admission_pending | active_execution | waiting_external |
                     waiting_user | replan_or_reownership_pending | closeout_pending
     owner_or_next_actor: <责任方>
