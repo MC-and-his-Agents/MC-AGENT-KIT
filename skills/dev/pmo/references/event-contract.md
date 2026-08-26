@@ -13,15 +13,22 @@
 PMO 不再用一个互斥 verdict 代表整个周期。每个周期从已核验事实派生：
 
 ```text
-remaining_gap_ids: <全部未完成差距>
-executable_gap_ids: <现在可安全推进的差距>
-user_decision_gap_ids: <必须由用户决定的差距>
-evidenced_wait_gap_ids: <有合法外部等待证明的差距>
-unshaped_gap_ids: <需要 PMO 塑形的差距>
+product_exit_locators: <全部未完成产品出口>
+gaps:
+  - gap_locator: <稳定差距 locator>
+    classification: execution_ready | admission_pending | active_execution | waiting_external |
+                    waiting_user | replan_or_reownership_pending | closeout_pending
+    owner_or_next_actor: <责任方>
+    evidence_locator: <当前事实>
+    wake_condition: <恢复条件>
+    invalidation_condition: <失效条件>
+    waiting_proof: <仅 waiting_external 必填>
+frontier_closure_status: complete | incomplete
 cycle_status: progressed | partially_blocked | waiting | completed
 actions:
   - closeout_unit
   - correct_drift
+  - recompute_product_frontier
   - route_delta
   - shape_work_item
   - create_or_wake_owner
@@ -31,18 +38,22 @@ actions:
   - submit_or_update_skill_feedback
 ```
 
-产品动作按“收口、纠偏、路由、塑形、创建或唤醒 Owner、局部用户决策、有证据等待”的顺序执行；只执行
+产品动作按“收口、纠偏、重算前沿、路由、塑形、创建或唤醒 Owner、局部用户决策、有证据等待”的顺序执行；只执行
 当前事实需要的项。一个周期可以组合多项，例如 merge 后同时收口、纠偏依赖、路由新 head 并启动后继。
 用户决策只暂停受影响动作，无冲突路径继续。
 `request_user_decision` 已包含该决策范围的等待与恢复条件；同一差距不得再追加
 `record_evidenced_wait`。后者只用于不需要用户决策的真实外部等待。
-所有分类都必须引用 `remaining_gap_ids` 中的稳定差距 ID。产品出口未完成且没有产品动作时，用户决策与普通等待
-必须互不重叠并完整覆盖全部剩余差距；零证明、漏掉一个差距或仍有可执行差距都不能返回 `waiting`。等待证据
-失效后，将对应差距移回可执行或待塑形集合，同周期恢复推进。
+每个未完成出口和 gap 必须恰好出现一次。只有 `frontier_closure_status=complete`，且所有剩余 gap 都是
+`active_execution`、`waiting_external` 或 `waiting_user`，整个周期才可等待。`waiting_external` 的 proof 必须有
+subject、不可替代 external condition、responsible party、evidence locator、observed_at/freshness、wake 与
+invalidation；缺任一项即改为 `replan_or_reownership_pending`。Issue 仍 OPEN、历史 blocked-by/handoff、旧 external
+描述、`ready=0` 或没有 writer 都不是等待证明。关系、merge、Owner、外部事实或用户纠偏变化时，同周期失效旧 proof
+并重算；漏掉一个出口或仍有 owner-actionable gap 都不能返回 `waiting`。
 
 `record_skill_feedback_candidate` 和 `submit_or_update_skill_feedback` 是低优先级治理动作，不改变产品
-`semantic_revision`。只有当前产品动作已经完成、候选已到期、去重和独立反馈授权有效时，才可提交或补充
-反馈；每周期最多一次外部写入。无授权、目标不匹配或不能安全脱敏时只保留候选。
+`semantic_revision`。只有当前产品动作已经完成、候选已到期，并通过 canonical repository、GitHub capability、去重
+和脱敏检查时，才可提交或补充反馈；每周期最多一次外部写入。canonical 仓库不要求逐次反馈授权；非 canonical
+写入仍使用普通用户授权。目标不匹配、工具不可用、去重不完整或不能安全脱敏时只保留候选。
 
 - `progressed`：完成了产品推进动作，且没有必须等待的受影响差距。
 - `partially_blocked`：完成了可执行产品动作，但仍有局部用户决策或有证据等待。

@@ -27,7 +27,9 @@ delivery_unit:
   dependencies: <hard | soft | convergence + locator>
   capability_compatibility: <compatible | missing | incompatible | provided_by_current_batch | not_applicable + locator>
   execution_mode: <direct | flat | hierarchical + selection evidence locator>
-  readiness: <planning_not_ready | execution_ready | owner_actionable | external_blocked>
+  readiness: <planning_not_ready | execution_ready>
+  frontier_classification: <execution_ready | admission_pending | active_execution | waiting_external |
+    waiting_user | replan_or_reownership_pending | closeout_pending>
   pmo_admission_contract: <tasks-owner contract locator>
   owner_sparse_delta: <canonical event/evidence locator or none>
   parent_outcome: <Parent/Milestone exit evidence locator + short status>
@@ -49,12 +51,32 @@ delivery_unit:
 4. 事实足够且有 `planning_writes` 时创建、修订或拆分 GitHub Issue；缺少写权限时输出同等精度的草案。事实不足时标记 `planning_not_ready`，记录缺失事实、decision owner 和 wake condition。
 5. 已有 Owner 范围内的 Issue shaping 归该 Owner；编排者只处理无主 FR、跨交付单元边界和关系，避免双写权威规划事实。
 
-### Remaining-gap classification
+### 产品前沿闭包
+
+每次重大用户纠偏、Unit merge/closeout、依赖解除、Owner terminal、waiting proof 失效、长期
+`actual implementation width=1` 且产品目标未完成，或 Deep Audit 时，重新枚举全部未完成产品出口和直接 gap。
+每个 gap 必须且只能进入机器合同定义的一种 `frontier_classification`，并保存 gap locator、owner/next actor、
+evidence、wake 和 invalidation locator；完整 GitHub 快照仍留在 GitHub。
+
+- `execution_ready`：安全开始条件已满足；本周期启动或形成 Unit。
+- `admission_pending`：工作 ready，但缺唯一 Owner、writer admission、正式 carrier 或其他 Owner 可补齐门禁。
+- `active_execution`：已有唯一 Owner/writer 正在真实推进。
+- `waiting_external`：不可替代外部事实阻塞，且完整 waiting proof 新鲜有效。
+- `waiting_user`：确需用户裁决产品、权限、重大风险或不可逆外部结果。
+- `replan_or_reownership_pending`：旧方案/归属失效，需要塑形或恢复责任路径。
+- `closeout_pending`：产品出口已满足，但 GitHub/Owner/Parent truth 尚未收口。
+
+周期结束前必须记录 `frontier_closure_status=complete | incomplete`。只有 complete，且全部剩余 gap 都是
+`active_execution | waiting_external | waiting_user` 时才允许整体等待。Issue OPEN、父项 OPEN、历史 blocked-by、
+旧 handoff/next actor、旧 carrier、`ready=0` 或没有 writer 都不能单独证明等待。共享 carrier 只限制第二 writer；
+只读 readiness、Unit/Owner 塑形、后继登记和 ready/admission frontier 仍须保持可见。
+
+### 恢复期 gap classification
 
 目标未完成且没有 admitted implementation 或 pending admission 时，对每个剩余差距只允许以下可审计分类：
 
-- `owner_actionable`：Parent/Issue 已约束用户结果，仓内 Core、标准协议、成熟开源薄适配或最窄合同切片足以形成首个消费者；缺少现成内部合同不改变此分类。
-- `external_blocked`：安全开始确实需要仓库外 capability、账户、授权、真实数据或人工证据；必须记录责任方、exact smoke/证据模板和 wake condition。
+- `owner_actionable`：恢复审计输入；重算后必须进入 `execution_ready | admission_pending | replan_or_reownership_pending | closeout_pending` 并产生动作。
+- `external_blocked`：恢复审计输入；只有完整 waiting proof 成立后才可进入 `waiting_external`。
 - `user_decision`：存在会实质改变产品范围、优先级、成本、权限、隐私、数据或重大外部结果的多个合法方向，且权威事实无法裁决。
 - `waiting_task`：已有真实、唯一且仍在执行或收敛的任务 locator；计划、旧摘要或空 Owner 不成立。
 
@@ -88,7 +110,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
 
 1. 回读唯一仓库范围内所有 milestone/FR/Issue、parent/sub-issue/blocked-by、PR 与 `target_ref`/`verified_head`，并记录每个必需来源的 `truth_status`。
 2. 回读活动 Owner 的真实 thread/runtime/status、其声明的 delivery unit、写入 carrier、下一动作和专属 Heartbeat。
-3. 按上方 planning horizon 审计 FR→Work Item 覆盖；必要时执行 `SHAPE_WORK_ITEMS`，再将每项未满足验收映射到一个 delivery unit、一个 Owner 或 `none`、一个 closeout consumer。
+3. 按上方 planning horizon 审计 FR→Work Item 覆盖；必要时执行 `SHAPE_WORK_ITEMS`，再重新枚举全部产品出口和直接 gap，形成 complete product frontier。
 4. 优先形成最小有效 tight batch：共享 carrier、验证矩阵和 closeout lane 的动作默认同属一个 unit；只有独立用户价值、风险/权限/数据边界、ownership、真实 hard dependency 或独立回滚证据才拆分。
 5. 逐条重新分类依赖：
    - `hard`：缺失时连安全开始最小薄切片都不可能；必须有安全开始反事实、fixture/recorded-contract 不足理由、residual integration 与 deferred boundary。
@@ -96,7 +118,7 @@ blocker 由 Owner 用普通语言注明缺什么、阻塞 shaping/admission/impl
    - `convergence`：只阻最终 merge、认证或 closeout。
 6. 将可用 fixture、recorded contract、只读准备或隔离 carrier 的部分从整体 hard 依赖中释放；只保留真实 residual hard。
 7. 对首个消费者依赖的既有 Core/platform/store/host seam，回读 Owner 按当前 `$tasks-owner` 形成的存在性、required/observed semantics 与最小 probe/contract evidence。`missing|incompatible` 时把差距放回 scope/dependency shaping；没有证据时不得把 writer START 算作有效 implementation。
-8. 计算无 hard blocker、readiness 完整、capability compatibility 通过、无用户 hold、无 carrier 冲突且所需 truth 已核验的 `execution_ready` 单元。
+8. 计算无 hard blocker、readiness 完整、capability compatibility 通过、无用户 hold、无 carrier 冲突且所需 truth 已核验的 `execution_ready` 单元；ready 但缺运行准入的范围进入 `admission_pending`，不得从前沿消失。
 9. 按用户/宿主可回读容量选择 ready wave；未知容量不等于零，也不授权制造工作。
 
 若 truth 为 `partial`，只重算完全落在 verified slice 内的节点和边；若为 `unavailable`，保留上次状态作为历史索引但不得据此创建 Owner、重分类依赖、转移 carrier 或声明完成。记录缺失 locator 与 wake condition，其他已核验 lane 继续。

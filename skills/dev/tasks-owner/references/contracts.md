@@ -6,16 +6,18 @@
 ## 权限与跨 Skill 合同
 
 Owner 原样保存用户明确授予的动作、排除项和独立 Automation 授权；缺失或含糊的动作保持只读。
-PMO admission、Owner mandate、Unit/convergence 身份、稀疏增量与反馈授权只使用机器合同，不复制第二份 schema。
+PMO admission、Owner mandate、Unit/convergence 身份、稀疏增量与反馈 schema/capability 只使用机器合同，不复制第二份 schema。
 
 PMO admission 只改变 `authority_origin`。Owner 只发送合同允许的 `owner_sparse_delta`；commit、测试、普通
 review、Heartbeat 和线程活性留在 Unit 内。反馈候选与产品增量正交，checkpoint 仅保留：
 
 ```text
 skill_feedback_candidate_locator
-skill_feedback_authority_locator
+feedback_fingerprint
+feedback_issue_locator
+last_occurrence_locator
 feedback_status: none | candidate | deduped | submitted | deferred_private
-feedback_target: pmo | tasks-owner | platform | none
+next_action
 ```
 
 ## 准入

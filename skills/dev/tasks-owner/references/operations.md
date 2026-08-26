@@ -56,9 +56,10 @@ checkpoint 只保存目标/范围/授权 locator、验收矩阵 locator、任务
 收敛/审查/清理状态、未消费事件和 next actor/action/wake condition；不保存完整日志、prompt、env、token、
 Issue 正文或完整项目快照。
 
-## 低频执行复盘
+## 自主、低频执行复盘
 
-复盘不是每轮必做，也不由固定时间自动生成报告。强触发包括：同类错误再次出现；有界修复或系统性闭包后仍重复；
+复盘不是每轮必做，也不由固定时间自动生成报告。`user_correction` 先完成产品恢复和 Owner 纠偏，再轻量判断是否
+具有可泛化根因；`explicit_skill_correction` 单次即可形成 Skill retrospective，不要求跨任务重复。其他强触发包括：同类错误再次出现；有界修复或系统性闭包后仍重复；
 连续工程活动但产品/使能进展不变；重复错误等待或 scope/dependency/ownership 漂移；合同/唯一事实源冲突；
 平台假设被真实宿主反复否定；用户在不同任务重复纠正同一行为；单次但造成安全、数据损失、权限越界或错误外部
 结果的高影响事故。单次项目 bug、普通 review finding、CI 波动和正常可恢复工具失败不自动形成 Skill 候选。
@@ -71,9 +72,10 @@ Issue 正文或完整项目快照。
 - Skill 行为/合同缺陷：形成 `skill_feedback_candidate`；
 - 平台/宿主能力缺陷：形成 platform candidate。
 
-候选必须有现实影响，并具备可泛化、可复现或高影响证据。checkpoint 只保存 fingerprint、source locator、
-product-resolution locator、feedback status/target、submission locator、disclosure status 和 next action。
-提交前按 [codex-app.md](codex-app.md) 搜索并去重，跨仓库写入必须有独立 `skill_feedback_authority`；
-命中同根 Issue 时只补充评论；没有命中且授权允许 `create_issue` 时才新建。创建或评论成功后必须回读真实 locator
-才能标记 `submitted`；创建失败、目标仓库不符、搜索失败或 locator 无法回读时保持 `candidate/deferred_private`。
+候选按共享机器合同记录 affected skill、trigger、observed/expected behavior、product impact、current resolution、
+generalizable reason、regression proposal、source、disclosure 与 fingerprint seed。checkpoint 只保存 feedback fingerprint、
+Issue/last occurrence locator、status 和 next action。提交前按 [codex-app.md](codex-app.md) 搜索 open 与近期 closed Issue
+并去重；命中同 fingerprint 时只补 occurrence comment，没有命中且 canonical capability 允许时才新建。创建或评论成功后
+必须回读真实 locator 才能标记 `submitted`；创建失败、目标仓库不符、搜索不完整、工具不可用或 locator 无法回读时
+保持 `candidate/deferred_private` 并保留可复制脱敏草案和 wake condition。
 反馈不算产品进展，也不改变当前 Skill digest。
