@@ -89,7 +89,8 @@ PMO 对自身的全局出口、ownership 与依赖行为负责，不接管 Unit 
 
 反馈动作只在当前产品恢复、纠偏、路由、successor、merge/closeout 都已完成后运行。PMO 每次最多完成一次
 去重搜索和一次 create/comment；canonical 仓库由共享机器合同固定，只核验 Skill identity、GitHub capability、仓库
-匹配、去重和脱敏，不要求逐次反馈授权。否则只保存 candidate locator、short status 与 wake condition。
+匹配、去重和脱敏，不要求逐次反馈授权。搜索/工具/write/readback 暂不可用时保持 candidate；只有隐私、目标身份或
+动作越权失败才是 deferred_private。两者都只保存 locator、short status 与 wake condition。
 完整 retrospective 只持久化到 canonical repository 的 Skill feedback Issue；不建 JSON、事故目录或第二数据库。
 fingerprint 只使用 affected skill、根因类别、受约束行为类别和平台合同主版本，不使用 branch、PR、head、Owner、
 Unit、generation 或 Heartbeat。先搜索 open 与近期 closed Issue；同 fingerprint 只追加 occurrence comment，新根因才

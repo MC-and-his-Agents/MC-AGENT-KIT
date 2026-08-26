@@ -54,6 +54,7 @@ affected skill、retrospective trigger、observed/expected behavior、product im
 root cause、proposed regression、redacted evidence 与 fingerprint/occurrence；不得假设 `create_issue` 会自动套用 Form。
 Issue 是完整 retrospective 的唯一长期正文；checkpoint 只保存 fingerprint、Issue/occurrence locator、status 与下一动作。
 
-非 canonical 仓库仍须普通用户授权；仓库不匹配、动作不在 allowlist、搜索失败到无法可靠去重、工具不可用或无法安全脱敏时，不写外部仓库，状态保持
-`candidate` 或 `deferred_private`。不得提交凭据、环境变量、完整用户消息、完整线程/rollout、私有代码、
+非 canonical 仓库仍须普通用户授权。搜索不完整、工具不可用、写入失败或 readback 不可用时保持 `candidate`，
+保留脱敏草案与 wake condition 且不自动重复创建；仓库/Skill identity 不匹配、动作不在 allowlist 或无法安全脱敏时
+才是 `deferred_private`。不得提交凭据、环境变量、完整用户消息、完整线程/rollout、私有代码、
 未授权业务数据或无必要的绝对路径。反馈成功也不允许自动修改、安装、更新、重载或发布当前 Skill。

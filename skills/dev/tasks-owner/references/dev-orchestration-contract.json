@@ -318,6 +318,20 @@
       "deferred_private"
     ],
     "feedback_target": ["pmo", "tasks-owner", "platform", "none"],
+    "failure_status": {
+      "candidate": [
+        "dedupe_incomplete",
+        "tool_unavailable",
+        "write_failed",
+        "readback_unavailable"
+      ],
+      "deferred_private": [
+        "redaction_unsafe",
+        "canonical_repository_mismatch",
+        "skill_identity_mismatch",
+        "action_not_allowed"
+      ]
+    },
     "submission_required_fields": [
       "feedback_write_action",
       "feedback_submission_locator",

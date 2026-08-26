@@ -49,6 +49,9 @@ subject、不可替代 external condition、responsible party、evidence locator
 invalidation；缺任一项即改为 `replan_or_reownership_pending`。Issue 仍 OPEN、历史 blocked-by/handoff、旧 external
 描述、`ready=0` 或没有 writer 都不是等待证明。关系、merge、Owner、外部事实或用户纠偏变化时，同周期失效旧 proof
 并重算；漏掉一个出口或仍有 owner-actionable gap 都不能返回 `waiting`。
+`complete` 只证明枚举、分类与证据闭包完整；即使仍有 execution/admission/replan/closeout 动作也应为 complete，
+并在同一周期继续执行。只有未知或漏项才是 incomplete。重算触发已执行时，即使最终 closure 已恢复 complete，
+`actions[]` 仍记录 `recompute_product_frontier`。
 
 `record_skill_feedback_candidate` 和 `submit_or_update_skill_feedback` 是低优先级治理动作，不改变产品
 `semantic_revision`。只有当前产品动作已经完成、候选已到期，并通过 canonical repository、GitHub capability、去重

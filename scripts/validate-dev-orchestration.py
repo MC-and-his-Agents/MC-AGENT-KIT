@@ -160,7 +160,7 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
         actions.append("closeout_unit")
     if facts.get("drift_detected"):
         actions.append("correct_drift")
-    if facts.get("frontier_closure_status") == "incomplete":
+    if facts.get("frontier_recomputed") is True or facts.get("frontier_closure_status") == "incomplete":
         actions.append("recompute_product_frontier")
     if facts.get("route_delta_ready"):
         actions.append("route_delta")
@@ -318,6 +318,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         "canonical_repositories", "canonical_issue_form", "allowed_actions", "forbidden_actions",
         "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
         "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
+        "failure_status",
         "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
         "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
     }
@@ -337,6 +338,11 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("Skill 反馈 occurrence 字段错误")
     elif set(feedback.get("checkpoint_fields", [])) != {"feedback_fingerprint", "feedback_issue_locator", "last_occurrence_locator", "feedback_status", "next_action"}:
         errors.append("Skill 反馈 checkpoint 复制了长期正文")
+    elif feedback.get("failure_status") != {
+        "candidate": ["dedupe_incomplete", "tool_unavailable", "write_failed", "readback_unavailable"],
+        "deferred_private": ["redaction_unsafe", "canonical_repository_mismatch", "skill_identity_mismatch", "action_not_allowed"],
+    }:
+        errors.append("Skill 反馈失败状态未 fail closed 或误把暂时失败归为隐私延期")
     elif feedback.get("legacy_authority_input") != "ignored_for_canonical_repository; non-canonical writes use ordinary user authorization":
         errors.append("旧反馈授权输入的兼容语义错误")
     elif not all(feedback.get(field) is True for field in (
@@ -571,6 +577,7 @@ def self_test() -> list[str]:
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
         ("fingerprint 字段", lambda value: value["skill_feedback"]["fingerprint_fields"].append("head")),
+        ("反馈失败状态", lambda value: value["skill_feedback"]["failure_status"]["candidate"].remove("write_failed")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
         ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.11.0")),
     ):

@@ -66,7 +66,8 @@ evidence、wake 和 invalidation locator；完整 GitHub 快照仍留在 GitHub�
 - `replan_or_reownership_pending`：旧方案/归属失效，需要塑形或恢复责任路径。
 - `closeout_pending`：产品出口已满足，但 GitHub/Owner/Parent truth 尚未收口。
 
-周期结束前必须记录 `frontier_closure_status=complete | incomplete`。只有 complete，且全部剩余 gap 都是
+周期结束前必须记录 `frontier_closure_status=complete | incomplete`。complete 表示出口/gap 枚举、唯一分类和证据核验
+完整，不表示目标已完成或没有 owner-actionable gap；incomplete 只用于仍有未知、遗漏或无法闭合的前沿。只有 complete，且全部剩余 gap 都是
 `active_execution | waiting_external | waiting_user` 时才允许整体等待。Issue OPEN、父项 OPEN、历史 blocked-by、
 旧 handoff/next actor、旧 carrier、`ready=0` 或没有 writer 都不能单独证明等待。共享 carrier 只限制第二 writer；
 只读 readiness、Unit/Owner 塑形、后继登记和 ready/admission frontier 仍须保持可见。

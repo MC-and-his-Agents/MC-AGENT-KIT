@@ -55,6 +55,9 @@ PMO 保持独立 Skill。完整执行前，从当前可用 Skill 清单定位 `$
    gap 都是合法 `active_execution | waiting_external | waiting_user` 时才整体等待。OPEN、旧 blocked-by、旧 handoff、
    `ready=0` 或没有 writer 都不是等待证明。
 
+`frontier_closure_status=complete` 只表示全部未完成出口/gap 已枚举、唯一分类且所需证据已核验；它不表示产品完成，
+也不要求 owner-actionable gap 为零。可执行、待准入、待重塑或待收口 gap 可以存在于 complete frontier，并必须继续行动。
+
 ## 周期状态与可组合动作
 
 一个周期用 `cycle_status` 描述整体结果，用 `actions[]` 记录按顺序执行的动作。两者的完整定义在
