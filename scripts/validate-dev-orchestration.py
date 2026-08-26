@@ -155,8 +155,13 @@ def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
         return ["Skill feedback candidate 字段不完整"]
     if any(not real_locator(candidate.get(field)) for field in RETROSPECTIVE_CANDIDATE_FIELDS):
         return ["Skill feedback candidate 字段必须可回读"]
-    if candidate.get("trigger") != facts.get("retrospective") or candidate.get("affected_skill") not in {"pmo", "tasks-owner"}:
+    affected_skill = candidate.get("affected_skill")
+    if candidate.get("trigger") != facts.get("retrospective"):
         return ["Skill feedback candidate 的 trigger 或 affected_skill 无效"]
+    if root_cause == "skill" and affected_skill not in {"pmo", "tasks-owner"}:
+        return ["Skill 根因必须定位到 pmo 或 tasks-owner"]
+    if root_cause == "platform" and affected_skill != "platform":
+        return ["平台根因必须定位到 platform"]
     if facts.get("feedback_write_action") == "create_issue":
         body = facts.get("feedback_api_body")
         if not isinstance(body, dict) or set(body) != CORE_FEEDBACK_FIELDS or body != feedback_api_body(candidate):
@@ -455,7 +460,7 @@ def feedback_form_errors(contract: dict[str, Any], text: str) -> list[str]:
         return ["Skill feedback Form 存在重复字段"]
     if set(form_ids) != set(feedback["core_semantic_fields"]):
         return ["Skill feedback Form 与机器 schema 的核心语义字段漂移"]
-    if any(not re.search(r"(?m)^ {6}required:\s*true\s*$", block) for block in controls.values()):
+    if any(not re.search(r"(?m)^ {4}validations:\s*\n {6}required:\s*true\s*$", block) for block in controls.values()):
         return ["Skill feedback Form 的核心语义字段必须全部必填"]
     trigger_options = set(re.findall(r"(?m)^ {8}-\s*(.+?)\s*$", controls.get("retrospective_trigger", "")))
     if trigger_options != set(contract["execution_retrospective"]["triggers"]):
@@ -777,6 +782,7 @@ def self_test() -> list[str]:
         ("根因枚举", lambda facts: facts.update(root_cause_target="unclassified")),
         ("candidate 字段", lambda facts: facts["feedback_candidate"].pop("product_impact")),
         ("API body 字段", lambda facts: facts["feedback_api_body"].pop("product_impact")),
+        ("Skill 根因目标", lambda facts: facts["feedback_candidate"].update(affected_skill="platform")),
     ):
         bad_payload = copy.deepcopy(integration)
         payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-no-per-run-authority")
@@ -787,11 +793,18 @@ def self_test() -> list[str]:
     next(row for row in bad_occurrence if row["id"] == "existing-feedback-occurrence")["facts"]["feedback_occurrence"].pop("source_locator")
     if not validate_integration(bad_occurrence):
         failures.append("缺少 occurrence 字段的反馈变异未被拒绝")
+    bad_platform_target = copy.deepcopy(integration)
+    next(row for row in bad_platform_target if row["id"] == "redaction-failed")["facts"]["feedback_candidate"]["affected_skill"] = "pmo"
+    if not validate_integration(bad_platform_target):
+        failures.append("platform 根因错误定位到 pmo 的变异未被拒绝")
     form_text = FEEDBACK_FORM.read_text(encoding="utf-8")
     if not feedback_form_errors(contract, form_text.replace("id: product_impact", "id: product_value")):
         failures.append("Form 与机器 schema 漂移的变异未被拒绝")
     if not feedback_form_errors(contract, form_text.replace("required: true", "required: false", 1)):
         failures.append("Form 核心必填字段失效的变异未被拒绝")
+    misplaced_required = form_text.replace("    validations:\n      required: true", "    attributes:\n      required: true", 1)
+    if not feedback_form_errors(contract, misplaced_required):
+        failures.append("Form required 脱离 validations 的变异未被拒绝")
     forged_form = re.sub(
         r"(?ms)^  - type: textarea\n    id: product_impact\n.*?(?=^  - type:|\Z)",
         "",
