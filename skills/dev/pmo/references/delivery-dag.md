@@ -72,14 +72,16 @@ evidence、wake 和 invalidation locator；完整 GitHub 快照仍留在 GitHub�
 旧 handoff/next actor、旧 carrier、`ready=0` 或没有 writer 都不能单独证明等待。共享 carrier 只限制第二 writer；
 只读 readiness、Unit/Owner 塑形、后继登记和 ready/admission frontier 仍须保持可见。
 
-### 恢复期 gap classification
+### 恢复期旧信号映射
 
-目标未完成且没有 admitted implementation 或 pending admission 时，对每个剩余差距只允许以下可审计分类：
+恢复审计不得产生第二套 classification。旧的四类信号只作为输入，并在同一周期映射到上述七类机器状态：
 
-- `owner_actionable`：恢复审计输入；重算后必须进入 `execution_ready | admission_pending | replan_or_reownership_pending | closeout_pending` 并产生动作。
-- `external_blocked`：恢复审计输入；只有完整 waiting proof 成立后才可进入 `waiting_external`。
-- `user_decision`：存在会实质改变产品范围、优先级、成本、权限、隐私、数据或重大外部结果的多个合法方向，且权威事实无法裁决。
-- `waiting_task`：已有真实、唯一且仍在执行或收敛的任务 locator；计划、旧摘要或空 Owner 不成立。
+- `owner_actionable` → `execution_ready | admission_pending | replan_or_reownership_pending | closeout_pending`，并产生动作；
+- `external_blocked` → 仅在完整 waiting proof 成立时映射为 `waiting_external`，否则进入 `replan_or_reownership_pending`；
+- `user_decision` → 仅在决定标准成立时映射为 `waiting_user`，否则进入可执行或重规划状态；
+- `waiting_task` → 仅在真实、唯一且仍在执行或收敛的任务 locator 成立时映射为 `active_execution`，否则进入 admission 或重规划状态。
+
+checkpoint、前沿输出和后续决策只能使用七类机器 classification；旧信号名不得持久化为当前 gap 状态。
 
 `owner_actionable` 必须产生本轮规划或 Owner 动作；它不能以 `planning_not_ready`、`no stable contract`、
 `next_actor=external` 或“无可并行 successor”为由进入静默。若权威验收不足以唯一约束首切，记录缺失的具体产品事实，
