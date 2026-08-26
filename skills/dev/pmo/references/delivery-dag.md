@@ -71,6 +71,7 @@ evidence、wake 和 invalidation locator；完整 GitHub 快照仍留在 GitHub�
 `active_execution | waiting_external | waiting_user` 时才允许整体等待。Issue OPEN、父项 OPEN、历史 blocked-by、
 旧 handoff/next actor、旧 carrier、`ready=0` 或没有 writer 都不能单独证明等待。共享 carrier 只限制第二 writer；
 只读 readiness、Unit/Owner 塑形、后继登记和 ready/admission frontier 仍须保持可见。
+`product_exit_complete=true` 还必须同时具备 complete closure；本周期仍有 `recompute_product_frontier` 时不得声明 `completed`。
 
 ### 恢复期旧信号映射
 

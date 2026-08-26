@@ -49,6 +49,10 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 3. 通过脱敏检查后，一个控制周期最多执行一次 `create_issue` 或 `add_comment`；
 4. 成功后保存真实 Issue/comment locator 并回读；失败保留草案、失败证据和恢复条件。
 
+一旦出现 write attempted/succeeded、write action、submission locator 或 readback 任一副作用事实，必须重新证明
+root cause、产品恢复、Skill identity、canonical repo、GitHub capability、dedupe、脱敏、write allowlist 与
+payload/occurrence 全部门禁；`continue_delivery`、`candidate` 或 `deferred_private` 不能掩盖已发生的错误写入。
+
 人工 Form 和 Agent API body 都投影自 `dev-orchestration-contract.json` 的 `core_semantic_fields`。API 必须显式生成
 affected skill、retrospective trigger、observed/expected behavior、product impact、current resolution、generalizable
 root cause、proposed regression、redacted evidence，以及仅由四个稳定字段构成的 fingerprint 与明确的
