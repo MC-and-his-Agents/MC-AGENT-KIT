@@ -42,6 +42,10 @@ ACTION_ORDER = [
     "create_or_wake_owner", "request_user_decision", "record_evidenced_wait",
     "record_skill_feedback_candidate", "submit_or_update_skill_feedback",
 ]
+GAP_FIELDS = (
+    "remaining_gap_ids", "executable_gap_ids", "user_decision_gap_ids",
+    "evidenced_wait_gap_ids", "unshaped_gap_ids",
+)
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -57,6 +61,54 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def real_locator(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() not in {"", "none", "missing", "unknown"}
+
+
+def semver(value: Any) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", str(value))
+    return tuple(map(int, match.groups())) if match else None
+
+
+def version_is_compatible(actual: Any, compatibility: dict[str, Any]) -> bool:
+    parsed = semver(actual)
+    minimum = semver(compatibility.get("minimum_compatible_version"))
+    return parsed is not None and minimum is not None and parsed >= minimum and compatibility.get("required_contract_schema_major") == 1
+
+
+def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    gap_sets: dict[str, set[str]] = {}
+    for field in GAP_FIELDS:
+        value = facts.get(field)
+        if not isinstance(value, list) or any(not real_locator(item) for item in value) or len(value) != len(set(value)):
+            errors.append(f"{field} 必须是无重复的真实差距 ID 列表")
+            continue
+        gap_sets[field] = set(value)
+    if len(gap_sets) != len(GAP_FIELDS):
+        return errors
+    remaining = gap_sets["remaining_gap_ids"]
+    classified = set().union(*(gap_sets[field] for field in GAP_FIELDS[1:]))
+    if not classified <= remaining:
+        errors.append("差距分类包含不在 remaining_gap_ids 中的 ID")
+    if gap_sets["user_decision_gap_ids"] & gap_sets["evidenced_wait_gap_ids"]:
+        errors.append("同一差距不能同时请求用户决策和记录普通等待")
+    if facts.get("product_exit_complete"):
+        if remaining:
+            errors.append("产品出口完成时不能仍有剩余差距")
+    elif not remaining:
+        errors.append("产品出口未完成时必须列出剩余差距")
+    has_product_action = any((
+        facts.get("merge_verified"), facts.get("drift_detected"), facts.get("route_delta_ready"),
+        gap_sets["unshaped_gap_ids"], gap_sets["executable_gap_ids"],
+    ))
+    if not facts.get("product_exit_complete") and not has_product_action:
+        covered = gap_sets["user_decision_gap_ids"] | gap_sets["evidenced_wait_gap_ids"]
+        if covered != remaining:
+            errors.append("没有产品动作时，用户决策或等待证明必须覆盖全部剩余差距")
+    return errors
+
+
 def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
     actions: list[str] = []
     if facts.get("merge_verified"):
@@ -65,13 +117,13 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
         actions.append("correct_drift")
     if facts.get("route_delta_ready"):
         actions.append("route_delta")
-    if facts.get("unshaped_gap_count", 0) > 0:
+    if facts.get("unshaped_gap_ids"):
         actions.append("shape_work_item")
-    if facts.get("ready_unit_count", 0) > 0:
+    if facts.get("executable_gap_ids"):
         actions.append("create_or_wake_owner")
-    if facts.get("user_decision_count", 0) > 0:
+    if facts.get("user_decision_gap_ids"):
         actions.append("request_user_decision")
-    if facts.get("evidenced_wait_count", 0) > 0:
+    if facts.get("evidenced_wait_gap_ids"):
         actions.append("record_evidenced_wait")
     if facts.get("feedback_candidate"):
         actions.append("record_skill_feedback_candidate")
@@ -97,7 +149,8 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
     if facts.get("current_delivery_action"):
         return "continue_delivery"
     if facts.get("systemic_invariant"):
-        return "start_writer" if facts.get("closure_status") == "complete" and not closure_errors(facts.get("closure")) else "hold_before_writer"
+        ready = not writer_admission_errors(facts)
+        return "start_writer" if ready and facts.get("closure_status") == "complete" and not closure_errors(facts.get("closure")) else "hold_before_writer"
     if facts.get("existing_unit"):
         return "new_unit" if facts.get("scope_change") else "same_unit"
     if facts.get("retrospective"):
@@ -105,11 +158,29 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
             return "continue_delivery"
         if facts.get("feedback_authority") != "valid" or facts.get("feedback_redaction_safe") is not True:
             return "deferred_private"
+        if facts.get("target_repository_match") is not True:
+            return "deferred_private"
         if facts.get("feedback_dedupe_complete") is not True:
             return "candidate"
-        return "comment_existing" if facts.get("existing_feedback_issue") else "candidate"
+        if facts.get("existing_feedback_issue"):
+            return "comment_existing"
+        if facts.get("feedback_create_succeeded"):
+            complete = (
+                facts.get("feedback_write_action") == "create_issue"
+                and real_locator(facts.get("feedback_submission_locator"))
+                and facts.get("feedback_readback_verified") is True
+                and facts.get("skill_digest_unchanged") is True
+            )
+            return "submitted" if complete else "candidate"
+        if facts.get("feedback_create_attempted"):
+            return "candidate"
+        return "create_new_feedback_issue" if facts.get("feedback_write_capability") is True else "candidate"
+    if facts.get("writer_admission_requested"):
+        if facts.get("mandate_complete") and not mandate_errors(facts) and not writer_admission_errors(facts):
+            return "admit_unit_writer"
+        return None
     if facts.get("mandate_complete") and not mandate_errors(facts):
-        return "admit"
+        return "activate_owner"
     return None
 
 
@@ -138,10 +209,26 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("稀疏增量仍允许日常工程噪声")
     if set(contract.get("pmo_admission", {}).get("required_fields", [])) != PMO_ADMISSION_FIELDS:
         errors.append("PMO 准入字段不完整")
+    unit_fields = set(contract.get("unit_identity", {}).get("required_fields", []))
+    if set(contract.get("writer_admission", {}).get("required_unit_identity_fields", [])) != unit_fields:
+        errors.append("writer 准入没有复用唯一 Unit 身份")
+    closure = contract.get("systemic_invariant_closure", {})
+    if not {"required_fields", "surface_required_fields", "surface_status", "closure_status"} <= set(closure):
+        errors.append("系统性闭包机器 schema 不完整")
+    for skill, compatibility in contract.get("compatible_skills", {}).items():
+        if set(compatibility) != {"tested_artifact_version", "minimum_compatible_version", "required_contract_schema_major"}:
+            errors.append(f"{skill} 的发布版本与兼容版本语义混淆")
+            continue
+        tested = semver(compatibility["tested_artifact_version"])
+        minimum = semver(compatibility["minimum_compatible_version"])
+        if tested is None or minimum is None or not version_is_compatible(compatibility["tested_artifact_version"], compatibility):
+            errors.append(f"{skill} 的最低兼容版本无效")
+        if compatibility["required_contract_schema_major"] != 1:
+            errors.append(f"{skill} 的合同主版本不兼容")
     feedback = contract.get("skill_feedback", {})
     if not {
         "candidate_fields", "feedback_status", "feedback_target", "authority_required_for",
-        "authority_fields", "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
+        "authority_fields", "submission_required_fields", "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
     } <= set(feedback):
         errors.append("Skill 反馈合同不完整")
     elif set(feedback.get("authority_fields", [])) != FEEDBACK_AUTHORITY_FIELDS:
@@ -156,9 +243,9 @@ def validate_files(contract: dict[str, Any]) -> list[str]:
     for skill in ("pmo", "tasks-owner"):
         skill_dir = ROOT / f"skills/dev/{skill}"
         manifest = json.loads((skill_dir / "manifest.json").read_text(encoding="utf-8"))
-        expected = contract["compatible_skills"][skill]["minimum_version"]
+        expected = contract["compatible_skills"][skill]["tested_artifact_version"]
         if manifest.get("version") != expected or skill_version(skill_dir / "SKILL.md") != expected:
-            errors.append(f"{skill} 的入口、manifest 与共享合同版本不一致")
+            errors.append(f"{skill} 的入口、manifest 与本次发布候选版本不一致")
     combined = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in (
         "skills/dev/pmo/SKILL.md", "skills/dev/tasks-owner/SKILL.md",
         "skills/dev/tasks-owner/references/governance.md",
@@ -183,17 +270,26 @@ def validate_files(contract: dict[str, Any]) -> list[str]:
 def closure_errors(closure: Any) -> list[str]:
     if not isinstance(closure, dict):
         return ["系统性闭包必须是对象"]
-    required = {"subject", "coverage", "ordering", "failure", "surfaces", "digest"}
+    schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
+    required = set(schema["required_fields"])
     if not required <= set(closure):
         return ["系统性闭包缺少范围、顺序、失败规则、适用面或摘要"]
     if any(not isinstance(closure.get(key), str) or not closure[key].strip() for key in required - {"surfaces"}):
         return ["系统性闭包的说明或摘要不能为空"]
+    if closure.get("status") != "ready":
+        return ["用于 writer 准入的系统性闭包必须 ready"]
     surfaces = closure.get("surfaces")
     if not isinstance(surfaces, list) or not surfaces:
         return ["系统性闭包没有适用面"]
-    surface_fields = {"lifecycle", "variant", "consumer_or_effect", "code_locator", "positive", "negative_or_unavailable", "ordering", "no_side_effect"}
-    if any(not isinstance(surface, dict) or not surface_fields <= set(surface) or any(not str(surface.get(key, "")).strip() for key in surface_fields) for surface in surfaces):
-        return ["系统性闭包的适用面证据不完整"]
+    surface_fields = set(schema["surface_required_fields"])
+    for surface in surfaces:
+        if not isinstance(surface, dict) or not surface_fields <= set(surface):
+            return ["系统性闭包的适用面证据不完整"]
+        if surface.get("status") not in schema["surface_status"]:
+            return ["系统性闭包的适用面状态无效"]
+        for field in surface_fields:
+            if not real_locator(surface.get(field)):
+                return ["系统性闭包的适用面证据不完整"]
     return []
 
 
@@ -225,6 +321,17 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
     return errors
 
 
+def writer_admission_errors(facts: dict[str, Any]) -> list[str]:
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    fields = set(contract["writer_admission"]["required_unit_identity_fields"])
+    identity = facts.get("unit_identity")
+    if facts.get("authority_origin") == "pmo" and isinstance(facts.get("pmo_admission"), dict):
+        identity = facts["pmo_admission"]
+    if not isinstance(identity, dict):
+        return ["writer 准入缺少 Unit 身份"]
+    return [f"writer 准入缺少 {field}" for field in fields if not real_locator(identity.get(field))]
+
+
 def validate_cycles(rows: list[dict[str, Any]]) -> list[str]:
     errors: list[str] = []
     ids: set[str] = set()
@@ -236,6 +343,7 @@ def validate_cycles(rows: list[dict[str, Any]]) -> list[str]:
         if row["id"] in ids:
             errors.append(f"cycle line {line}: ID 重复")
         ids.add(row["id"])
+        errors.extend(f"cycle line {line}: {error}" for error in cycle_fact_errors(row["facts"]))
         derived = derive_cycle(row["facts"])
         expected = row["expected"]
         if derived != (expected.get("cycle_status"), expected.get("actions")):
@@ -263,11 +371,17 @@ def validate_integration(rows: list[dict[str, Any]]) -> list[str]:
         outcomes.add(row["expected"])
         if derive_integration(row["facts"]) != row["expected"]:
             errors.append(f"integration line {line}: 期望与事实不一致")
-        if row["expected"] == "admit":
+        if row["expected"] in {"activate_owner", "admit_unit_writer"}:
             errors.extend(f"integration line {line}: {error}" for error in mandate_errors(row["facts"]))
+        if row["expected"] == "admit_unit_writer":
+            errors.extend(f"integration line {line}: {error}" for error in writer_admission_errors(row["facts"]))
         if row["facts"].get("systemic_invariant") and row["facts"].get("closure_status") == "complete":
             errors.extend(f"integration line {line}: {error}" for error in closure_errors(row["facts"].get("closure")))
-    required = {"admit", "same_unit", "new_unit", "hold_before_writer", "start_writer", "deferred_private", "comment_existing", "continue_delivery"}
+    required = {
+        "activate_owner", "admit_unit_writer", "same_unit", "new_unit", "hold_before_writer",
+        "start_writer", "deferred_private", "candidate", "comment_existing",
+        "create_new_feedback_issue", "submitted", "continue_delivery",
+    }
     if not required <= outcomes:
         errors.append("跨 Skill 场景覆盖不完整")
     return errors
@@ -324,16 +438,33 @@ def self_test() -> list[str]:
         ("准入字段", lambda value: value["pmo_admission"].update(required_fields=[])),
         ("反馈合同", lambda value: value.update(skill_feedback={})),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
+        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.10.0")),
     ):
         bad_contract = copy.deepcopy(contract)
         mutate(bad_contract)
         if not validate_contract(bad_contract):
             failures.append(f"破坏{label}的变异未被拒绝")
+    pmo_compatibility = contract["compatible_skills"]["pmo"]
+    if not version_is_compatible("0.9.1", pmo_compatibility):
+        failures.append("高于最低版本的兼容补丁版本被错误拒绝")
+    if version_is_compatible("0.8.9", pmo_compatibility):
+        failures.append("低于最低版本的 Skill 被错误接受")
     cycles = load_jsonl(CYCLES)
     bad_cycles = copy.deepcopy(cycles)
     bad_cycles[0]["expected"]["actions"].reverse()
     if not validate_cycles(bad_cycles):
         failures.append("动作乱序变异未被拒绝")
+    for label, mutate in (
+        ("空等待证明", lambda facts: facts.update(evidenced_wait_gap_ids=[])),
+        ("未覆盖差距", lambda facts: facts.update(remaining_gap_ids=["gap:external", "gap:unknown"])),
+        ("重复决策等待", lambda facts: facts.update(user_decision_gap_ids=["gap:external"])),
+        ("等待中可执行差距", lambda facts: facts.update(executable_gap_ids=["gap:external"], evidenced_wait_gap_ids=[])),
+    ):
+        bad_wait = copy.deepcopy(cycles)
+        wait_case = next(row for row in bad_wait if row["id"] == "all-gaps-have-wait-proof")
+        mutate(wait_case["facts"])
+        if not validate_cycles(bad_wait):
+            failures.append(f"{label}变异未被拒绝")
     integration = load_jsonl(INTEGRATION)
     bad_integration = copy.deepcopy(integration)
     next(row for row in bad_integration if row["id"] == "head-change-keeps-unit")["expected"] = "new_unit"
@@ -345,21 +476,48 @@ def self_test() -> list[str]:
         direct["facts"].pop(field)
         if not validate_integration(bad_mandate):
             failures.append(f"缺少 {field} 的 Owner 准入变异未被拒绝")
+    for case_id, identity_key in (("direct-user-writer-admission", "unit_identity"), ("pmo-unit-writer-admission", "pmo_admission")):
+        for field in json.loads(CONTRACT.read_text(encoding="utf-8"))["writer_admission"]["required_unit_identity_fields"]:
+            bad_identity = copy.deepcopy(integration)
+            writer_case = next(row for row in bad_identity if row["id"] == case_id)
+            writer_case["facts"][identity_key].pop(field)
+            if not validate_integration(bad_identity):
+                failures.append(f"{case_id} 缺少 {field} 的 writer 准入变异未被拒绝")
     bad_admission = copy.deepcopy(integration)
     pmo_case = next(row for row in bad_admission if row["id"] == "pmo-work-item-mandate")
     pmo_case["facts"]["pmo_admission"].pop("scope_locator")
     if not validate_integration(bad_admission):
         failures.append("缺少范围定位的 PMO 准入变异未被拒绝")
-    bad_closure = copy.deepcopy(integration)
-    closure_case = next(row for row in bad_closure if row["id"] == "systemic-closure-complete")
-    closure_case["facts"]["closure"]["surfaces"][0].pop("negative_or_unavailable")
-    if not validate_integration(bad_closure):
-        failures.append("缺少负向证据的闭包变异未被拒绝")
+    closure_schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
+    for field in closure_schema["required_fields"]:
+        bad_closure = copy.deepcopy(integration)
+        closure_case = next(row for row in bad_closure if row["id"] == "systemic-closure-complete")
+        closure_case["facts"]["closure"].pop(field)
+        if not validate_integration(bad_closure):
+            failures.append(f"缺少 {field} 的闭包变异未被拒绝")
+    for field in closure_schema["surface_required_fields"]:
+        bad_closure = copy.deepcopy(integration)
+        closure_case = next(row for row in bad_closure if row["id"] == "systemic-closure-complete")
+        closure_case["facts"]["closure"]["surfaces"][0].pop(field)
+        if not validate_integration(bad_closure):
+            failures.append(f"缺少 {field} 的闭包适用面变异未被拒绝")
     bad_feedback = copy.deepcopy(cycles)
     feedback_case = next(row for row in bad_feedback if row["id"] == "delivery-before-skill-feedback")
     feedback_case["facts"]["feedback_authority_valid"] = False
     if not validate_cycles(bad_feedback):
         failures.append("缺少反馈授权的提交变异未被拒绝")
+    for label, mutate in (
+        ("反馈提交 locator", lambda facts: facts.pop("feedback_submission_locator")),
+        ("反馈提交回读", lambda facts: facts.update(feedback_readback_verified=False)),
+        ("Skill digest 保持", lambda facts: facts.update(skill_digest_unchanged=False)),
+        ("反馈目标仓库", lambda facts: facts.update(target_repository_match=False)),
+        ("反馈去重", lambda facts: facts.update(feedback_dedupe_complete=False)),
+    ):
+        bad_submission = copy.deepcopy(integration)
+        submission = next(row for row in bad_submission if row["id"] == "new-feedback-submitted")
+        mutate(submission["facts"])
+        if not validate_integration(bad_submission):
+            failures.append(f"缺少{label}的反馈提交变异未被拒绝")
     return failures + run_existing(True)
 
 

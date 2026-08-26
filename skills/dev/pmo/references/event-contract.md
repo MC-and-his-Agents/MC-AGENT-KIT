@@ -13,6 +13,11 @@
 PMO 不再用一个互斥 verdict 代表整个周期。每个周期从已核验事实派生：
 
 ```text
+remaining_gap_ids: <全部未完成差距>
+executable_gap_ids: <现在可安全推进的差距>
+user_decision_gap_ids: <必须由用户决定的差距>
+evidenced_wait_gap_ids: <有合法外部等待证明的差距>
+unshaped_gap_ids: <需要 PMO 塑形的差距>
 cycle_status: progressed | partially_blocked | waiting | completed
 actions:
   - closeout_unit
@@ -31,6 +36,9 @@ actions:
 用户决策只暂停受影响动作，无冲突路径继续。
 `request_user_decision` 已包含该决策范围的等待与恢复条件；同一差距不得再追加
 `record_evidenced_wait`。后者只用于不需要用户决策的真实外部等待。
+所有分类都必须引用 `remaining_gap_ids` 中的稳定差距 ID。产品出口未完成且没有产品动作时，用户决策与普通等待
+必须互不重叠并完整覆盖全部剩余差距；零证明、漏掉一个差距或仍有可执行差距都不能返回 `waiting`。等待证据
+失效后，将对应差距移回可执行或待塑形集合，同周期恢复推进。
 
 `record_skill_feedback_candidate` 和 `submit_or_update_skill_feedback` 是低优先级治理动作，不改变产品
 `semantic_revision`。只有当前产品动作已经完成、候选已到期、去重和独立反馈授权有效时，才可提交或补充

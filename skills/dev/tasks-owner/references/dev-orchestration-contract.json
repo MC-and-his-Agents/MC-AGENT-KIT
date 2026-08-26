@@ -4,10 +4,14 @@
   "authority_source": "tasks-owner",
   "compatible_skills": {
     "pmo": {
-      "minimum_version": "0.9.0"
+      "tested_artifact_version": "0.9.0",
+      "minimum_compatible_version": "0.9.0",
+      "required_contract_schema_major": 1
     },
     "tasks-owner": {
-      "minimum_version": "0.23.0"
+      "tested_artifact_version": "0.23.0",
+      "minimum_compatible_version": "0.23.0",
+      "required_contract_schema_major": 1
     }
   },
   "capabilities": [
@@ -52,6 +56,39 @@
       "scope_change",
       "ownership_change"
     ]
+  },
+  "writer_admission": {
+    "required_unit_identity_fields": [
+      "product_exit_locator",
+      "governing_invariant_locator",
+      "ownership_boundary_locator",
+      "convergence_chain_locator"
+    ]
+  },
+  "systemic_invariant_closure": {
+    "required_fields": [
+      "governing_invariant_locator",
+      "subject",
+      "coverage",
+      "ordering",
+      "failure",
+      "surfaces",
+      "invariant_closure_digest",
+      "status"
+    ],
+    "surface_required_fields": [
+      "lifecycle_surface",
+      "implementation_variant",
+      "consumer_or_effect",
+      "code_locator",
+      "positive_check",
+      "negative_or_unavailable_check",
+      "no_side_effect_check",
+      "status",
+      "basis"
+    ],
+    "surface_status": ["covered", "not_applicable"],
+    "closure_status": ["ready", "incomplete", "invalidated"]
   },
   "pmo_admission": {
     "required_fields": [
@@ -129,6 +166,12 @@
       "dedupe_policy",
       "expiry",
       "invalidation"
+    ],
+    "submission_required_fields": [
+      "feedback_write_action",
+      "feedback_submission_locator",
+      "feedback_readback_verified",
+      "skill_digest_unchanged"
     ],
     "does_not_change_product_semantic_revision": true,
     "does_not_change_current_skill_digest": true

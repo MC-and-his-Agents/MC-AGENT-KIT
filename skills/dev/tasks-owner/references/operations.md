@@ -74,4 +74,6 @@ Issue 正文或完整项目快照。
 候选必须有现实影响，并具备可泛化、可复现或高影响证据。checkpoint 只保存 fingerprint、source locator、
 product-resolution locator、feedback status/target、submission locator、disclosure status 和 next action。
 提交前按 [codex-app.md](codex-app.md) 搜索并去重，跨仓库写入必须有独立 `skill_feedback_authority`；
-无授权或不能安全脱敏时保持 `candidate/deferred_private`。反馈不算产品进展，也不改变当前 Skill digest。
+命中同根 Issue 时只补充评论；没有命中且授权允许 `create_issue` 时才新建。创建或评论成功后必须回读真实 locator
+才能标记 `submitted`；创建失败、目标仓库不符、搜索失败或 locator 无法回读时保持 `candidate/deferred_private`。
+反馈不算产品进展，也不改变当前 Skill digest。

@@ -1,7 +1,9 @@
 # 运行证据、系统性闭包与独立审查
 
-本文件是运行证据、`systemic_invariant_closure`、preflight 和 fresh exact-head review 的唯一权威来源。
-具体平台参数见 [codex-app.md](codex-app.md)。
+本文件是运行证据、`systemic_invariant_closure` 语义、preflight 和 fresh exact-head review 的唯一权威来源。
+闭包字段集合以 [dev-orchestration-contract.json](dev-orchestration-contract.json) 为唯一机器 schema；下列视图直接投影该
+schema，可执行正向示例是 `evals/dev_orchestration_cases.jsonl` 中的 `systemic-closure-complete`。具体平台参数见
+[codex-app.md](codex-app.md)。
 
 ## 运行证据
 

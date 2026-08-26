@@ -27,6 +27,10 @@ feedback_target: pmo | tasks-owner | platform | none
 - 执行模式、任务运行 profile、权限边界、系统性闭包状态（适用时）和验证命令/成功判据；
 - 消息返回路线、合同 revision/digest、PR Ready 门禁和证据 locator。
 
+用户直接委任可以先激活 Owner，由 Owner 只读同步事实并塑形 Unit；这一步不等于 writer 已准入。无论授权来自用户
+还是 PMO，正式 writer 准入前都必须按机器合同补齐同一 `unit_identity`：产品出口、不变量、归属边界和收敛链。
+缺任一项只能继续只读塑形，不能开始写入。
+
 固定顺序为：合同 → task 确认 → 路由确认 → 执行释放 → release 确认 → START → STARTED → Owner 回读。
 缺一步、事实错配或 START 前写入都保持待准入并隔离输出。App 任务与原生 Subagent 的具体投递、回读和运行参数
 按平台引用执行。
