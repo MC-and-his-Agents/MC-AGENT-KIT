@@ -72,11 +72,16 @@ jobs:
 
           runs="$RUNNER_TEMP/ci-runs.json"
           gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f branch=main -f event=push -f status=success -f per_page=100 > "$runs"
+            -f branch=main -f status=success -f per_page=100 > "$runs"
           ci_url="$(
             jq -er --arg sha "$target_sha" '
               [.workflow_runs[]
-                | select(.head_sha == $sha and .status == "completed" and .conclusion == "success")]
+                | select(
+                    .head_sha == $sha
+                    and .status == "completed"
+                    and .conclusion == "success"
+                    and (.event == "push" or .event == "workflow_dispatch")
+                  )]
               | sort_by(.created_at) | last | .html_url
             ' "$runs"
           )"
