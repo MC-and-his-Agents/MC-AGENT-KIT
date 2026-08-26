@@ -1,239 +1,73 @@
-# 运行证据、实现包与独立审查
+# 运行证据、系统性闭包与独立审查
 
-在派发后、接受任务或审查结果前读取本文件。它是局部证据门禁，不能替代
-GitHub truth、admission、`owner_runtime_lock`、依赖、消息交付或 closeout。
+本文件是运行证据、`systemic_invariant_closure`、preflight 和 fresh exact-head review 的唯一权威来源。
+具体平台参数见 [codex-app.md](codex-app.md)。
 
-- [Runtime evidence gate](#runtime-evidence-gate)
-- [五段局部 implementation packet](#五段局部-implementation-packet)
-- [Acceptance-derived review preflight](#acceptance-derived-review-preflight)
-- [Scope integrity evidence](#scope-integrity-evidence)
-- [Fresh exact-head review](#fresh-exact-head-review)
-- [Requested vs observed isolation](#requested-vs-observed-isolation)
+## 运行证据
 
-## Runtime evidence gate
+创建、恢复、消息触发及接受结果前，回读目标任务/Agent、角色、运行 profile、绝对工作树、branch/head、合同
+revision/digest 和执行代次。公开 metadata 缺字段时，只可使用宿主允许的只读本机证据补齐最小路由字段，不读取
+或保存 prompt、消息、env、token 或完整 rollout。
 
-Owner 先回读宿主公开的 thread/spawn/details metadata，再接受任何任务或 review
-结果。对准本次目标 turn、当前 `contract_revision`/`contract_digest`、
-`runtime_lock_revision` 和执行 epoch，不把整条长期线程的每个 `turn_context` 当作必须
-全局唯一的证据。
+缺失、矛盾、无法消歧、工作树/head 错配、未知 profile 或静默 fallback 都只隔离受影响任务；不消费结果、不
+准入、不 merge/closeout，也不自动改配置、重启或换 profile。checkpoint 只保存 evidence locator、状态和目标。
 
-必须核对实际值，而不是同名角色：
+## 系统性不变量闭包
 
-- `thread_id` 或 `agent_id`、角色或任务类型；
-- `model`、`reasoning_effort`；
-- 绝对 `cwd`、正式 worktree、当前 `head` 与目标 `head`；
-- 使用 custom agent 时的实际 agent config/profile locator；
-- review 还要记录 requested/observed sandbox 与 permission（见下文）。
-
-独立任务的期望 runtime 是显式合同字段而非发送方推断：没有用户针对该具体 task 的
-`task_runtime_override` 时，`model=gpt-5.6-luna` 且 `reasoning_effort/thinking=max` 必须同时出现在
-创建/恢复调用、消息触发或 `spawn_agent` 调用和目标回合 `turn_context` 中。Owner 的
-`owner_runtime_lock`、父任务、Heartbeat、旧合同和风险评估都不能覆盖此默认值；只有授权 locator
-和明确传播范围可替换它。
-
-公开 metadata 缺字段时，只可使用宿主可访问的 allowlisted、只读本地运行证据补齐缺失
-字段。该 fallback 只输出上述路由字段及 sandbox/permission，不输出 prompt、消息、env、
-token、配置正文或任意 rollout payload；不要新增 inspector，也不要假定本地 JSONL
-结构。公开与本地证据同时存在时必须逐字段一致。
-
-以下任一情况都 fail closed：字段缺失、同一目标出现多个无法消歧的记录、公开/本地矛盾、
-角色或任务类型不符、custom config/profile locator 不符、`cwd`/worktree/head 错配，或
-无法确定目标 turn/epoch。
-runtime evidence 是现有 canonical `owner_runtime_lock` 的消费门禁，不替代回显锁，也
-不能改用发送方 runtime。锁仍按 [contracts.md](contracts.md#canonical-owner-runtime-lock-回显锁)
-核验。
-
-宿主返回 Unknown model、拒绝 reasoning、缺失字段或静默 Terra/Sol/低 effort 时，目标标记
-`TASK_RUNTIME_DRIFT`/`runtime_status: failed` 并 fail closed：不消费结果、不 admission、不 merge/closeout；
-保留 attempted model/effort、错误、目标 locator 和时间，转 `reopen_with_explicit_runtime` 或
-`hold_for_user_choice`。不得修改 Owner runtime、`~/.codex` 或自动重启。活动任务 audit 只回读最小
-allowlisted routing 字段；已有成功 runtime evidence 不因重复模板检查失效。
-
-证据载体可保存完整 allowlisted routing record；Owner checkpoint 只保留：
+readiness 判定需要闭包时，正式 writer admission 前形成：
 
 ```text
-runtime_evidence_locator: <public metadata 或 allowlisted local evidence 定位>
-runtime_evidence_status: <verified | unverified | failed>
-runtime_evidence_target: <thread/agent + target turn/head + contract digest + lock revision/epoch>
+systemic_invariant_closure:
+  governing_invariant_locator: <全称不变量>
+  subject: <受约束事实>
+  coverage: <适用生命周期和范围>
+  ordering: <必须先后顺序>
+  failure: <拒绝、回滚或无副作用规则>
+  surfaces:
+    - lifecycle_surface: <create | persist | restore | migrate | delete | other>
+      implementation_variant: <默认或替代实现>
+      consumer_or_effect: <消费方或副作用>
+      code_locator: <准确代码位置>
+      positive_check: <成功证据>
+      negative_or_unavailable_check: <失败/不可用证据>
+      no_side_effect_check: <失败时无错误副作用证据>
+      status: <covered | not_applicable>
+      basis: <not_applicable 时依据>
+  invariant_closure_digest: <规范内容摘要>
+  status: <ready | incomplete | invalidated>
 ```
 
-不得在 checkpoint 存 prompt、完整消息、env、token 或完整 rollout 日志。`unverified` 不
-得让受影响执行单元通过 admission、接受其结果或执行外部动作；该单元只能停在只读等待/
-补证据，其他无冲突单元继续。
+所有适用 surface pair 必须 covered，正向、负向/不可用、ordering 和 no-side-effect 证据齐全。多个只读探索可以
+并行，Owner 只汇总一张矩阵；正式实现仍使用一个稳定 Unit、writer 和 convergence chain。checkpoint 只保存
+invariant/closure locator、digest 和 status。
 
-## 五段局部 implementation packet
+首次 review 若发现同一不变量遗漏，旧矩阵失效；完整刷新所有适用面，把同链缺口合并进唯一一次有界修复，再生成
+fresh preflight。再次遗漏必须 `systemic_invariant_closure_incomplete` / `review_churn_action: rethink`，
+不能换路径、PR、reviewer 或 generation 重置预算。
 
-App Task 合同、`direct` Subagent 和 `hierarchical` 下游 Subagent 的局部实现包都必须按
-以下顺序填写；中文优先，协议字段保留英文：
+## 审查前核验
+
+writer 结束后、首次独立 review 前，从验收矩阵生成：
 
 ```text
-OBJECTIVE
-<可观察的目标及其用户价值>
-
-FILES AND OWNERSHIP
-<准确文件/模块清单；写入者、并发编辑和越界禁止>
-
-INTERFACES
-<签名、类型、schema、命令和必须保持的兼容行为>
-
-CONSTRAINTS
-<仓库规则、安全边界、非目标、已确定的设计选择>
-
-VERIFICATION
-- Run/Check: <准确命令或检查>
-  Success: <具体、可观察的成功判据>
-- Inspect: <准确文件、diff 或 artifact>
-  Success: <具体证据>
-
-RETURN
-STATUS: complete | partial | blocked
-CHANGES: <按实际 diff 的文件级摘要>
-VERIFIED: <准确命令及具体证据>
-JUDGMENT CALLS: <合同未定事项或 none>
-GAPS: <未完成项、歧义或 none>
+acceptance -> invariant -> code locator -> positive/negative/unavailable check
+trust-boundary ordering -> evidence
+no-side-effect / resource release -> evidence
+systemic closure -> locator/status 或 not_applicable + 理由
+bounded sibling scan -> locator/status/disposition
 ```
 
-`VERIFICATION` 的每一项必须同时有准确命令/检查和 concrete success criterion；只有
-“已测试”或“看起来通过”不能 admission 或接受。该 packet 只补充局部实现合同；Owner
-仍须按既有流程回读 diff、文件范围、workspace/head 和必要验证，并遵守依赖、消息交付、
-admission 与 closeout。
+sibling scan 只检查与当前验收和 governing invariant 直接相关的相邻实现、Store/codec、adapter、恢复/幂等与
+副作用路径，不做无目标全仓审计。缺证据或未处置的当前验收问题时不派 review。
 
-在 preflight 中先建立 acceptance→invariant→code→check 的最小映射；每条验收必须同时有正向和负向检查：
+## 精确版本独立审查
 
-```text
-acceptance_invariant_map:
-  acceptance_locator: <验收>
-  invariant_locator: <不变量>
-  code_locator: <责任代码/文档>
-  positive_check: <成功检查>
-  negative_check: <失败/不可用检查>
-```
+审查必须绑定 exact commit、准确文件清单、完整 diff locator、空写入范围、writer terminal 证据、preflight 和
+语义范围证据。Reviewer 只返回 `ship | fix-first | rethink | blocked` 及 findings，不自行修复。
 
-有状态 capability 只有在适用时增加以下独立证据；纯文档/展示结果明确标 `not_applicable`：
+任何 diff/head 变化都会使 verdict 失效。首次 fix-first 后，Owner 先处置 finding、刷新相关闭包/sibling scan，
+合并为唯一一次有界修复，再重新审查。同一 Unit/收敛链第二次 finding 驱动写入被禁止；剩余问题按
+shrink/split/reassign/defer/reject/user decision 处理。
 
-```text
-persistence_preflight:
-  store_independent_validation: <check | not_applicable>
-  restart_exact_binding: <check | not_applicable>
-  duplicate_current_only: <check | not_applicable>
-  corruption_fail_closed: <check | not_applicable>
-  transaction_atomicity: <check | not_applicable>
-```
-
-## Acceptance-derived review preflight
-
-首次独立 review 前，任务/Owner 必须从当前 batch 的 acceptance/backlog matrix 生成一份可回读的 preflight
-evidence locator。它至少覆盖：
-
-```text
-acceptance_success_failure_unavailable -> evidence/check
-trust-boundary ordering              -> evidence/check
-negative matrix                      -> evidence/check
-fixture isolation and restoration    -> evidence/check
-resource release                     -> evidence/check
-project invariant                    -> evidence/check
-recent same-class findings           -> evidence/check
-```
-
-没有这些证据，不派 review；`preflight_status` 只能是 `ready | missing | failed`，不能用“任务已完成”、
-readiness、CI 或旧 review 替代。preflight 不替代 CI、hosted checks、fresh exact-head、scope integrity
-或 PR metadata。
-
-若首次独立 review 为 `fix-first`，Owner 必须先做 sibling/systemic scan，再对已 admission 的 finding
-完成一个有界修复并重新生成 fresh preflight/review。审查意见必须先经过
-[scope-integrity.md](scope-integrity.md) 的 `review_finding_disposition` admission；reviewer 只报告
-finding，不写修复。
-
-`review_fix_round_count` 按一次 finding disposition 到下一次 writer quiescence + fresh review 的写入
-回合计算。多个 finding 可以合并在同一回合；计数不按 finding、文件、reviewer、`blocker_class`、head/
-commit 或 execution generation 重置。计数达到 `1` 后，同一 `task_key + scope_revision` 禁止第二轮
-finding-driven 写入，必须 `shrink`、`split`、`reassign`、`defer`、`reject` 或 `user_decision`。
-
-最小审查记录增加：
-
-```text
-preflight_locator / preflight_status / preflight_revision
-review_cycle: first | fix_first | second_substantive
-blocker_classes_seen / sibling_scan_locator / bounded_fix_locator
-review_churn_action: continue | rethink | split | reassign | user_decision
-review_finding_disposition: <scope-integrity.md 中的逐 finding 结构>
-review_fix_round_count: <0 | 1>
-review_fix_scope_key: <task_key + scope_revision>
-```
-
-`defer`、`split`、`reassign` 必须引用 carrier locator；`reject` 必须有 rejection basis；`user_decision`
-必须引用真实产品、权限或外部结果决策 locator；P2/P3 默认延期，但若有当前验收/不变量映射且延期会使交付失真或不安全，可以按 admission 规则 `fix_now`。Pause 文本、
-自然语言 blocker 或 severity 本身不能替代 disposition/counter 门禁。
-
-writer quiescence 后、首次独立 review 前，必须在当前 acceptance/invariant 责任边界内做一次有界 sibling/systemic scan：只检查同类路径是否有同一已声明不变量的遗漏，不扩展 scope。记录 `sibling_scan_status: ready | not_applicable | failed` 与 evidence locator；失败或未处置 finding 阻止 review，不能靠扩大扫描范围制造新工作。
-
-运行 checkpoint 只保留以下 locator/短状态：
-
-```text
-acceptance_invariant_map_locator / persistence_preflight_status / sibling_scan_status
-```
-
-## Scope integrity evidence
-
-Scope integrity 是独立语义门禁，不由 runtime、digest、exact head、测试、CI 或 code review 代替。
-唯一行为规则、强制时点、四面比较、material delta、结论枚举和 repeat/downstream 处理见
-[scope-integrity.md](scope-integrity.md)。本文件只记录 runtime/review 需要引用的最小 locator：
-
-```text
-semantic_scope_checkpoint: <revision>
-semantic_scope_status: aligned | shrink | split | reassign | user_decision
-semantic_scope_evidence_locator: <scope-integrity checkpoint>
-```
-
-独立 reviewer 可以验证当前 head 的 scope evidence，但 Owner 仍负责最终归属决定；change set、合同语义、
-GitHub truth 或相邻 ownership 任一变化都会使旧 checkpoint 过期。普通提交元数据、CI 状态或未改变语义
-的文档证据更新不使其过期。
-
-## Fresh exact-head review
-
-对需要独立审查的 `direct`、`flat` 或 `hierarchical` 交付统一使用：
-
-```text
-reviewed_head: <exact commit SHA>
-reviewed_files: <被审 change set 的准确文件清单>
-review_write_scope: empty
-writer_quiescence: <verified | blocked>
-writer_units: <本次 change set 的全部 writer locator/generation>
-writer_terminal_evidence: <每个 writer 的 terminal 或 host-verified quiesce/revocation locator>
-diff_locator: <完整 diff/PR/commit 定位>
-verdict: ship | fix-first | rethink | blocked
-semantic_scope_status: aligned | drift
-```
-
-审查请求必须绑定 `reviewed_head`、`reviewed_files`、空写入范围、完整 diff locator 和 scope integrity evidence；reviewer 只能基于该
-快照返回 `ship`、`fix-first`、`rethink` 或 `blocked`，并分别给出 `semantic_scope_status`。之后被审查 change set 的 diff 或 head
-发生变化都会让旧 verdict 立即失效，修复或 rebase 后必须重新派发 fresh review。reviewer 不得实现自己的
-修复；Owner 负责判断 findings、决定修复并重新派发。
-
-Fresh review 之前必须完成 `convergence_writer_quiescence`：所有写入 execution unit 已 terminal，或有宿主可
-回读的 quiesce ACK 且写权限已撤销。`review=ship` 不能覆盖 `writer=running`；门禁通过后若 diff、文件哈希或
-head 发生任何变化，旧 verdict 立即失效，必须重新读取并复审。没有 writer terminal/quiesce 证据时，review
-只能返回 `blocked`，不得生成可发布的 `ship`。
-
-fresh context 只表示新上下文，不得声称 Sol-on-Sol 是模型族独立。按风险决定是否需要
-独立 review；微小 carrier、closeout 或其他低风险改动不强制使用 Sol reviewer，也不改变
-现有 Owner、任务线程和 Subagent 默认模型策略。
-
-## Requested vs observed isolation
-
-review 合同分别记录：
-
-```text
-requested_sandbox: <请求值>
-requested_permission: <请求值>
-observed_sandbox: <宿主回读值>
-observed_permission: <宿主回读值>
-```
-
-只有 `observed_sandbox: read-only` 才能称为 enforced read-only。宿主放宽请求时，仅在
-低风险、无需强隔离、review prompt 明确禁止写入且 Owner 精确比较 repo/worktree/artifact
-前后状态均无变化时，才可按 behaviorally read-only 继续；必须报告 observed 值和 residual
-risk。前后状态不能证明家目录、临时目录或外部系统没有副作用。
-
-高风险、要求强隔离、sandbox 不可观察、`cwd`/worktree/head 错配，或发现任意 mutation 时，
-立即停止该 review，不接受 verdict；不要把“请求只读”写成“已 enforced”。
+requested 与 observed sandbox/permission 分开记录。只有宿主回读为只读才能称强隔离；低风险行为只读 fallback
+必须比较仓库/工作树前后状态并报告残余风险，高风险或状态不可观察时不接受审查结论。

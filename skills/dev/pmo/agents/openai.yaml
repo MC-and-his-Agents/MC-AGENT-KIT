@@ -1,4 +1,4 @@
 interface:
   display_name: "PMO"
   short_description: "以产品结果为先，编排单仓库多 Owner 的交付前沿"
-  default_prompt: "使用 $pmo 从总体目标最近未完成的步骤出发推进产品出口；需要启动多 Owner 执行时，先检查兼容的 $tasks-owner，缺失时征得我同意后再安装。"
+  default_prompt: "使用 $pmo 推进单仓库的总体产品目标；需要执行时核验 $tasks-owner 的跨 Skill 合同，缺失或不兼容时先说明影响并征求安装或更新同意。"

@@ -76,11 +76,17 @@ waiting proof 必须绑定 subject identity、fact/evidence digest、generation/
 - main、merge、Owner、Issue、证据、用户质疑、新 seam/new executable path 或 TTL 到期都会使旧 proof 失效，并进入 Affected-slice 或 Deep；sentinel 查询命中 mismatch/new fact 时同样失效，查询未变化时只按上条刷新 proof，不增加 semantic revision。
 - proof 只能证明指定 subject 在指定 generation/head 上的等待，不得扩大到整个仓库或其他 Owner lane。
 
-## 健康 width=1 与低频事故改进
+## 健康单路径与低频反馈聚合
 
 `width=1` 本身不是异常。只有连续周期没有产品/使能进展，或并行证明因新事实、TTL、sentinel 失效时才审计；证明仍新鲜就复用，不反复审计同一健康 lane。审计必须留下不可并行的具体原因、受影响闭包和下一步。
 
-同类事故只有在出现稳定 locator 且有现实影响、并确认是重复发生时，才触发一次有界根因修订、补一条行为轨迹和独立验证。普通单次异常与每次 Heartbeat 只保留机器证据，不触发改进循环、不建报表、不新增长期状态副本。
+Unit Owner 按其唯一执行复盘规则形成反馈候选；PMO 只在候选会影响全局出口、ownership、依赖或需要跨 Unit
+去重时消费。相同根因按稳定 fingerprint 合并，新 Unit、Owner、PR、generation 或 Heartbeat 不能产生重复候选。
+
+反馈动作只在当前产品恢复、纠偏、路由、successor、merge/closeout 都已完成后运行。PMO 每次最多完成一次
+去重搜索和一次 create/comment；必须有独立反馈授权、匹配的目标仓库和可安全脱敏内容。否则只保存 candidate
+locator、short status 与 wake condition。普通单次项目 bug、CI 波动、review finding 或 Heartbeat 不触发反馈。
+反馈成功不改变产品 semantic revision，也不修改、安装、更新、重载或发布当前 Skill。
 
 ## 最小 checkpoint 与 handoff
 
@@ -99,7 +105,9 @@ checkpoint 是有限的恢复索引，不是状态数据库。至少保留：
 
 ## Runtime 与 truth 门禁
 
-PMO 与独立 Owner 的默认 runtime 仍为 gpt-5.6-sol/high、fallback forbidden；只有带 locator 的用户明确指令能覆盖。实际 runtime 必须有公开 metadata 或 allowlisted、只读、本机结构化证据；自报、handoff 和事件不算证据。
+PMO 与独立 Owner 使用平台 `owner_runtime_profile`，禁止静默 fallback；只有带 locator 的用户明确指令能覆盖。
+实际 runtime 必须有公开 metadata 或 allowlisted、只读、本机结构化证据；自报、handoff 和事件不算证据。
+具体 profile、回读方式和失败边界见 `$tasks-owner/references/codex-app.md`。
 
 - 编排者 runtime 未核验或不匹配：记录 RUNTIME_LOCK_ANOMALY，停止事件消费和拓扑动作；只有已授权且宿主支持同线程原生恢复时才恢复，并核验下一目标 turn。
 - 单个 Owner runtime 未核验或不匹配：只隔离该 lane，不消费其事件、不转移 carrier、不 closeout/terminal；其他已核验 lane 继续。

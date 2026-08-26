@@ -14,7 +14,7 @@
       "family": "hierarchical_delegation"
     },
     {
-      "text": "请作为这个 GitHub FR 的项目总负责，使用 direct 模式调度 Subagent。",
+      "text": "请端到端负责这个 GitHub FR 范围，使用 direct 模式调度 Subagent。",
       "family": "direct_delegation"
     },
     {
@@ -36,6 +36,10 @@
     {
       "text": "请负责这个 GitHub milestone，按 issue 依赖推进。",
       "family": "milestone_delegation"
+    },
+    {
+      "text": "PMO 已把这个 Work Item 委任给你，请按准入合同端到端完成。",
+      "family": "pmo_admission"
     }
   ],
   "should_not_trigger": [
@@ -64,7 +68,7 @@
       "family": "explicit_no_delegation"
     },
     {
-      "text": "请负责当前 issue 的一次性修复，不承担项目总负责。",
+      "text": "请负责当前 issue 的一次性修复，不承担长期责任。",
       "family": "one_off_responsibility"
     }
   ],
@@ -74,11 +78,11 @@
       "family": "skill_review"
     },
     {
-      "text": "先讨论 GitHub 项目的任务调度方案，我暂时不委任项目总负责。",
+      "text": "先讨论 GitHub 项目的任务调度方案，我暂时不委任长期 Owner。",
       "family": "planning_without_delegation"
     },
     {
-      "text": "你先以 Owner 视角评审这个 PR，不承担项目总负责。",
+      "text": "你先以 Owner 视角评审这个 PR，不承担长期责任。",
       "family": "owner_perspective_review"
     }
   ]

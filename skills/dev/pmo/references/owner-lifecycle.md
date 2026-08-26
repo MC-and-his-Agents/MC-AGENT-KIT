@@ -7,7 +7,7 @@
 首次执行 Owner 生命周期动作前，必须先完成主 Skill 的依赖检查：
 
 1. 从当前可用 Skill 清单发现名称精确为 `tasks-owner` 的 Skill；
-2. 读取其当前 `SKILL.md` 和所引用的合同，确认 PMO admission、Owner sparse delta、单 Owner 执行、有界 finding 修复及 PR/merge/closeout 语义兼容；
+2. 读取其当前 `SKILL.md` 和唯一的 `references/dev-orchestration-contract.json`，确认合同版本及全部必需 capability；
 3. 缺失或不兼容时停止本节全部写入与生命周期动作，回到仅分析模式；
 4. 只有当前请求确实需要执行时才询问安装或更新，且必须取得用户明确同意；
 5. 缺失时只从主 Skill 记录的可回读发布源安装；已有但不兼容时不调用会拒绝覆盖的 `$skill-installer`，而是请用户通过原安装方式更新；
@@ -38,16 +38,19 @@ initializing/active/recovering -> retiring -> terminal
 4. 写入 carrier 与其他 Owner 不冲突；
 5. 用户授权覆盖创建/唤醒 Owner；
 6. 编排者 runtime 与创建所需 GitHub/宿主 truth 均已核验；
-7. Owner runtime 使用用户有效 override；没有 override 时显式传入本 Skill 默认 `gpt-5.6-sol/high`，禁止 fallback，随后按当前 `$tasks-owner/references/runtime-and-review-evidence.md` 用目标 turn metadata 核验。
+7. Owner runtime 使用用户有效 override；没有 override 时使用 Codex App 引用中的 `owner_runtime_profile`，禁止 fallback，并回读目标运行证据。
 8. `tasks-owner` 依赖门禁已通过，当前模式为完整模式。
 
 创建后把以下内容交给 Owner：唯一 `repo_locator`、`target_ref`/`verified_head`、scope locator、confirmed authority、相邻 carrier ownership、已验证 hard/soft/convergence 边界、本 Skill 的高层事件合同，以及“内部按当前 `$tasks-owner` 执行”。不要替 Owner 生成 task admission 合同。
 
 ### Admission 与稀疏结果回报
 
-PMO 在 admission 时只发送一个可回读的 `pmo_admission_contract` locator，摘要包含产品目标、预期贡献、验收、允许/排除范围、产品出口与收敛修复预算、Unit/PMO/用户权限边界、exact-main 和证据基线。合同字段、finding 维度、scope checkpoint 和修复回合由 `$tasks-owner` references 承载；PMO 只保留 locator 与短状态，不维护第二份 schema。
+PMO admission 严格使用 `$tasks-owner/references/dev-orchestration-contract.json` 的
+`pmo_admission` envelope。PMO 只保留合同 locator、版本、能力核验结果和短状态，不维护第二份 schema。
 
-Owner 对 PMO 只上报改变全局判断的 `owner_sparse_delta`：实际产品效果/证据、局部 blocker 与 remaining executable surface、finding 的出口/跨 Unit 影响、范围变化和 next unlock。常规实现、测试、finding 处置、PR、merge、closeout 与 cleanup 由 Owner 自主完成，PMO 不逐条审批，也不管理其临时 Writer/Reviewer/Cleanup。
+Owner 对 PMO 只按同一机器合同的 `owner_sparse_delta` 上报改变全局判断的事实。常规实现、测试、finding
+处置、PR、merge、closeout 与 cleanup 由 Owner 自主完成，PMO 不逐条审批，也不管理其临时
+Writer/Reviewer/Cleanup。
 
 blocker 必须用普通语言标明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor 与 wake/invalidation 条件。局部 blocker 仍由 Owner 在剩余可执行面内推进；只有没有剩余可执行面且等待 PMO、外部或用户时才路由为全局等待。finding 的 `exit_impact`、`treatment`、`authority`、`lifecycle` 正交记录；跨 Unit、超预算或出口裁决交 PMO，越过产品/成本/风险/权限边界交用户。
 

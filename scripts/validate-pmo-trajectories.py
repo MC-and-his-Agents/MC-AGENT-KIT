@@ -111,7 +111,7 @@ MACHINE_FIELDS = {
 TASKS_OWNER_CAPABILITIES = {
     "pmo_admission",
     "owner_sparse_delta",
-    "single_owner_execution",
+    "single_scope_owner_execution",
     "bounded_finding_fix",
     "delivery_closeout",
 }
