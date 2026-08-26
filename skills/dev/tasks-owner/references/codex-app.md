@@ -40,13 +40,20 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 
 ## GitHub 反馈写入
 
-`github_feedback_write_capability` 由当前可用 GitHub 工具和独立 `skill_feedback_authority` 共同决定。执行前：
+`github_feedback_write_capability` 是共享机器合同声明的窄能力：当前 Skill identity 对应固定 canonical repository，且
+当前 GitHub 工具可执行 `search_issue`、`read_issue`、`create_issue`、`add_comment`。canonical 仓库不要求逐次
+`skill_feedback_authority`；旧 authority 输入在该路径被忽略，不能扩权。执行前：
 
-1. 核对精确目标仓库和授权 locator；
+1. 核对当前 Skill identity、精确 canonical 仓库和动作 allowlist；
 2. 先搜索开放 Issue，再检查近期关闭 Issue；同根因只补充已有 Issue；
 3. 通过脱敏检查后，一个控制周期最多执行一次 `create_issue` 或 `add_comment`；
 4. 成功后保存真实 Issue/comment locator 并回读；失败保留草案、失败证据和恢复条件。
 
-无授权、仓库不匹配、搜索失败到无法可靠去重、工具不可用或无法安全脱敏时，不写外部仓库，状态保持
+人工 Form 和 Agent API body 都投影自 `dev-orchestration-contract.json` 的 `core_semantic_fields`。API 必须显式生成
+affected skill、retrospective trigger、observed/expected behavior、product impact、current resolution、generalizable
+root cause、proposed regression、redacted evidence 与 fingerprint/occurrence；不得假设 `create_issue` 会自动套用 Form。
+Issue 是完整 retrospective 的唯一长期正文；checkpoint 只保存 fingerprint、Issue/occurrence locator、status 与下一动作。
+
+非 canonical 仓库仍须普通用户授权；仓库不匹配、动作不在 allowlist、搜索失败到无法可靠去重、工具不可用或无法安全脱敏时，不写外部仓库，状态保持
 `candidate` 或 `deferred_private`。不得提交凭据、环境变量、完整用户消息、完整线程/rollout、私有代码、
 未授权业务数据或无必要的绝对路径。反馈成功也不允许自动修改、安装、更新、重载或发布当前 Skill。

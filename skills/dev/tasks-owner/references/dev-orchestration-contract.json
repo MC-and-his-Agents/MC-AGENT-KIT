@@ -1,16 +1,16 @@
 {
   "contract_id": "dev-orchestration",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "authority_source": "tasks-owner",
   "compatible_skills": {
     "pmo": {
-      "tested_artifact_version": "0.9.0",
-      "minimum_compatible_version": "0.9.0",
+      "tested_artifact_version": "0.10.0",
+      "minimum_compatible_version": "0.10.0",
       "required_contract_schema_major": 1
     },
     "tasks-owner": {
-      "tested_artifact_version": "0.23.0",
-      "minimum_compatible_version": "0.23.0",
+      "tested_artifact_version": "0.24.0",
+      "minimum_compatible_version": "0.24.0",
       "required_contract_schema_major": 1
     }
   },
@@ -20,8 +20,10 @@
     "single_scope_owner_execution",
     "bounded_finding_fix",
     "delivery_closeout",
+    "product_frontier_closure",
     "bounded_execution_retrospective",
-    "skill_feedback_candidate"
+    "skill_feedback_candidate",
+    "native_skill_feedback"
   ],
   "owner_mandate": {
     "required_fields": [
@@ -141,11 +143,172 @@
       "thread_active"
     ]
   },
+  "product_frontier": {
+    "required_fields": [
+      "product_exit_locators",
+      "gaps",
+      "frontier_closure_status"
+    ],
+    "gap_required_fields": [
+      "gap_locator",
+      "classification",
+      "owner_or_next_actor",
+      "evidence_locator",
+      "wake_condition",
+      "invalidation_condition"
+    ],
+    "classifications": [
+      "execution_ready",
+      "admission_pending",
+      "active_execution",
+      "waiting_external",
+      "waiting_user",
+      "replan_or_reownership_pending",
+      "closeout_pending"
+    ],
+    "owner_actionable_classifications": [
+      "execution_ready",
+      "admission_pending",
+      "replan_or_reownership_pending",
+      "closeout_pending"
+    ],
+    "waiting_proof_required_fields": [
+      "subject",
+      "external_condition",
+      "responsible_party",
+      "evidence_locator",
+      "observed_at",
+      "freshness",
+      "wake_condition",
+      "invalidation_condition"
+    ],
+    "closure_status": ["complete", "incomplete"],
+    "whole_cycle_wait_allowed_classifications": [
+      "active_execution",
+      "waiting_external",
+      "waiting_user"
+    ],
+    "recompute_triggers": [
+      "user_correction",
+      "unit_merge_or_closeout",
+      "dependency_resolution",
+      "owner_terminal",
+      "waiting_proof_invalidation",
+      "long_lived_single_writer_with_unfinished_exit",
+      "deep_audit"
+    ]
+  },
+  "execution_retrospective": {
+    "triggers": [
+      "user_correction",
+      "explicit_skill_correction",
+      "repeated_failure",
+      "post_repair_recurrence",
+      "no_product_progress",
+      "scope_dependency_ownership_drift",
+      "source_of_truth_conflict",
+      "repeated_platform_assumption_failure",
+      "high_impact_incident"
+    ],
+    "root_cause_targets": ["project", "planning", "skill", "platform"],
+    "candidate_required_fields": [
+      "affected_skill",
+      "trigger",
+      "observed_behavior",
+      "expected_behavior",
+      "product_impact",
+      "current_resolution",
+      "generalizable_reason",
+      "regression_proposal",
+      "source_locator",
+      "disclosure_status",
+      "fingerprint_seed"
+    ],
+    "ordering": [
+      "current_product_recovery",
+      "frontier_or_owner_correction",
+      "retrospective",
+      "root_cause_classification",
+      "feedback_candidate"
+    ],
+    "explicit_skill_correction_requires_repetition": false,
+    "heartbeat_is_recovery_only": true
+  },
   "skill_feedback": {
-    "candidate_fields": [
-      "skill_feedback_candidate_locator",
+    "canonical_repositories": {
+      "pmo": "MC-and-his-Agents/MC-AGENT-KIT",
+      "tasks-owner": "MC-and-his-Agents/MC-AGENT-KIT"
+    },
+    "canonical_issue_form": ".github/ISSUE_TEMPLATE/skill-feedback.yml",
+    "allowed_actions": [
+      "search_issue",
+      "read_issue",
+      "create_issue",
+      "add_comment"
+    ],
+    "forbidden_actions": [
+      "write_code",
+      "create_branch",
+      "create_pull_request",
+      "merge_pull_request",
+      "create_release",
+      "close_issue",
+      "delete_issue",
+      "update_milestone",
+      "update_labels",
+      "update_assignees",
+      "change_permissions",
+      "install_skill",
+      "update_skill",
+      "reload_skill"
+    ],
+    "submission_preconditions": [
+      "skill_identity_match",
+      "canonical_repository_match",
+      "github_feedback_capability_available",
+      "dedupe_complete",
+      "redaction_safe"
+    ],
+    "core_semantic_fields": [
+      "affected_skill",
+      "retrospective_trigger",
+      "observed_behavior",
+      "expected_behavior",
+      "product_impact",
+      "current_resolution",
+      "generalizable_root_cause",
+      "proposed_regression",
+      "redacted_evidence",
+      "fingerprint_occurrence"
+    ],
+    "fingerprint_fields": [
+      "affected_skill",
+      "incident_root_cause_class",
+      "governing_behavior_category",
+      "platform_contract_major"
+    ],
+    "fingerprint_forbidden_fields": [
+      "branch",
+      "pull_request",
+      "head",
+      "owner",
+      "unit",
+      "execution_generation",
+      "heartbeat"
+    ],
+    "occurrence_comment_fields": [
+      "source_locator",
+      "product_impact",
+      "current_resolution",
+      "root_cause_delta",
+      "regression_delta"
+    ],
+    "checkpoint_fields": [
+      "feedback_fingerprint",
+      "feedback_issue_locator",
+      "last_occurrence_locator",
       "feedback_status",
-      "feedback_target"
+      "next_action"
     ],
     "feedback_status": [
       "none",
@@ -155,24 +318,15 @@
       "deferred_private"
     ],
     "feedback_target": ["pmo", "tasks-owner", "platform", "none"],
-    "authority_required_for": ["create_issue", "add_comment"],
-    "authority_fields": [
-      "skill_feedback_authority_locator",
-      "user_source_locator",
-      "target_repository",
-      "allowed_actions",
-      "allowed_skill_scope",
-      "redaction_policy",
-      "dedupe_policy",
-      "expiry",
-      "invalidation"
-    ],
     "submission_required_fields": [
       "feedback_write_action",
       "feedback_submission_locator",
       "feedback_readback_verified",
       "skill_digest_unchanged"
     ],
+    "legacy_authority_input": "ignored_for_canonical_repository; non-canonical writes use ordinary user authorization",
+    "api_body_must_be_explicit": true,
+    "issue_is_only_long_term_retrospective_body": true,
     "does_not_change_product_semantic_revision": true,
     "does_not_change_current_skill_digest": true
   },

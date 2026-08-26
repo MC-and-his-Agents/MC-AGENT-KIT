@@ -31,7 +31,7 @@ checkpoint 只保存：
 - 每个任务/执行单元的 locator、generation、短状态和待消费消息；
 - 当前 target head、语义范围、收敛/审查/清理状态；
 - 等待证明 locator、next actor/action/wake condition；
-- 复盘候选 fingerprint、source/product-resolution locator、status/target/submission locator。
+- 复盘候选 fingerprint、Issue/last occurrence locator、status 与 next action。
 
 handoff 是更短的恢复投影，只引用 checkpoint 与活动事实，不复制 GitHub、完整矩阵、日志、prompt、env、token 或
 线程历史。实时 GitHub、线程和工作树事实优先；实质变化才递增恢复 revision。

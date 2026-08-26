@@ -17,7 +17,7 @@
 | 系统性闭包语义、运行证据、preflight 与独立审查 | `tasks-owner/references/runtime-and-review-evidence.md` |
 | Owner 准入、消息、收口与反馈 locator | `tasks-owner/references/contracts.md` |
 | Owner Heartbeat、checkpoint 与 handoff | `tasks-owner/references/automation.md` |
-| 跨 Skill 能力、机器字段、准入、稀疏增量与反馈授权 | `tasks-owner/references/dev-orchestration-contract.json` |
+| 跨 Skill 能力、机器字段、准入、稀疏增量与反馈 schema/capability | `tasks-owner/references/dev-orchestration-contract.json` |
 | Codex App 模型、工具、等待、重试、验证与反馈写入 | `tasks-owner/references/codex-app.md` |
 
 ## 维护规则

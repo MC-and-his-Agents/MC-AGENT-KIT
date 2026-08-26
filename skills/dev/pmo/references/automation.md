@@ -69,7 +69,7 @@ due sentinel 本身是 Affected-slice 入口，不等待查询结果才选路；
 
 ## Waiting proof（等待证明）
 
-waiting proof 必须绑定 subject identity、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、expires_at、sentinel source 和 sentinel_due_at。缺字段即 proof 无效，不能 KEEP_CURRENT。
+waiting proof 必须绑定 subject identity、不可替代 external condition、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、freshness/expires_at、sentinel source 和 sentinel_due_at。缺字段即 proof 无效，必须在同周期重算为可执行、待准入或待重塑，不能 KEEP_CURRENT。
 
 - TTL 和 sentinel_due_at 在形成 proof 时按事实波动性与影响确定；不臆测全局固定 TTL/interval。
 - sentinel 只在 due 时查询，不随每次 Heartbeat 重跑；sentinel_due_at 到期先生成该 proof 范围的 Affected-slice change vector。
@@ -83,9 +83,17 @@ waiting proof 必须绑定 subject identity、fact/evidence digest、generation/
 Unit Owner 按其唯一执行复盘规则形成反馈候选；PMO 只在候选会影响全局出口、ownership、依赖或需要跨 Unit
 去重时消费。相同根因按稳定 fingerprint 合并，新 Unit、Owner、PR、generation 或 Heartbeat 不能产生重复候选。
 
+用户纠偏先恢复产品并重算前沿，再做轻量复盘；明确指出 Skill 行为错误的 `explicit_skill_correction` 单次即可触发。
+PMO 对自身的全局出口、ownership 与依赖行为负责，不接管 Unit 内实现复盘。根因只归为 project、planning、skill
+或 platform；普通单次项目 bug、CI 波动、review finding 或 Heartbeat 不触发反馈，Heartbeat 只恢复漏检。
+
 反馈动作只在当前产品恢复、纠偏、路由、successor、merge/closeout 都已完成后运行。PMO 每次最多完成一次
-去重搜索和一次 create/comment；必须有独立反馈授权、匹配的目标仓库和可安全脱敏内容。否则只保存 candidate
-locator、short status 与 wake condition。普通单次项目 bug、CI 波动、review finding 或 Heartbeat 不触发反馈。
+去重搜索和一次 create/comment；canonical 仓库由共享机器合同固定，只核验 Skill identity、GitHub capability、仓库
+匹配、去重和脱敏，不要求逐次反馈授权。否则只保存 candidate locator、short status 与 wake condition。
+完整 retrospective 只持久化到 canonical repository 的 Skill feedback Issue；不建 JSON、事故目录或第二数据库。
+fingerprint 只使用 affected skill、根因类别、受约束行为类别和平台合同主版本，不使用 branch、PR、head、Owner、
+Unit、generation 或 Heartbeat。先搜索 open 与近期 closed Issue；同 fingerprint 只追加 occurrence comment，新根因才
+创建 Issue。create/comment 只有回读真实 locator 后才算 submitted，失败时不自动重试或重复创建。
 反馈成功不改变产品 semantic revision，也不修改、安装、更新、重载或发布当前 Skill。
 
 ## 最小 checkpoint 与 handoff
@@ -97,6 +105,8 @@ checkpoint 是有限的恢复索引，不是状态数据库。至少保留：
 - semantic_revision、truth_digest、closure_digest；
 - active delivery unit/Owner locator 与短状态；
 - evidence-cache locator、waiting-proof locator；
+- product-frontier closure status 与受影响 gap locators；
+- feedback fingerprint、Issue/last occurrence locator、status 与 next action；
 - next_actor、next_action、wake_condition。
 
 不要保存完整事件、Issue 正文、GitHub 快照、prompt、env、token、完整 DAG、完整 runtime/presentation matrix 或完整日志。handoff 只是人类/发布投影 locator，不复制 checkpoint。

@@ -16,6 +16,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "skills/dev/tasks-owner/references/dev-orchestration-contract.json"
 PLATFORM = ROOT / "skills/dev/tasks-owner/references/codex-app.md"
+FEEDBACK_FORM = ROOT / ".github/ISSUE_TEMPLATE/skill-feedback.yml"
 CYCLES = ROOT / "skills/dev/pmo/evals/cycle_cases.jsonl"
 INTEGRATION = ROOT / "skills/dev/tasks-owner/evals/dev_orchestration_cases.jsonl"
 OWNER_TRIGGERS = ROOT / "skills/dev/tasks-owner/evals/trigger_cases.json"
@@ -23,7 +24,7 @@ PMO_TRIGGERS = ROOT / "skills/dev/pmo/evals/trigger_cases.json"
 CAPABILITIES = {
     "pmo_admission", "owner_sparse_delta", "single_scope_owner_execution",
     "bounded_finding_fix", "delivery_closeout", "bounded_execution_retrospective",
-    "skill_feedback_candidate",
+    "skill_feedback_candidate", "product_frontier_closure", "native_skill_feedback",
 }
 PMO_ADMISSION_FIELDS = {
     "contract_id", "schema_version", "authority_origin", "scope_kind", "scope_locator",
@@ -32,20 +33,45 @@ PMO_ADMISSION_FIELDS = {
     "ownership_boundary_locator", "allowed_scope", "excluded_scope", "carrier_locator",
     "target_head_locator", "decision_boundary_locator", "repair_budget",
 }
-FEEDBACK_AUTHORITY_FIELDS = {
-    "skill_feedback_authority_locator", "user_source_locator", "target_repository",
-    "allowed_actions", "allowed_skill_scope", "redaction_policy", "dedupe_policy",
-    "expiry", "invalidation",
-}
 ACTION_ORDER = [
-    "closeout_unit", "correct_drift", "route_delta", "shape_work_item",
+    "closeout_unit", "correct_drift", "recompute_product_frontier", "route_delta", "shape_work_item",
     "create_or_wake_owner", "request_user_decision", "record_evidenced_wait",
     "record_skill_feedback_candidate", "submit_or_update_skill_feedback",
 ]
-GAP_FIELDS = (
-    "remaining_gap_ids", "executable_gap_ids", "user_decision_gap_ids",
-    "evidenced_wait_gap_ids", "unshaped_gap_ids",
-)
+FRONTIER_CLASSES = {
+    "execution_ready", "admission_pending", "active_execution", "waiting_external",
+    "waiting_user", "replan_or_reownership_pending", "closeout_pending",
+}
+OWNER_ACTIONABLE_CLASSES = {
+    "execution_ready", "admission_pending", "replan_or_reownership_pending", "closeout_pending",
+}
+WAIT_CLASSES = {"active_execution", "waiting_external", "waiting_user"}
+GAP_REQUIRED_FIELDS = {
+    "gap_locator", "classification", "owner_or_next_actor", "evidence_locator",
+    "wake_condition", "invalidation_condition",
+}
+WAITING_PROOF_FIELDS = {
+    "subject", "external_condition", "responsible_party", "evidence_locator",
+    "observed_at", "freshness", "wake_condition", "invalidation_condition",
+}
+RETROSPECTIVE_TRIGGERS = {
+    "user_correction", "explicit_skill_correction", "repeated_failure", "post_repair_recurrence",
+    "no_product_progress", "scope_dependency_ownership_drift", "source_of_truth_conflict",
+    "repeated_platform_assumption_failure", "high_impact_incident",
+}
+RETROSPECTIVE_CANDIDATE_FIELDS = {
+    "affected_skill", "trigger", "observed_behavior", "expected_behavior", "product_impact",
+    "current_resolution", "generalizable_reason", "regression_proposal", "source_locator",
+    "disclosure_status", "fingerprint_seed",
+}
+CORE_FEEDBACK_FIELDS = {
+    "affected_skill", "retrospective_trigger", "observed_behavior", "expected_behavior",
+    "product_impact", "current_resolution", "generalizable_root_cause", "proposed_regression",
+    "redacted_evidence", "fingerprint_occurrence",
+}
+FINGERPRINT_FIELDS = {
+    "affected_skill", "incident_root_cause_class", "governing_behavior_category", "platform_contract_major",
+}
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -76,72 +102,98 @@ def version_is_compatible(actual: Any, compatibility: dict[str, Any]) -> bool:
     return parsed is not None and minimum is not None and parsed >= minimum and compatibility.get("required_contract_schema_major") == 1
 
 
+def feedback_fingerprint(facts: dict[str, Any], contract: dict[str, Any]) -> str:
+    fields = contract["skill_feedback"]["fingerprint_fields"]
+    return json.dumps([facts.get(field) for field in fields], ensure_ascii=False, separators=(",", ":"))
+
+
 def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    gap_sets: dict[str, set[str]] = {}
-    for field in GAP_FIELDS:
-        value = facts.get(field)
-        if not isinstance(value, list) or any(not real_locator(item) for item in value) or len(value) != len(set(value)):
-            errors.append(f"{field} 必须是无重复的真实差距 ID 列表")
+    exits = facts.get("product_exit_locators")
+    gaps = facts.get("gaps")
+    if not isinstance(exits, list) or any(not real_locator(item) for item in exits) or len(exits) != len(set(exits)):
+        errors.append("product_exit_locators 必须是无重复的真实 locator 列表")
+    if facts.get("frontier_closure_status") not in {"complete", "incomplete"}:
+        errors.append("frontier_closure_status 无效")
+    if not isinstance(gaps, list):
+        return errors + ["gaps 必须是列表"]
+    locators: set[str] = set()
+    for gap in gaps:
+        if not isinstance(gap, dict) or not GAP_REQUIRED_FIELDS <= set(gap):
+            errors.append("gap 缺少机器合同字段")
             continue
-        gap_sets[field] = set(value)
-    if len(gap_sets) != len(GAP_FIELDS):
-        return errors
-    remaining = gap_sets["remaining_gap_ids"]
-    classified = set().union(*(gap_sets[field] for field in GAP_FIELDS[1:]))
-    if not classified <= remaining:
-        errors.append("差距分类包含不在 remaining_gap_ids 中的 ID")
-    if gap_sets["user_decision_gap_ids"] & gap_sets["evidenced_wait_gap_ids"]:
-        errors.append("同一差距不能同时请求用户决策和记录普通等待")
-    if facts.get("product_exit_complete"):
-        if remaining:
-            errors.append("产品出口完成时不能仍有剩余差距")
-    elif not remaining:
-        errors.append("产品出口未完成时必须列出剩余差距")
-    has_product_action = any((
-        facts.get("merge_verified"), facts.get("drift_detected"), facts.get("route_delta_ready"),
-        gap_sets["unshaped_gap_ids"], gap_sets["executable_gap_ids"],
-    ))
-    if not facts.get("product_exit_complete") and not has_product_action:
-        covered = gap_sets["user_decision_gap_ids"] | gap_sets["evidenced_wait_gap_ids"]
-        if covered != remaining:
-            errors.append("没有产品动作时，用户决策或等待证明必须覆盖全部剩余差距")
+        if any(not real_locator(gap.get(field)) for field in GAP_REQUIRED_FIELDS):
+            errors.append("gap 字段必须可定位")
+        locator = gap.get("gap_locator")
+        if locator in locators:
+            errors.append("gap_locator 重复")
+        locators.add(locator)
+        classification = gap.get("classification")
+        if classification not in FRONTIER_CLASSES:
+            errors.append("gap classification 无效")
+        if classification == "waiting_external":
+            proof = gap.get("waiting_proof")
+            if not isinstance(proof, dict) or not WAITING_PROOF_FIELDS <= set(proof) or any(
+                not real_locator(proof.get(field)) for field in WAITING_PROOF_FIELDS
+            ):
+                errors.append("waiting_external 缺少完整且当前的 waiting proof")
+            elif str(proof["freshness"]).strip().lower() in {"stale", "expired", "invalid"}:
+                errors.append("waiting_external 使用了陈旧 waiting proof")
+        elif "waiting_proof" in gap:
+            errors.append("只有 waiting_external 可以携带 waiting proof")
+    if facts.get("product_exit_complete") and (exits or gaps):
+        errors.append("产品出口完成时不能仍有出口或差距")
+    if not facts.get("product_exit_complete") and not exits:
+        errors.append("产品出口未完成时必须枚举出口")
+    if facts.get("frontier_closure_status") == "complete" and not facts.get("product_exit_complete") and not gaps:
+        errors.append("完整前沿必须枚举剩余差距")
     return errors
 
 
 def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
     actions: list[str] = []
+    gaps = facts.get("gaps") if isinstance(facts.get("gaps"), list) else []
+    classes = {gap.get("classification") for gap in gaps if isinstance(gap, dict)}
     if facts.get("merge_verified"):
+        actions.append("closeout_unit")
+    elif "closeout_pending" in classes:
         actions.append("closeout_unit")
     if facts.get("drift_detected"):
         actions.append("correct_drift")
+    if facts.get("frontier_closure_status") == "incomplete":
+        actions.append("recompute_product_frontier")
     if facts.get("route_delta_ready"):
         actions.append("route_delta")
-    if facts.get("unshaped_gap_ids"):
+    if "replan_or_reownership_pending" in classes:
         actions.append("shape_work_item")
-    if facts.get("executable_gap_ids"):
+    if classes & {"execution_ready", "admission_pending"}:
         actions.append("create_or_wake_owner")
-    if facts.get("user_decision_gap_ids"):
+    if "waiting_user" in classes:
         actions.append("request_user_decision")
-    if facts.get("evidenced_wait_gap_ids"):
+    if "waiting_external" in classes:
         actions.append("record_evidenced_wait")
     if facts.get("feedback_candidate"):
         actions.append("record_skill_feedback_candidate")
     if facts.get("feedback_submission_ready") and all(
         facts.get(key) is True
-        for key in ("product_actions_complete", "feedback_authority_valid", "feedback_dedupe_complete", "feedback_redaction_safe")
+        for key in (
+            "product_actions_complete", "skill_identity_match", "canonical_repository_match",
+            "github_feedback_capability_available", "feedback_dedupe_complete", "feedback_redaction_safe",
+        )
     ):
         actions.append("submit_or_update_skill_feedback")
-    product = any(action in ACTION_ORDER[:5] for action in actions)
-    blocked = any(action in {"request_user_decision", "record_evidenced_wait"} for action in actions)
+    product = any(action in ACTION_ORDER[:6] for action in actions)
+    blocked = bool(classes & {"waiting_user", "waiting_external", "active_execution"})
     if facts.get("product_exit_complete"):
         status = "completed"
     elif product and blocked:
         status = "partially_blocked"
     elif product:
         status = "progressed"
-    else:
+    elif facts.get("frontier_closure_status") == "complete" and classes <= WAIT_CLASSES:
         status = "waiting"
+    else:
+        status = "progressed"
     return status, actions
 
 
@@ -154,27 +206,34 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
     if facts.get("existing_unit"):
         return "new_unit" if facts.get("scope_change") else "same_unit"
     if facts.get("retrospective"):
-        if facts.get("retrospective") != "repeated" or facts.get("root_cause_target") == "project":
+        trigger = facts.get("retrospective")
+        if trigger not in RETROSPECTIVE_TRIGGERS:
             return "continue_delivery"
-        if facts.get("feedback_authority") != "valid" or facts.get("feedback_redaction_safe") is not True:
+        if facts.get("root_cause_target") in {"project", "planning"} or facts.get("feedback_candidate_complete") is not True:
+            return "continue_delivery"
+        if facts.get("feedback_redaction_safe") is not True:
             return "deferred_private"
-        if facts.get("target_repository_match") is not True:
+        if facts.get("skill_identity_match") is not True or facts.get("canonical_repository_match") is not True:
+            return "deferred_private"
+        if facts.get("feedback_write_action") not in {None, "search_issue", "read_issue", "create_issue", "add_comment"}:
             return "deferred_private"
         if facts.get("feedback_dedupe_complete") is not True:
             return "candidate"
         if facts.get("existing_feedback_issue"):
-            return "comment_existing"
-        if facts.get("feedback_create_succeeded"):
+            if not facts.get("feedback_write_succeeded"):
+                return "comment_existing" if facts.get("github_feedback_capability_available") is True else "candidate"
+        if facts.get("feedback_write_succeeded"):
+            expected_action = "add_comment" if facts.get("existing_feedback_issue") else "create_issue"
             complete = (
-                facts.get("feedback_write_action") == "create_issue"
+                facts.get("feedback_write_action") == expected_action
                 and real_locator(facts.get("feedback_submission_locator"))
                 and facts.get("feedback_readback_verified") is True
                 and facts.get("skill_digest_unchanged") is True
             )
             return "submitted" if complete else "candidate"
-        if facts.get("feedback_create_attempted"):
+        if facts.get("feedback_write_attempted"):
             return "candidate"
-        return "create_new_feedback_issue" if facts.get("feedback_write_capability") is True else "candidate"
+        return "create_new_feedback_issue" if facts.get("github_feedback_capability_available") is True else "candidate"
     if facts.get("writer_admission_requested"):
         if facts.get("mandate_complete") and not mandate_errors(facts) and not writer_admission_errors(facts):
             return "admit_unit_writer"
@@ -191,7 +250,7 @@ def skill_version(path: Path) -> str | None:
 
 def validate_contract(contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "1.0.0":
+    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "1.1.0":
         errors.append("共享合同身份或版本错误")
     if contract.get("authority_source") != "tasks-owner":
         errors.append("共享合同权威来源错误")
@@ -225,17 +284,85 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"{skill} 的最低兼容版本无效")
         if compatibility["required_contract_schema_major"] != 1:
             errors.append(f"{skill} 的合同主版本不兼容")
+    frontier = contract.get("product_frontier", {})
+    if (
+        set(frontier.get("required_fields", [])) != {"product_exit_locators", "gaps", "frontier_closure_status"}
+        or
+        set(frontier.get("classifications", [])) != FRONTIER_CLASSES
+        or set(frontier.get("owner_actionable_classifications", [])) != OWNER_ACTIONABLE_CLASSES
+        or set(frontier.get("gap_required_fields", [])) != GAP_REQUIRED_FIELDS
+        or set(frontier.get("waiting_proof_required_fields", [])) != WAITING_PROOF_FIELDS
+        or set(frontier.get("whole_cycle_wait_allowed_classifications", [])) != WAIT_CLASSES
+        or set(frontier.get("closure_status", [])) != {"complete", "incomplete"}
+        or set(frontier.get("recompute_triggers", [])) != {
+            "user_correction", "unit_merge_or_closeout", "dependency_resolution", "owner_terminal",
+            "waiting_proof_invalidation", "long_lived_single_writer_with_unfinished_exit", "deep_audit",
+        }
+    ):
+        errors.append("产品前沿闭包合同不完整")
+    retrospective = contract.get("execution_retrospective", {})
+    if (
+        set(retrospective.get("triggers", [])) != RETROSPECTIVE_TRIGGERS
+        or set(retrospective.get("root_cause_targets", [])) != {"project", "planning", "skill", "platform"}
+        or set(retrospective.get("candidate_required_fields", [])) != RETROSPECTIVE_CANDIDATE_FIELDS
+        or retrospective.get("ordering") != [
+            "current_product_recovery", "frontier_or_owner_correction", "retrospective",
+            "root_cause_classification", "feedback_candidate",
+        ]
+        or retrospective.get("explicit_skill_correction_requires_repetition") is not False
+        or retrospective.get("heartbeat_is_recovery_only") is not True
+    ):
+        errors.append("自主执行复盘合同不完整")
     feedback = contract.get("skill_feedback", {})
-    if not {
-        "candidate_fields", "feedback_status", "feedback_target", "authority_required_for",
-        "authority_fields", "submission_required_fields", "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
-    } <= set(feedback):
+    required_feedback = {
+        "canonical_repositories", "canonical_issue_form", "allowed_actions", "forbidden_actions",
+        "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
+        "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
+        "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
+        "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
+    }
+    if not required_feedback <= set(feedback):
         errors.append("Skill 反馈合同不完整")
-    elif set(feedback.get("authority_fields", [])) != FEEDBACK_AUTHORITY_FIELDS:
-        errors.append("Skill 反馈授权字段不完整")
-    elif feedback.get("does_not_change_product_semantic_revision") is not True or feedback.get("does_not_change_current_skill_digest") is not True:
+    elif set(feedback.get("allowed_actions", [])) != {"search_issue", "read_issue", "create_issue", "add_comment"}:
+        errors.append("Skill 反馈动作 allowlist 错误")
+    elif set(feedback.get("canonical_repositories", {}).values()) != {"MC-and-his-Agents/MC-AGENT-KIT"}:
+        errors.append("Skill 反馈 canonical repository 错误")
+    elif set(feedback.get("core_semantic_fields", [])) != CORE_FEEDBACK_FIELDS:
+        errors.append("Skill 反馈核心语义字段错误")
+    elif set(feedback.get("fingerprint_fields", [])) != FINGERPRINT_FIELDS:
+        errors.append("Skill 反馈稳定 fingerprint 字段错误")
+    elif not {"branch", "pull_request", "head", "owner", "unit", "execution_generation", "heartbeat"} <= set(feedback.get("fingerprint_forbidden_fields", [])):
+        errors.append("Skill 反馈 fingerprint 会受易变执行身份污染")
+    elif set(feedback.get("occurrence_comment_fields", [])) != {"source_locator", "product_impact", "current_resolution", "root_cause_delta", "regression_delta"}:
+        errors.append("Skill 反馈 occurrence 字段错误")
+    elif set(feedback.get("checkpoint_fields", [])) != {"feedback_fingerprint", "feedback_issue_locator", "last_occurrence_locator", "feedback_status", "next_action"}:
+        errors.append("Skill 反馈 checkpoint 复制了长期正文")
+    elif feedback.get("legacy_authority_input") != "ignored_for_canonical_repository; non-canonical writes use ordinary user authorization":
+        errors.append("旧反馈授权输入的兼容语义错误")
+    elif not all(feedback.get(field) is True for field in (
+        "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
+        "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
+    )):
         errors.append("Skill 反馈错误地改变产品或运行版本")
     return errors
+
+
+def feedback_form_errors(contract: dict[str, Any], text: str) -> list[str]:
+    feedback = contract["skill_feedback"]
+    form_ids = re.findall(r"^\s+id:\s*([a-z0-9_-]+)\s*$", text, re.MULTILINE)
+    if len(form_ids) != len(set(form_ids)):
+        return ["Skill feedback Form 存在重复字段"]
+    if set(form_ids) != set(feedback["core_semantic_fields"]):
+        return ["Skill feedback Form 与机器 schema 的核心语义字段漂移"]
+    if text.count("required: true") != len(form_ids):
+        return ["Skill feedback Form 的核心语义字段必须全部必填"]
+    if any(trigger not in text for trigger in contract["execution_retrospective"]["triggers"]):
+        return ["Skill feedback Form 的 retrospective trigger 投影不完整"]
+    if feedback["canonical_issue_form"] != str(FEEDBACK_FORM.relative_to(ROOT)):
+        return ["Skill feedback Form locator 与机器合同不一致"]
+    if "dev-orchestration-contract.json" not in text:
+        return ["Skill feedback Form 未声明机器 schema 权威"]
+    return []
 
 
 def validate_files(contract: dict[str, Any]) -> list[str]:
@@ -308,6 +435,8 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
         if not isinstance(admission, dict) or not PMO_ADMISSION_FIELDS <= set(admission):
             errors.append("PMO 准入 envelope 不完整")
         else:
+            if admission.get("contract_id") != "dev-orchestration" or admission.get("schema_version") != "1.1.0":
+                errors.append("PMO 准入 envelope 使用了不兼容的共享合同")
             for field in PMO_ADMISSION_FIELDS:
                 value = admission.get(field)
                 if field == "repair_budget":
@@ -421,6 +550,7 @@ def validate() -> list[str]:
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     return (
         validate_contract(contract) + validate_files(contract)
+        + feedback_form_errors(contract, FEEDBACK_FORM.read_text(encoding="utf-8"))
         + validate_cycles(load_jsonl(CYCLES)) + validate_integration(load_jsonl(INTEGRATION))
         + validate_triggers()
         + run_existing(False)
@@ -437,28 +567,33 @@ def self_test() -> list[str]:
     for label, mutate in (
         ("准入字段", lambda value: value["pmo_admission"].update(required_fields=[])),
         ("反馈合同", lambda value: value.update(skill_feedback={})),
+        ("复盘 trigger", lambda value: value["execution_retrospective"]["triggers"].remove("explicit_skill_correction")),
+        ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
+        ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
+        ("fingerprint 字段", lambda value: value["skill_feedback"]["fingerprint_fields"].append("head")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
-        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.10.0")),
+        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.11.0")),
     ):
         bad_contract = copy.deepcopy(contract)
         mutate(bad_contract)
         if not validate_contract(bad_contract):
             failures.append(f"破坏{label}的变异未被拒绝")
     pmo_compatibility = contract["compatible_skills"]["pmo"]
-    if not version_is_compatible("0.9.1", pmo_compatibility):
+    if not version_is_compatible("0.10.1", pmo_compatibility):
         failures.append("高于最低版本的兼容补丁版本被错误拒绝")
-    if version_is_compatible("0.8.9", pmo_compatibility):
+    if version_is_compatible("0.9.9", pmo_compatibility):
         failures.append("低于最低版本的 Skill 被错误接受")
     cycles = load_jsonl(CYCLES)
     bad_cycles = copy.deepcopy(cycles)
-    bad_cycles[0]["expected"]["actions"].reverse()
+    next(row for row in bad_cycles if row["id"] == "merge-drift-and-successor")["expected"]["actions"].reverse()
     if not validate_cycles(bad_cycles):
         failures.append("动作乱序变异未被拒绝")
     for label, mutate in (
-        ("空等待证明", lambda facts: facts.update(evidenced_wait_gap_ids=[])),
-        ("未覆盖差距", lambda facts: facts.update(remaining_gap_ids=["gap:external", "gap:unknown"])),
-        ("重复决策等待", lambda facts: facts.update(user_decision_gap_ids=["gap:external"])),
-        ("等待中可执行差距", lambda facts: facts.update(executable_gap_ids=["gap:external"], evidenced_wait_gap_ids=[])),
+        ("等待证明缺字段", lambda facts: facts["gaps"][0]["waiting_proof"].pop("external_condition")),
+        ("陈旧等待证明", lambda facts: facts["gaps"][0]["waiting_proof"].update(freshness="stale")),
+        ("前沿闭包不完整", lambda facts: facts.update(frontier_closure_status="incomplete")),
+        ("重复差距", lambda facts: facts["gaps"].append(copy.deepcopy(facts["gaps"][0]))),
+        ("等待伪装为无 Owner", lambda facts: facts["gaps"][0].update(waiting_proof=None)),
     ):
         bad_wait = copy.deepcopy(cycles)
         wait_case = next(row for row in bad_wait if row["id"] == "all-gaps-have-wait-proof")
@@ -488,6 +623,10 @@ def self_test() -> list[str]:
     pmo_case["facts"]["pmo_admission"].pop("scope_locator")
     if not validate_integration(bad_admission):
         failures.append("缺少范围定位的 PMO 准入变异未被拒绝")
+    bad_admission_version = copy.deepcopy(integration)
+    next(row for row in bad_admission_version if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]["schema_version"] = "1.0.0"
+    if not validate_integration(bad_admission_version):
+        failures.append("旧共享合同版本的 PMO 准入变异未被拒绝")
     closure_schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
     for field in closure_schema["required_fields"]:
         bad_closure = copy.deepcopy(integration)
@@ -503,14 +642,14 @@ def self_test() -> list[str]:
             failures.append(f"缺少 {field} 的闭包适用面变异未被拒绝")
     bad_feedback = copy.deepcopy(cycles)
     feedback_case = next(row for row in bad_feedback if row["id"] == "delivery-before-skill-feedback")
-    feedback_case["facts"]["feedback_authority_valid"] = False
+    feedback_case["facts"]["canonical_repository_match"] = False
     if not validate_cycles(bad_feedback):
-        failures.append("缺少反馈授权的提交变异未被拒绝")
+        failures.append("canonical 仓库不匹配的提交变异未被拒绝")
     for label, mutate in (
         ("反馈提交 locator", lambda facts: facts.pop("feedback_submission_locator")),
         ("反馈提交回读", lambda facts: facts.update(feedback_readback_verified=False)),
         ("Skill digest 保持", lambda facts: facts.update(skill_digest_unchanged=False)),
-        ("反馈目标仓库", lambda facts: facts.update(target_repository_match=False)),
+        ("反馈目标仓库", lambda facts: facts.update(canonical_repository_match=False)),
         ("反馈去重", lambda facts: facts.update(feedback_dedupe_complete=False)),
     ):
         bad_submission = copy.deepcopy(integration)
@@ -518,6 +657,19 @@ def self_test() -> list[str]:
         mutate(submission["facts"])
         if not validate_integration(bad_submission):
             failures.append(f"缺少{label}的反馈提交变异未被拒绝")
+    form_text = FEEDBACK_FORM.read_text(encoding="utf-8")
+    if not feedback_form_errors(contract, form_text.replace("id: product_impact", "id: product_value")):
+        failures.append("Form 与机器 schema 漂移的变异未被拒绝")
+    if not feedback_form_errors(contract, form_text.replace("required: true", "required: false", 1)):
+        failures.append("Form 核心必填字段失效的变异未被拒绝")
+    fingerprint_facts = {
+        "affected_skill": "pmo", "incident_root_cause_class": "skill",
+        "governing_behavior_category": "frontier-closure", "platform_contract_major": 1,
+        "branch": "one", "head": "abc", "owner": "owner-a", "heartbeat": "first",
+    }
+    changed_identity = dict(fingerprint_facts, branch="two", head="def", owner="owner-b", heartbeat="second")
+    if feedback_fingerprint(fingerprint_facts, contract) != feedback_fingerprint(changed_identity, contract):
+        failures.append("稳定 fingerprint 被 branch/head/Owner/Heartbeat 污染")
     return failures + run_existing(True)
 
 

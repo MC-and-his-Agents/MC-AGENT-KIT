@@ -2,7 +2,7 @@
 name: pmo
 description: 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner；完整执行需要兼容的 tasks-owner，缺失时仍可只读分析。单一交付范围、一次性实现、普通项目管理、跨仓库协调或 Skill 自身评审不使用本 Skill。
 metadata:
-  version: "0.9.0"
+  version: "0.10.0"
 ---
 
 # PMO
@@ -44,11 +44,16 @@ PMO 保持独立 Skill。完整执行前，从当前可用 Skill 清单定位 `$
 每次用户消息、Owner 高层事件、GitHub 变化、merge 或漏事件恢复都执行同一循环：
 
 1. **同步事实：** 回读目标、验收、Issue 关系、PR、target head 和活动 Owner；实时事实覆盖旧摘要。
-2. **定位差距：** 找到距离产品出口最近的未完成步骤，区分产品进展、使能进展和工程活动。
+2. **闭合产品前沿：** 重新枚举全部未完成产品出口及其直接差距；重大用户纠偏、Unit merge/closeout、依赖解除、
+   Owner terminal、waiting proof 失效、长期单 writer 且目标未完成或 Deep Audit 都会强制重算，不能只沿当前 carrier。
 3. **分类并执行：** 对每条差距判断可执行工作、PMO 可直接处理事项或真实外部等待；执行所有已授权且互不冲突的动作。
-4. **维护前沿：** 核实唯一归属、真实强依赖、共享写入载体、并行工作量和下一解锁条件；后阶段门禁不能自动阻塞前置实现。
+4. **维护前沿：** 每个 gap 只进入 `execution_ready | admission_pending | active_execution | waiting_external |
+   waiting_user | replan_or_reownership_pending | closeout_pending` 之一；核实唯一归属、真实强依赖、共享写入载体、
+   actual writer width 与 ready/admission frontier width，以及下一解锁条件。
 5. **推进后继：** 合并、单元完成或依赖解除后，在同一周期完成收口、重算并启动已就绪后继。
-6. **收口或等待：** 只有没有安全可执行动作，且所有剩余差距都有责任方、证据和恢复条件时才等待；不制造空任务。
+6. **收口或等待：** 周期结束前必须得到 `frontier_closure_status=complete`；只有没有安全可执行动作，且所有剩余
+   gap 都是合法 `active_execution | waiting_external | waiting_user` 时才整体等待。OPEN、旧 blocked-by、旧 handoff、
+   `ready=0` 或没有 writer 都不是等待证明。
 
 ## 周期状态与可组合动作
 
@@ -56,8 +61,10 @@ PMO 保持独立 Skill。完整执行前，从当前可用 Skill 清单定位 `$
 [event-contract.md](references/event-contract.md)。常用产品动作包括收口单元、纠偏、路由变化、塑形 Work Item、
 创建或唤醒 Owner、请求用户决策和记录有证据的等待；一个周期可以组合多项，不再被单一 verdict 限制。
 
-产品恢复、纠偏、路由、后继和收口永远优先。Skill 反馈只在产品控制循环可以安全结束后低频处理，不能冒充
-产品进展或等待原因，也不能触发 Skill 自修改、安装、更新或发布。
+产品恢复、frontier 重算、纠偏、路由、后继和收口永远优先。PMO 被 `user_correction` 或
+`explicit_skill_correction` 指出自身规则问题时，在完成当前产品动作后可形成自己的 retrospective candidate；
+不需要伪造 Owner 来源。Skill 反馈只在产品控制循环可以安全结束后低频处理，不能冒充产品进展或等待原因，
+也不能触发 Skill 自修改、安装、更新或发布。
 
 ## 不可破坏的不变量
 
@@ -67,6 +74,8 @@ PMO 保持独立 Skill。完整执行前，从当前可用 Skill 清单定位 `$
 - PR、提交、测试、审查和协议动作只有映射到产品或使能变化时才算交付进展。
 - PMO 只保存跨 Unit 所需的定位信息和短状态，不复制 Unit 内完整合同、矩阵、日志或线程历史。
 - 仓库级授权合同只有一个权威来源；缺失、过期或冲突时只暂停受影响动作，不从历史行为推断权限。
+- `pmo` 与 `tasks-owner` 的 canonical feedback repository 及窄反馈动作由唯一机器合同声明；匹配 canonical repo
+  时不再要求每次独立反馈授权，非 canonical repo 和代码、PR、merge、release 等动作仍使用普通用户授权边界。
 
 ## 按需阅读
 
