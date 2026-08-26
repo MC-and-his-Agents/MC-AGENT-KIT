@@ -73,6 +73,7 @@ FINGERPRINT_FIELDS = {
     "affected_skill", "incident_root_cause_class", "governing_behavior_category", "platform_contract_major",
 }
 FEEDBACK_ACTIONS = {"search_issue", "read_issue", "create_issue", "add_comment"}
+FEEDBACK_WRITE_ACTIONS = {"create_issue", "add_comment"}
 FEEDBACK_FORBIDDEN_ACTIONS = {
     "write_code", "create_branch", "create_pull_request", "merge_pull_request", "create_release",
     "close_issue", "delete_issue", "update_milestone", "update_labels", "update_assignees",
@@ -175,7 +176,15 @@ def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
         return ["Skill 根因必须定位到 pmo 或 tasks-owner"]
     if root_cause == "platform" and affected_skill != "platform":
         return ["平台根因必须定位到 platform"]
-    if facts.get("feedback_dedupe_complete") is True and facts.get("feedback_write_action") in {"create_issue", "add_comment"}:
+    if facts.get("github_feedback_capability_available") is not True and any(
+        facts.get(field) for field in ("feedback_write_succeeded", "feedback_readback_verified")
+    ):
+        return ["GitHub feedback capability 不可用时不能携带成功或回读事实"]
+    if facts.get("feedback_dedupe_complete") is True and not isinstance(facts.get("existing_feedback_issue"), bool):
+        return ["Skill feedback dedupe 完成后必须显式记录是否已有 Issue"]
+    if facts.get("feedback_write_action") in FEEDBACK_ACTIONS - FEEDBACK_WRITE_ACTIONS:
+        return ["Skill feedback 搜索/读取动作不能冒充写入动作"]
+    if facts.get("feedback_dedupe_complete") is True and facts.get("feedback_write_action") in FEEDBACK_WRITE_ACTIONS:
         expected_action = "add_comment" if facts.get("existing_feedback_issue") else "create_issue"
         if facts.get("feedback_write_action") != expected_action:
             return ["Skill feedback 写入动作与 dedupe 结果不一致"]
@@ -316,6 +325,8 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
             return "deferred_private"
         if facts.get("feedback_dedupe_complete") is not True:
             return "candidate"
+        if facts.get("github_feedback_capability_available") is not True:
+            return "candidate"
         if facts.get("existing_feedback_issue"):
             if not facts.get("feedback_write_succeeded"):
                 return "comment_existing" if facts.get("github_feedback_capability_available") is True else "candidate"
@@ -413,6 +424,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     feedback = contract.get("skill_feedback", {})
     required_feedback = {
         "canonical_repositories", "canonical_issue_form", "allowed_actions", "forbidden_actions",
+        "write_actions",
         "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
         "fingerprint_occurrence_required_fields", "new_issue_occurrence",
         "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
@@ -424,6 +436,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("Skill 反馈合同不完整")
     elif set(feedback.get("allowed_actions", [])) != FEEDBACK_ACTIONS:
         errors.append("Skill 反馈动作 allowlist 错误")
+    elif set(feedback.get("write_actions", [])) != FEEDBACK_WRITE_ACTIONS:
+        errors.append("Skill 反馈写入动作集合错误")
     elif feedback.get("canonical_repositories") != {
         "pmo": "MC-and-his-Agents/MC-AGENT-KIT", "tasks-owner": "MC-and-his-Agents/MC-AGENT-KIT",
     }:
@@ -707,6 +721,7 @@ def self_test() -> list[str]:
         ("复盘 trigger", lambda value: value["execution_retrospective"]["triggers"].remove("explicit_skill_correction")),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
+        ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),
         ("逐次反馈授权", lambda value: value["skill_feedback"]["submission_preconditions"].append("skill_feedback_authority")),
         ("canonical Skill 映射", lambda value: value["skill_feedback"]["canonical_repositories"].pop("pmo")),
         ("反馈状态", lambda value: value["skill_feedback"]["feedback_status"].remove("candidate")),
@@ -798,6 +813,7 @@ def self_test() -> list[str]:
         ("Skill digest 保持", lambda facts: facts.update(skill_digest_unchanged=False)),
         ("反馈目标仓库", lambda facts: facts.update(canonical_repository_match=False)),
         ("反馈去重", lambda facts: facts.update(feedback_dedupe_complete=False)),
+        ("GitHub feedback capability", lambda facts: facts.update(github_feedback_capability_available=False)),
     ):
         bad_submission = copy.deepcopy(integration)
         submission = next(row for row in bad_submission if row["id"] == "new-feedback-submitted")
@@ -813,6 +829,7 @@ def self_test() -> list[str]:
         ("fingerprint 易变字段", lambda facts: facts["feedback_candidate"]["fingerprint_seed"].update(head="abc")),
         ("fingerprint 根因", lambda facts: facts["feedback_candidate"]["fingerprint_seed"].update(incident_root_cause_class="platform")),
         ("首次 occurrence", lambda facts: facts["feedback_api_body"]["fingerprint_occurrence"].pop("occurrence")),
+        ("dedupe 结果", lambda facts: facts.pop("existing_feedback_issue")),
     ):
         bad_payload = copy.deepcopy(integration)
         payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-no-per-run-authority")
@@ -847,7 +864,12 @@ def self_test() -> list[str]:
     escaped_controls = f"{body_prefix}body:\n{body_text[:first_control]}x_controls:\n{body_text[first_control:]}"
     if not feedback_form_errors(contract, escaped_controls):
         failures.append("逃逸到 body 外的 Form 控件绕过了结构校验")
-    for case_id, wrong_action in (("existing-feedback-occurrence", "create_issue"), ("explicit-pmo-correction-no-per-run-authority", "add_comment")):
+    for case_id, wrong_action in (
+        ("existing-feedback-occurrence", "create_issue"),
+        ("explicit-pmo-correction-no-per-run-authority", "add_comment"),
+        ("existing-feedback-occurrence", "search_issue"),
+        ("explicit-pmo-correction-no-per-run-authority", "read_issue"),
+    ):
         bad_action = copy.deepcopy(integration)
         next(row for row in bad_action if row["id"] == case_id)["facts"]["feedback_write_action"] = wrong_action
         if not validate_integration(bad_action):

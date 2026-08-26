@@ -247,6 +247,10 @@
       "create_issue",
       "add_comment"
     ],
+    "write_actions": [
+      "create_issue",
+      "add_comment"
+    ],
     "forbidden_actions": [
       "write_code",
       "create_branch",
