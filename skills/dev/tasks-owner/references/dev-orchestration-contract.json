@@ -189,6 +189,8 @@
       "waiting_external",
       "waiting_user"
     ],
+    "completed_requires_complete_closure": true,
+    "recompute_forbids_completed": true,
     "recompute_triggers": [
       "user_correction",
       "unit_merge_or_closeout",
@@ -251,6 +253,15 @@
       "create_issue",
       "add_comment"
     ],
+    "requested_action_field": "feedback_requested_action",
+    "side_effect_fact_fields": [
+      "feedback_write_attempted",
+      "feedback_write_succeeded",
+      "feedback_write_action",
+      "feedback_submission_locator",
+      "feedback_readback_verified"
+    ],
+    "side_effect_requires_submission_preconditions": true,
     "forbidden_actions": [
       "write_code",
       "create_branch",

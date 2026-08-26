@@ -74,6 +74,10 @@ FINGERPRINT_FIELDS = {
 }
 FEEDBACK_ACTIONS = {"search_issue", "read_issue", "create_issue", "add_comment"}
 FEEDBACK_WRITE_ACTIONS = {"create_issue", "add_comment"}
+FEEDBACK_SIDE_EFFECT_FIELDS = {
+    "feedback_write_attempted", "feedback_write_succeeded", "feedback_write_action",
+    "feedback_submission_locator", "feedback_readback_verified",
+}
 FEEDBACK_FORBIDDEN_ACTIONS = {
     "write_code", "create_branch", "create_pull_request", "merge_pull_request", "create_release",
     "close_issue", "delete_issue", "update_milestone", "update_labels", "update_assignees",
@@ -142,26 +146,63 @@ def feedback_api_body(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
-    if not facts.get("retrospective"):
+def feedback_side_effect_errors(facts: dict[str, Any]) -> list[str]:
+    if not any(field in facts for field in FEEDBACK_SIDE_EFFECT_FIELDS):
         return []
+    errors: list[str] = []
+    if facts.get("retrospective") not in RETROSPECTIVE_TRIGGERS:
+        errors.append("反馈外部写入必须来自有效执行复盘")
+    if facts.get("root_cause_target") not in {"skill", "platform"}:
+        errors.append("项目或规划根因不能产生 Skill feedback 外部写入")
+    if facts.get("current_delivery_action") or facts.get("product_actions_complete") is not True:
+        errors.append("反馈外部写入必须后于当前产品恢复与纠偏")
+    for field in (
+        "skill_identity_match", "canonical_repository_match", "github_feedback_capability_available",
+        "feedback_dedupe_complete", "feedback_redaction_safe",
+    ):
+        if facts.get(field) is not True:
+            errors.append(f"反馈外部写入前置条件未满足：{field}")
+    existing = facts.get("existing_feedback_issue")
+    if not isinstance(existing, bool):
+        errors.append("反馈外部写入必须携带显式 boolean dedupe 结果")
+    action = facts.get("feedback_write_action")
+    if action not in FEEDBACK_WRITE_ACTIONS:
+        errors.append("反馈外部写入动作必须属于 write allowlist")
+    elif isinstance(existing, bool) and action != ("add_comment" if existing else "create_issue"):
+        errors.append("反馈外部写入动作与 dedupe 结果不一致")
+    if facts.get("feedback_write_succeeded") is True:
+        if facts.get("feedback_write_attempted") is not True:
+            errors.append("反馈写入成功必须绑定真实尝试")
+        if facts.get("skill_digest_unchanged") is not True:
+            errors.append("反馈写入成功后当前 Skill digest 必须保持不变")
+    if facts.get("feedback_readback_verified") is True and facts.get("feedback_write_succeeded") is not True:
+        errors.append("反馈 readback 不能先于成功写入")
+    if real_locator(facts.get("feedback_submission_locator")) and facts.get("feedback_write_succeeded") is not True:
+        errors.append("反馈 submission locator 必须来自成功写入")
+    return errors
+
+
+def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
+    side_effect_errors = feedback_side_effect_errors(facts)
+    if not facts.get("retrospective"):
+        return side_effect_errors
     root_cause = facts.get("root_cause_target")
     if root_cause not in {"project", "planning", "skill", "platform"}:
-        return ["执行复盘 root_cause_target 无效"]
+        return side_effect_errors + ["执行复盘 root_cause_target 无效"]
     if root_cause in {"project", "planning"}:
-        return []
+        return side_effect_errors
     if facts.get("current_delivery_action"):
-        return []
+        return side_effect_errors
     if facts.get("product_actions_complete") is not True:
-        return ["Skill feedback 必须后于产品恢复与纠偏"]
+        return side_effect_errors + ["Skill feedback 必须后于产品恢复与纠偏"]
     candidate = facts.get("feedback_candidate")
     if not isinstance(candidate, dict) or set(candidate) != RETROSPECTIVE_CANDIDATE_FIELDS:
-        return ["Skill feedback candidate 字段不完整"]
+        return side_effect_errors + ["Skill feedback candidate 字段不完整"]
     if any(not real_locator(candidate.get(field)) for field in RETROSPECTIVE_CANDIDATE_FIELDS - {"fingerprint_seed"}):
-        return ["Skill feedback candidate 字段必须可回读"]
+        return side_effect_errors + ["Skill feedback candidate 字段必须可回读"]
     fingerprint = candidate.get("fingerprint_seed")
     if not isinstance(fingerprint, dict) or set(fingerprint) != FINGERPRINT_FIELDS:
-        return ["Skill feedback candidate fingerprint 必须只包含稳定字段"]
+        return side_effect_errors + ["Skill feedback candidate fingerprint 必须只包含稳定字段"]
     affected_skill = candidate.get("affected_skill")
     if (
         fingerprint.get("affected_skill") != affected_skill
@@ -169,36 +210,26 @@ def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
         or not real_locator(fingerprint.get("governing_behavior_category"))
         or fingerprint.get("platform_contract_major") != 1
     ):
-        return ["Skill feedback candidate fingerprint 与复盘事实不一致"]
+        return side_effect_errors + ["Skill feedback candidate fingerprint 与复盘事实不一致"]
     if candidate.get("trigger") != facts.get("retrospective"):
-        return ["Skill feedback candidate 的 trigger 或 affected_skill 无效"]
+        return side_effect_errors + ["Skill feedback candidate 的 trigger 或 affected_skill 无效"]
     if root_cause == "skill" and affected_skill not in {"pmo", "tasks-owner"}:
-        return ["Skill 根因必须定位到 pmo 或 tasks-owner"]
+        return side_effect_errors + ["Skill 根因必须定位到 pmo 或 tasks-owner"]
     if root_cause == "platform" and affected_skill != "platform":
-        return ["平台根因必须定位到 platform"]
-    if facts.get("github_feedback_capability_available") is not True and any(
-        facts.get(field) for field in ("feedback_write_succeeded", "feedback_readback_verified")
-    ):
-        return ["GitHub feedback capability 不可用时不能携带成功或回读事实"]
+        return side_effect_errors + ["平台根因必须定位到 platform"]
     if facts.get("feedback_dedupe_complete") is True and not isinstance(facts.get("existing_feedback_issue"), bool):
-        return ["Skill feedback dedupe 完成后必须显式记录是否已有 Issue"]
-    if facts.get("feedback_write_action") in FEEDBACK_ACTIONS - FEEDBACK_WRITE_ACTIONS:
-        return ["Skill feedback 搜索/读取动作不能冒充写入动作"]
-    if facts.get("feedback_dedupe_complete") is True and facts.get("feedback_write_action") in FEEDBACK_WRITE_ACTIONS:
-        expected_action = "add_comment" if facts.get("existing_feedback_issue") else "create_issue"
-        if facts.get("feedback_write_action") != expected_action:
-            return ["Skill feedback 写入动作与 dedupe 结果不一致"]
+        return side_effect_errors + ["Skill feedback dedupe 完成后必须显式记录是否已有 Issue"]
     if facts.get("feedback_write_action") == "create_issue":
         body = facts.get("feedback_api_body")
         if not isinstance(body, dict) or set(body) != CORE_FEEDBACK_FIELDS or body != feedback_api_body(candidate):
-            return ["create_issue 必须显式投影完整且等价的 API body"]
+            return side_effect_errors + ["create_issue 必须显式投影完整且等价的 API body"]
     if facts.get("existing_feedback_issue") and facts.get("feedback_dedupe_complete") is True:
         occurrence = facts.get("feedback_occurrence")
         if not isinstance(occurrence, dict) or set(occurrence) != OCCURRENCE_FIELDS or any(
             not real_locator(occurrence.get(field)) for field in OCCURRENCE_FIELDS
         ):
-            return ["同 fingerprint occurrence comment 字段不完整"]
-    return []
+            return side_effect_errors + ["同 fingerprint occurrence comment 字段不完整"]
+    return side_effect_errors
 
 
 def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
@@ -239,6 +270,8 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
             errors.append("只有 waiting_external 可以携带 waiting proof")
     if facts.get("product_exit_complete") and (exits or gaps):
         errors.append("产品出口完成时不能仍有出口或差距")
+    if facts.get("product_exit_complete") and facts.get("frontier_closure_status") != "complete":
+        errors.append("产品出口完成必须绑定完整产品前沿闭包")
     if not facts.get("product_exit_complete") and not exits:
         errors.append("产品出口未完成时必须枚举出口")
     if facts.get("frontier_closure_status") == "complete" and not facts.get("product_exit_complete") and not gaps:
@@ -288,7 +321,7 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
         actions.append("submit_or_update_skill_feedback")
     product = any(action in ACTION_ORDER[:6] for action in actions)
     blocked = bool(classes & {"waiting_user", "waiting_external", "active_execution"})
-    if facts.get("product_exit_complete"):
+    if facts.get("product_exit_complete") and "recompute_product_frontier" not in actions:
         status = "completed"
     elif product and blocked:
         status = "partially_blocked"
@@ -315,11 +348,14 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
             return "continue_delivery"
         if facts.get("root_cause_target") in {"project", "planning"}:
             return "continue_delivery"
-        if facts.get("root_cause_target") not in {"skill", "platform"} or feedback_fact_errors(facts):
+        if facts.get("root_cause_target") not in {"skill", "platform"}:
             return "continue_delivery"
         if facts.get("feedback_redaction_safe") is not True:
             return "deferred_private"
         if facts.get("skill_identity_match") is not True or facts.get("canonical_repository_match") is not True:
+            return "deferred_private"
+        requested_action = facts.get("feedback_requested_action")
+        if requested_action is not None and requested_action not in FEEDBACK_ACTIONS:
             return "deferred_private"
         if facts.get("feedback_write_action") not in FEEDBACK_ACTIONS | {None}:
             return "deferred_private"
@@ -402,6 +438,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         or set(frontier.get("waiting_proof_required_fields", [])) != WAITING_PROOF_FIELDS
         or set(frontier.get("whole_cycle_wait_allowed_classifications", [])) != WAIT_CLASSES
         or set(frontier.get("closure_status", [])) != {"complete", "incomplete"}
+        or frontier.get("completed_requires_complete_closure") is not True
+        or frontier.get("recompute_forbids_completed") is not True
         or set(frontier.get("recompute_triggers", [])) != {
             "user_correction", "unit_merge_or_closeout", "dependency_resolution", "owner_terminal",
             "waiting_proof_invalidation", "long_lived_single_writer_with_unfinished_exit", "deep_audit",
@@ -424,7 +462,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     feedback = contract.get("skill_feedback", {})
     required_feedback = {
         "canonical_repositories", "canonical_issue_form", "allowed_actions", "forbidden_actions",
-        "write_actions",
+        "write_actions", "requested_action_field", "side_effect_fact_fields",
+        "side_effect_requires_submission_preconditions",
         "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
         "fingerprint_occurrence_required_fields", "new_issue_occurrence",
         "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
@@ -438,6 +477,10 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("Skill 反馈动作 allowlist 错误")
     elif set(feedback.get("write_actions", [])) != FEEDBACK_WRITE_ACTIONS:
         errors.append("Skill 反馈写入动作集合错误")
+    elif feedback.get("requested_action_field") != "feedback_requested_action":
+        errors.append("Skill 反馈请求动作字段错误")
+    elif set(feedback.get("side_effect_fact_fields", [])) != FEEDBACK_SIDE_EFFECT_FIELDS or feedback.get("side_effect_requires_submission_preconditions") is not True:
+        errors.append("Skill 反馈副作用不变量错误")
     elif feedback.get("canonical_repositories") != {
         "pmo": "MC-and-his-Agents/MC-AGENT-KIT", "tasks-owner": "MC-and-his-Agents/MC-AGENT-KIT",
     }:
@@ -719,9 +762,12 @@ def self_test() -> list[str]:
         ("准入字段", lambda value: value["pmo_admission"].update(required_fields=[])),
         ("反馈合同", lambda value: value.update(skill_feedback={})),
         ("复盘 trigger", lambda value: value["execution_retrospective"]["triggers"].remove("explicit_skill_correction")),
+        ("完成态闭包", lambda value: value["product_frontier"].update(completed_requires_complete_closure=False)),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
         ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),
+        ("反馈请求动作字段", lambda value: value["skill_feedback"].update(requested_action_field="feedback_write_action")),
+        ("反馈副作用字段", lambda value: value["skill_feedback"]["side_effect_fact_fields"].remove("feedback_submission_locator")),
         ("逐次反馈授权", lambda value: value["skill_feedback"]["submission_preconditions"].append("skill_feedback_authority")),
         ("canonical Skill 映射", lambda value: value["skill_feedback"]["canonical_repositories"].pop("pmo")),
         ("反馈状态", lambda value: value["skill_feedback"]["feedback_status"].remove("candidate")),
@@ -762,6 +808,12 @@ def self_test() -> list[str]:
     multi_exit["facts"]["gaps"].pop()
     if not validate_cycles(missing_exit_gap):
         failures.append("漏掉整个产品出口 gap 的闭包变异未被拒绝")
+    incomplete_completed = copy.deepcopy(cycles)
+    complete_case = next(row for row in incomplete_completed if row["id"] == "product-exit-complete")
+    complete_case["facts"]["frontier_closure_status"] = "incomplete"
+    status, actions = derive_cycle(complete_case["facts"])
+    if status == "completed" or "recompute_product_frontier" not in actions or not validate_cycles(incomplete_completed):
+        failures.append("产品出口完成与不完整前沿并存的变异未被拒绝")
     integration = load_jsonl(INTEGRATION)
     bad_integration = copy.deepcopy(integration)
     next(row for row in bad_integration if row["id"] == "head-change-keeps-unit")["expected"] = "new_unit"
@@ -820,6 +872,25 @@ def self_test() -> list[str]:
         mutate(submission["facts"])
         if not validate_integration(bad_submission):
             failures.append(f"缺少{label}的反馈提交变异未被拒绝")
+    submitted = next(row for row in integration if row["id"] == "new-feedback-submitted")
+    for case_id, expected, mutate in (
+        ("adversarial-project-write", "continue_delivery", lambda facts: facts.update(root_cause_target="project")),
+        ("adversarial-delivery-write", "continue_delivery", lambda facts: facts.update(current_delivery_action=True)),
+        ("adversarial-redaction-write", "deferred_private", lambda facts: facts.update(feedback_redaction_safe=False)),
+        ("adversarial-identity-write", "deferred_private", lambda facts: facts.update(skill_identity_match=False)),
+        ("adversarial-repository-write", "deferred_private", lambda facts: facts.update(canonical_repository_match=False)),
+        ("adversarial-dedupe-write", "candidate", lambda facts: facts.update(feedback_dedupe_complete=False)),
+        ("adversarial-capability-write", "candidate", lambda facts: facts.update(github_feedback_capability_available=False)),
+        ("adversarial-digest-write", "candidate", lambda facts: facts.update(skill_digest_unchanged=False)),
+    ):
+        side_effect_case = copy.deepcopy(submitted)
+        side_effect_case["id"] = case_id
+        side_effect_case["expected"] = expected
+        mutate(side_effect_case["facts"])
+        if derive_integration(side_effect_case["facts"]) != expected:
+            failures.append(f"{case_id} 未保持原负向控制状态")
+        elif not validate_integration(copy.deepcopy(integration) + [side_effect_case]):
+            failures.append(f"{case_id} 的矛盾反馈副作用未被独立拒绝")
     for label, mutate in (
         ("产品动作优先", lambda facts: facts.update(product_actions_complete=False)),
         ("根因枚举", lambda facts: facts.update(root_cause_target="unclassified")),
