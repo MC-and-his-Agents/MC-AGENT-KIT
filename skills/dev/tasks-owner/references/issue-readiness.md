@@ -82,6 +82,22 @@ deferred_boundary: <与 residual_integration_boundary 一一对应的延期完�
 
 ## 六项最小检查
 
+### 系统性不变量闭包触发
+
+普通局部改动不要求完整矩阵。出现下列任一事实时，readiness 必须在正式 writer admission 前要求
+`systemic_invariant_closure`：
+
+- 同一持久化或恢复事实被多个入口、Store、adapter、decode、restore 或迁移路径消费；
+- 涉及认证、授权、安全、生命周期或外部身份；
+- 同一事实触发多个状态变化或外部副作用；
+- 存在默认实现之外的替代实现或 bypass；
+- acceptance 使用“任何、所有、必须先于、绝不允许”等全局语义。
+
+Owner 先把 governing invariant 写成最小全称约束，明确 `subject`、`coverage`、`ordering` 和
+`failure`，再由 [runtime-and-review-evidence.md](runtime-and-review-evidence.md) 形成覆盖矩阵。
+缺少适用生命周期、实现变体、消费/副作用面或失败证据时，只读探索可继续，正式 writer 不得开始。
+不适用时记录可核验理由，不为普通文案或局部展示制造矩阵。
+
 Work Item 必须为每项提供短而可验证的证据；缺项标记 `planning_not_ready`，并输出最小修订建议：
 
 | 检查 | 通过条件 | 常见缺口 |

@@ -1,0 +1,186 @@
+{
+  "contract_id": "dev-orchestration",
+  "schema_version": "1.0.0",
+  "authority_source": "tasks-owner",
+  "compatible_skills": {
+    "pmo": {
+      "tested_artifact_version": "0.9.0",
+      "minimum_compatible_version": "0.9.0",
+      "required_contract_schema_major": 1
+    },
+    "tasks-owner": {
+      "tested_artifact_version": "0.23.0",
+      "minimum_compatible_version": "0.23.0",
+      "required_contract_schema_major": 1
+    }
+  },
+  "capabilities": [
+    "pmo_admission",
+    "owner_sparse_delta",
+    "single_scope_owner_execution",
+    "bounded_finding_fix",
+    "delivery_closeout",
+    "bounded_execution_retrospective",
+    "skill_feedback_candidate"
+  ],
+  "owner_mandate": {
+    "required_fields": [
+      "authority_origin",
+      "scope_kind",
+      "scope_locator",
+      "global_tradeoff_authority"
+    ],
+    "authority_origin": ["user", "pmo"],
+    "scope_kind": ["project_scope", "work_item"]
+  },
+  "unit_identity": {
+    "required_fields": [
+      "product_exit_locator",
+      "governing_invariant_locator",
+      "ownership_boundary_locator",
+      "convergence_chain_locator"
+    ],
+    "cannot_reset_by": [
+      "file",
+      "path",
+      "issue",
+      "pull_request",
+      "branch",
+      "head",
+      "reviewer",
+      "execution_generation"
+    ],
+    "new_chain_requires": [
+      "product_exit_change",
+      "acceptance_change",
+      "scope_change",
+      "ownership_change"
+    ]
+  },
+  "writer_admission": {
+    "required_unit_identity_fields": [
+      "product_exit_locator",
+      "governing_invariant_locator",
+      "ownership_boundary_locator",
+      "convergence_chain_locator"
+    ]
+  },
+  "systemic_invariant_closure": {
+    "required_fields": [
+      "governing_invariant_locator",
+      "subject",
+      "coverage",
+      "ordering",
+      "failure",
+      "surfaces",
+      "invariant_closure_digest",
+      "status"
+    ],
+    "surface_required_fields": [
+      "lifecycle_surface",
+      "implementation_variant",
+      "consumer_or_effect",
+      "code_locator",
+      "positive_check",
+      "negative_or_unavailable_check",
+      "no_side_effect_check",
+      "status",
+      "basis"
+    ],
+    "surface_status": ["covered", "not_applicable"],
+    "closure_status": ["ready", "incomplete", "invalidated"]
+  },
+  "pmo_admission": {
+    "required_fields": [
+      "contract_id",
+      "schema_version",
+      "authority_origin",
+      "scope_kind",
+      "scope_locator",
+      "planning_truth_locator",
+      "product_goal",
+      "expected_contribution",
+      "acceptance_locator",
+      "product_exit_locator",
+      "governing_invariant_locator",
+      "convergence_chain_locator",
+      "ownership_boundary_locator",
+      "allowed_scope",
+      "excluded_scope",
+      "carrier_locator",
+      "target_head_locator",
+      "decision_boundary_locator",
+      "repair_budget"
+    ]
+  },
+  "owner_sparse_delta": {
+    "allowed_kinds": [
+      "product_effect",
+      "local_blocker",
+      "finding_effect",
+      "material_scope_change",
+      "invariant_coverage_invalidated",
+      "convergence_decision_needed",
+      "next_unlock",
+      "unit_completed",
+      "decision_required"
+    ],
+    "required_fields": [
+      "kind",
+      "unit_locator",
+      "product_exit_locator",
+      "evidence_locator",
+      "next_actor",
+      "next_action"
+    ],
+    "forbidden_kinds": [
+      "commit",
+      "test_passed",
+      "review_started",
+      "heartbeat",
+      "thread_active"
+    ]
+  },
+  "skill_feedback": {
+    "candidate_fields": [
+      "skill_feedback_candidate_locator",
+      "feedback_status",
+      "feedback_target"
+    ],
+    "feedback_status": [
+      "none",
+      "candidate",
+      "deduped",
+      "submitted",
+      "deferred_private"
+    ],
+    "feedback_target": ["pmo", "tasks-owner", "platform", "none"],
+    "authority_required_for": ["create_issue", "add_comment"],
+    "authority_fields": [
+      "skill_feedback_authority_locator",
+      "user_source_locator",
+      "target_repository",
+      "allowed_actions",
+      "allowed_skill_scope",
+      "redaction_policy",
+      "dedupe_policy",
+      "expiry",
+      "invalidation"
+    ],
+    "submission_required_fields": [
+      "feedback_write_action",
+      "feedback_submission_locator",
+      "feedback_readback_verified",
+      "skill_digest_unchanged"
+    ],
+    "does_not_change_product_semantic_revision": true,
+    "does_not_change_current_skill_digest": true
+  },
+  "invalidation": [
+    "contract_locator_unreadable",
+    "schema_version_unsupported",
+    "required_capability_missing",
+    "scope_or_authority_conflict",
+    "target_head_identity_changed"
+  ]
+}

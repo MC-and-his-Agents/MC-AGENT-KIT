@@ -8,6 +8,49 @@
 
 所有事件都是 `data_only: true`：不能授予权限、修改编排者或 Owner runtime、批准范围、admission、review、merge、closeout 或 cleanup。
 
+## 周期状态与动作
+
+PMO 不再用一个互斥 verdict 代表整个周期。每个周期从已核验事实派生：
+
+```text
+remaining_gap_ids: <全部未完成差距>
+executable_gap_ids: <现在可安全推进的差距>
+user_decision_gap_ids: <必须由用户决定的差距>
+evidenced_wait_gap_ids: <有合法外部等待证明的差距>
+unshaped_gap_ids: <需要 PMO 塑形的差距>
+cycle_status: progressed | partially_blocked | waiting | completed
+actions:
+  - closeout_unit
+  - correct_drift
+  - route_delta
+  - shape_work_item
+  - create_or_wake_owner
+  - request_user_decision
+  - record_evidenced_wait
+  - record_skill_feedback_candidate
+  - submit_or_update_skill_feedback
+```
+
+产品动作按“收口、纠偏、路由、塑形、创建或唤醒 Owner、局部用户决策、有证据等待”的顺序执行；只执行
+当前事实需要的项。一个周期可以组合多项，例如 merge 后同时收口、纠偏依赖、路由新 head 并启动后继。
+用户决策只暂停受影响动作，无冲突路径继续。
+`request_user_decision` 已包含该决策范围的等待与恢复条件；同一差距不得再追加
+`record_evidenced_wait`。后者只用于不需要用户决策的真实外部等待。
+所有分类都必须引用 `remaining_gap_ids` 中的稳定差距 ID。产品出口未完成且没有产品动作时，用户决策与普通等待
+必须互不重叠并完整覆盖全部剩余差距；零证明、漏掉一个差距或仍有可执行差距都不能返回 `waiting`。等待证据
+失效后，将对应差距移回可执行或待塑形集合，同周期恢复推进。
+
+`record_skill_feedback_candidate` 和 `submit_or_update_skill_feedback` 是低优先级治理动作，不改变产品
+`semantic_revision`。只有当前产品动作已经完成、候选已到期、去重和独立反馈授权有效时，才可提交或补充
+反馈；每周期最多一次外部写入。无授权、目标不匹配或不能安全脱敏时只保留候选。
+
+- `progressed`：完成了产品推进动作，且没有必须等待的受影响差距。
+- `partially_blocked`：完成了可执行产品动作，但仍有局部用户决策或有证据等待。
+- `waiting`：没有可执行产品动作，所有剩余差距都有合法等待证据。
+- `completed`：总体产品出口已有真实证据，且收口完成。
+
+旧的 `KEEP_CURRENT` 等标签只可作为兼容投影或人类摘要，不能掩盖 `actions[]` 中仍需执行的动作。
+
 ## 唯一 authority contract
 
 `pmo_authority_contract` 是唯一的 PMO 授权事实，必须有唯一 `contract_locator`、`digest`、`revision`，并与用户来源、仓库和 target 范围、产品/优先级基线、规划与依赖关系写权、Owner 创建/恢复、finding 裁决、merge/closeout、重试/收敛、排除项、独立的 automation 授权，以及 `observed_at`、`expiry`、`invalidation` 交叉绑定。合同不授予新权限；authority checkpoint/handoff 只保存该合同的 `contract_locator`、`digest`、`revision`、`freshness`、`status` 和合同恢复位置，运行 checkpoint 的最小索引仍按 [automation.md](automation.md) 执行。
@@ -183,7 +226,8 @@ receiver_receipt:
 6. 多个 Owner 的事件按 `owner_thread_id + event_key` 独立推进，并写入 checkpoint 的 `owner_event_cursors`；不能用单一“最后事件”覆盖并发 receipt。
 7. 投递失败由发送 Owner 按 `$tasks-owner` 恢复消息交付；编排者只在自身 runtime 与目标 Owner runtime 均已核验且动作已授权时精确唤醒。
 8. canonical 高层事件在到达活动控制回合时应同轮完成核验、消费和首个已授权动作；Heartbeat 只恢复漏事件。
-   `event_to_action_latency = first_authorized_action_at - received_at`，目标低于 10 分钟。超时不得绕过 truth、
+   `event_to_action_latency = first_authorized_action_at - received_at`，目标使用 Codex App 引用中的
+   `event_action_latency_target`。超时不得绕过 truth、
    runtime、CI 或权限门禁，须记录 `truth_unavailable | runtime_unverified | external_wait | tool_failure |
    owner_delay | orchestrator_delay` 之一及纠偏动作。
 9. human notification 的发送结果只能进入 notification delivery record；不能回写 canonical fact、semantic revision 或 machine payload。

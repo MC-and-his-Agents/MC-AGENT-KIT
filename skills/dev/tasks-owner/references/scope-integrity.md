@@ -3,6 +3,16 @@
 本文件是语义归属、material delta、重复 blocker 和下游反向信号的唯一事实源。合同 digest、exact
 head、测试、CI 和 code review 只能证明各自机械事实，不能替代本门禁。
 
+## Unit 与收敛链身份
+
+Unit 身份由 `product_exit_locator + governing_invariant_locator + ownership_boundary_locator` 共同确定，
+并绑定一个稳定 `convergence_chain_locator`。文件、调用路径、Issue、PR、branch、head、reviewer、
+blocker class 或 execution generation 变化都不能单独新建 Unit、收敛链或修复预算。
+
+只有 product exit、acceptance、scope 或 ownership 发生有证据的实质变化，并完成
+`shrink | split | reassign`，才允许形成新链；新链必须引用旧链、变化证据和新的边界。共享 governing
+invariant 的多个路径默认保留在同一 Unit，Owner 对完整验收与不变量覆盖负责，不能只证明当前 diff。
+
 ## 强制时点与比较面
 
 Owner 在首次 admission、改变目标/非目标/验收/依赖/写入边界的合同修订、`SCOPE_DELTA`、review
@@ -111,6 +121,9 @@ review_fix_round_locator: <disposition/write/fresh-review evidence>
 `review_fix_round_count >= 1` 后，禁止在同一 `task_key + scope_revision` 启动第二轮 finding-driven 写入。
 更换 reviewer、文件、`blocker_class`、head/commit 或 execution generation 都不能重置计数；不得以
 “新类别问题”产生 `FIX3`/`FIX4`。
+
+同一 governing invariant 的预算还必须绑定 `convergence_chain_locator`；即使 task key 或 scope revision
+因机械路径变化而不同，只要产品出口、不变量和 ownership 未变，仍沿用同一已消耗预算。
 
 只有有证据的 acceptance/ownership/scope 改变，并完成实际 `shrink`/`split`/`reassign`，形成更窄的新
 `task_key`（同时记录新 scope revision 和证据 locator），才可开始新的修复预算。剩余问题按以下路径
