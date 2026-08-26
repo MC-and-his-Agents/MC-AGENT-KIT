@@ -76,6 +76,7 @@ Issue 正文或完整项目快照。
 generalizable reason、regression proposal、source、disclosure 与 fingerprint seed。checkpoint 只保存 feedback fingerprint、
 Issue/last occurrence locator、status 和 next action。提交前按 [codex-app.md](codex-app.md) 搜索 open 与近期 closed Issue
 并去重；命中同 fingerprint 时只补 occurrence comment，没有命中且 canonical capability 允许时才新建。创建或评论成功后
-必须回读真实 locator 才能标记 `submitted`；创建失败、目标仓库不符、搜索不完整、工具不可用或 locator 无法回读时
-保持 `candidate/deferred_private` 并保留可复制脱敏草案和 wake condition。
+必须回读真实 locator 才能标记 `submitted`。搜索不完整、工具不可用、create/comment 失败或 locator 无法回读时
+保持 `candidate`，保留可复制脱敏草案、失败证据和 wake condition，且不自动重复创建；只有无法安全脱敏、目标/Skill
+identity 不匹配或动作越过 allowlist 时才是 `deferred_private`。
 反馈不算产品进展，也不改变当前 Skill digest。
