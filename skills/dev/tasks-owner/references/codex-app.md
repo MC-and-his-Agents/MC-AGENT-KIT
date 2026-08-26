@@ -51,7 +51,8 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 
 人工 Form 和 Agent API body 都投影自 `dev-orchestration-contract.json` 的 `core_semantic_fields`。API 必须显式生成
 affected skill、retrospective trigger、observed/expected behavior、product impact、current resolution、generalizable
-root cause、proposed regression、redacted evidence 与 fingerprint/occurrence；不得假设 `create_issue` 会自动套用 Form。
+root cause、proposed regression、redacted evidence，以及仅由四个稳定字段构成的 fingerprint 与明确的
+`first_occurrence`；不得假设 `create_issue` 会自动套用 Form。
 Issue 是完整 retrospective 的唯一长期正文；checkpoint 只保存 fingerprint、Issue/occurrence locator、status 与下一动作。
 
 非 canonical 仓库仍须普通用户授权。搜索不完整、工具不可用、写入失败或 readback 不可用时保持 `candidate`，

@@ -134,7 +134,10 @@ def feedback_api_body(candidate: dict[str, Any]) -> dict[str, Any]:
         "generalizable_root_cause": candidate.get("generalizable_reason"),
         "proposed_regression": candidate.get("regression_proposal"),
         "redacted_evidence": candidate.get("source_locator"),
-        "fingerprint_occurrence": candidate.get("fingerprint_seed"),
+        "fingerprint_occurrence": {
+            "fingerprint": candidate.get("fingerprint_seed"),
+            "occurrence": "first_occurrence",
+        },
     }
 
 
@@ -153,15 +156,29 @@ def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
     candidate = facts.get("feedback_candidate")
     if not isinstance(candidate, dict) or set(candidate) != RETROSPECTIVE_CANDIDATE_FIELDS:
         return ["Skill feedback candidate 字段不完整"]
-    if any(not real_locator(candidate.get(field)) for field in RETROSPECTIVE_CANDIDATE_FIELDS):
+    if any(not real_locator(candidate.get(field)) for field in RETROSPECTIVE_CANDIDATE_FIELDS - {"fingerprint_seed"}):
         return ["Skill feedback candidate 字段必须可回读"]
+    fingerprint = candidate.get("fingerprint_seed")
+    if not isinstance(fingerprint, dict) or set(fingerprint) != FINGERPRINT_FIELDS:
+        return ["Skill feedback candidate fingerprint 必须只包含稳定字段"]
     affected_skill = candidate.get("affected_skill")
+    if (
+        fingerprint.get("affected_skill") != affected_skill
+        or fingerprint.get("incident_root_cause_class") != root_cause
+        or not real_locator(fingerprint.get("governing_behavior_category"))
+        or fingerprint.get("platform_contract_major") != 1
+    ):
+        return ["Skill feedback candidate fingerprint 与复盘事实不一致"]
     if candidate.get("trigger") != facts.get("retrospective"):
         return ["Skill feedback candidate 的 trigger 或 affected_skill 无效"]
     if root_cause == "skill" and affected_skill not in {"pmo", "tasks-owner"}:
         return ["Skill 根因必须定位到 pmo 或 tasks-owner"]
     if root_cause == "platform" and affected_skill != "platform":
         return ["平台根因必须定位到 platform"]
+    if facts.get("feedback_dedupe_complete") is True and facts.get("feedback_write_action") in {"create_issue", "add_comment"}:
+        expected_action = "add_comment" if facts.get("existing_feedback_issue") else "create_issue"
+        if facts.get("feedback_write_action") != expected_action:
+            return ["Skill feedback 写入动作与 dedupe 结果不一致"]
     if facts.get("feedback_write_action") == "create_issue":
         body = facts.get("feedback_api_body")
         if not isinstance(body, dict) or set(body) != CORE_FEEDBACK_FIELDS or body != feedback_api_body(candidate):
@@ -397,6 +414,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     required_feedback = {
         "canonical_repositories", "canonical_issue_form", "allowed_actions", "forbidden_actions",
         "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
+        "fingerprint_occurrence_required_fields", "new_issue_occurrence",
         "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
         "failure_status",
         "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
@@ -418,6 +436,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("Skill 反馈核心语义字段错误")
     elif set(feedback.get("fingerprint_fields", [])) != FINGERPRINT_FIELDS:
         errors.append("Skill 反馈稳定 fingerprint 字段错误")
+    elif set(feedback.get("fingerprint_occurrence_required_fields", [])) != {"fingerprint", "occurrence"} or feedback.get("new_issue_occurrence") != "first_occurrence":
+        errors.append("Skill 反馈首次 occurrence 合同错误")
     elif not {"branch", "pull_request", "head", "owner", "unit", "execution_generation", "heartbeat"} <= set(feedback.get("fingerprint_forbidden_fields", [])):
         errors.append("Skill 反馈 fingerprint 会受易变执行身份污染")
     elif set(feedback.get("occurrence_comment_fields", [])) != {"source_locator", "product_impact", "current_resolution", "root_cause_delta", "regression_delta"}:
@@ -445,7 +465,13 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
 
 def feedback_form_errors(contract: dict[str, Any], text: str) -> list[str]:
     feedback = contract["skill_feedback"]
-    blocks = re.split(r"(?m)(?=^  - type:)", text)
+    body = re.search(r"(?m)^body:\s*$", text)
+    if not body:
+        return ["Skill feedback Form 缺少 body"]
+    body_text = text[body.end():]
+    if re.search(r"(?m)^[a-zA-Z_][a-zA-Z0-9_-]*:\s*", body_text):
+        return ["Skill feedback Form 控件逃逸到 body 之外"]
+    blocks = re.split(r"(?m)(?=^  - type:)", body_text)
     controls: dict[str, str] = {}
     for block in blocks:
         kind = re.search(r"(?m)^  - type:\s*([a-z0-9_-]+)\s*$", block)
@@ -685,6 +711,7 @@ def self_test() -> list[str]:
         ("canonical Skill 映射", lambda value: value["skill_feedback"]["canonical_repositories"].pop("pmo")),
         ("反馈状态", lambda value: value["skill_feedback"]["feedback_status"].remove("candidate")),
         ("fingerprint 字段", lambda value: value["skill_feedback"]["fingerprint_fields"].append("head")),
+        ("首次 occurrence", lambda value: value["skill_feedback"].update(new_issue_occurrence="unknown")),
         ("反馈失败状态", lambda value: value["skill_feedback"]["failure_status"]["candidate"].remove("write_failed")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
         ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.11.0")),
@@ -783,6 +810,9 @@ def self_test() -> list[str]:
         ("candidate 字段", lambda facts: facts["feedback_candidate"].pop("product_impact")),
         ("API body 字段", lambda facts: facts["feedback_api_body"].pop("product_impact")),
         ("Skill 根因目标", lambda facts: facts["feedback_candidate"].update(affected_skill="platform")),
+        ("fingerprint 易变字段", lambda facts: facts["feedback_candidate"]["fingerprint_seed"].update(head="abc")),
+        ("fingerprint 根因", lambda facts: facts["feedback_candidate"]["fingerprint_seed"].update(incident_root_cause_class="platform")),
+        ("首次 occurrence", lambda facts: facts["feedback_api_body"]["fingerprint_occurrence"].pop("occurrence")),
     ):
         bad_payload = copy.deepcopy(integration)
         payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-no-per-run-authority")
@@ -812,6 +842,16 @@ def self_test() -> list[str]:
     ).replace("value: |\n", "value: |\n        id: product_impact\n        required: true\n", 1)
     if not feedback_form_errors(contract, forged_form):
         failures.append("藏在 markdown 中的伪 Form 字段绕过了结构校验")
+    body_prefix, body_text = form_text.split("body:\n", 1)
+    first_control = body_text.index("  - type: dropdown")
+    escaped_controls = f"{body_prefix}body:\n{body_text[:first_control]}x_controls:\n{body_text[first_control:]}"
+    if not feedback_form_errors(contract, escaped_controls):
+        failures.append("逃逸到 body 外的 Form 控件绕过了结构校验")
+    for case_id, wrong_action in (("existing-feedback-occurrence", "create_issue"), ("explicit-pmo-correction-no-per-run-authority", "add_comment")):
+        bad_action = copy.deepcopy(integration)
+        next(row for row in bad_action if row["id"] == case_id)["facts"]["feedback_write_action"] = wrong_action
+        if not validate_integration(bad_action):
+            failures.append("与 dedupe 结果不一致的反馈动作未被拒绝")
     fingerprint_facts = {
         "affected_skill": "pmo", "incident_root_cause_class": "skill",
         "governing_behavior_category": "frontier-closure", "platform_contract_major": 1,

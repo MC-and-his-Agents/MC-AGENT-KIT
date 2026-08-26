@@ -288,6 +288,11 @@
       "governing_behavior_category",
       "platform_contract_major"
     ],
+    "fingerprint_occurrence_required_fields": [
+      "fingerprint",
+      "occurrence"
+    ],
+    "new_issue_occurrence": "first_occurrence",
     "fingerprint_forbidden_fields": [
       "branch",
       "pull_request",
