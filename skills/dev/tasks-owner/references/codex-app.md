@@ -15,6 +15,7 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 | `native_completion_wait` | `wait_agent`，单次 `10_000..60_000 ms` |
 | `delivery_recovery_policy` | 同一事件在一个恢复代次最多尝试 2 次 |
 | `heartbeat_backoff_policy` | 连续 3 个稳定等待周期后可加倍，最长 24 小时；新事实立即恢复基础周期 |
+| `event_action_latency_target` | 已接收的高层事件目标在 10 分钟内完成核验、消费和首个已授权动作 |
 
 创建、恢复或唤醒独立任务时显式传入目标 profile。用户对具体任务的可定位 override 只影响合同写明的
 任务，不反向修改 Owner。宿主返回未知模型、不支持推理强度、缺少回读证据或静默换用其他 profile 时，

@@ -218,7 +218,8 @@ receiver_receipt:
 6. 多个 Owner 的事件按 `owner_thread_id + event_key` 独立推进，并写入 checkpoint 的 `owner_event_cursors`；不能用单一“最后事件”覆盖并发 receipt。
 7. 投递失败由发送 Owner 按 `$tasks-owner` 恢复消息交付；编排者只在自身 runtime 与目标 Owner runtime 均已核验且动作已授权时精确唤醒。
 8. canonical 高层事件在到达活动控制回合时应同轮完成核验、消费和首个已授权动作；Heartbeat 只恢复漏事件。
-   `event_to_action_latency = first_authorized_action_at - received_at`，目标低于 10 分钟。超时不得绕过 truth、
+   `event_to_action_latency = first_authorized_action_at - received_at`，目标使用 Codex App 引用中的
+   `event_action_latency_target`。超时不得绕过 truth、
    runtime、CI 或权限门禁，须记录 `truth_unavailable | runtime_unverified | external_wait | tool_failure |
    owner_delay | orchestrator_delay` 之一及纠偏动作。
 9. human notification 的发送结果只能进入 notification delivery record；不能回写 canonical fact、semantic revision 或 machine payload。

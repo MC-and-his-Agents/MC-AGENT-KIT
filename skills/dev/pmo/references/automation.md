@@ -119,7 +119,8 @@ PMO 与独立 Owner 使用平台 `owner_runtime_profile`，禁止静默 fallback
 2. 选择 Fast、Affected-slice 或 Deep；按路径只读取其允许的 evidence。
 3. 以 checkpoint CAS 写入 cursor、digest、receipt disposition 和 next actor/action/wake；新变化覆盖旧路径并重新选择。
 4. 只有没有安全可执行动作且所有剩余差距都有有效 waiting proof 时才静默；DONT_NOTIFY 不跳过 verdict 或事实核验。
-5. canonical 事件的 event-to-action latency 仍以 event-contract 的 receipt 记录为准，目标低于 10 分钟；超时记录真实原因，不绕过门禁。
+5. canonical 事件的处理时限仍以 event-contract 的 receipt 记录为准，具体目标只引用平台的
+   `event_action_latency_target`；超时记录真实原因，不绕过门禁。
 
 ## Owner 生命周期联动
 
