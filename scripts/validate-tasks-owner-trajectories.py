@@ -172,6 +172,13 @@ def self_test(path: Path) -> list[str]:
         failures.append("automation readback locator sentinel was not rejected")
 
     source = next(case for case in cases if case["id"] == "writer-pass")
+    for sentinel in ("none", "missing", "unknown", "null", "n/a", "na", "tbd"):
+        candidate = copy.deepcopy(source)
+        candidate["events"][0]["facts"]["runtime_locator"] = sentinel
+        if "writer_quiescence" not in evaluate(candidate):
+            failures.append(f"native runtime locator sentinel {sentinel} was not rejected")
+
+    source = next(case for case in cases if case["id"] == "writer-pass")
     for mutation in ("unit_event", "review_writer"):
         candidate = copy.deepcopy(source)
         if mutation == "unit_event":

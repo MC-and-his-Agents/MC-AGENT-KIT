@@ -227,7 +227,7 @@ class Replay:
             if runtime != ("spawn_agent", "gpt-5.6-luna", "max", "none"):
                 self.violations.add("direct_wake")
         if facts.get("execution_kind") == "native_subagent" and previous is None and event["tool"] == "native_status":
-            runtime = (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _nonempty(facts.get("runtime_locator")))
+            runtime = (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _real_locator(facts.get("runtime_locator")))
             if runtime != ("gpt-5.6-luna", "max", True):
                 self.violations.add("writer_quiescence")
         if self.case["mode"] == "direct" and facts.get("execution_kind") == "native_subagent" and previous is None and event["tool"] != "spawn_agent":
@@ -236,7 +236,7 @@ class Replay:
             if (args.get("model"), args.get("thinking")) != ("gpt-5.6-luna", "max"):
                 self.violations.add("writer_quiescence")
         if facts.get("execution_kind") == "app_task" and previous is None and event["tool"] == "codex_app__read_thread":
-            if (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _nonempty(facts.get("runtime_locator"))) != ("gpt-5.6-luna", "max", True):
+            if (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _real_locator(facts.get("runtime_locator"))) != ("gpt-5.6-luna", "max", True):
                 self.violations.add("writer_quiescence")
         self.units[key] = {**facts, "seq": event["seq"], "evidence_locator": event["locator"]}
         if sum(1 for unit in self.units.values() if unit.get("is_writer")) > 1:

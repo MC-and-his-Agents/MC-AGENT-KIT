@@ -173,7 +173,7 @@ def schema_errors(case: Any) -> list[str]:
         errors.append("recorded_fixture requires fixture_id")
     elif case.get("source_kind") == "live_readback":
         required = {"host_id", "observed_at", "owner_turn_locator", "runtime_locator", "tool_readback_locator"}
-        if any(not nonempty(evidence.get(key)) for key in required):
+        if any(not real_locator(evidence.get(key)) for key in required - {"observed_at"}) or not valid_iso(evidence.get("observed_at")):
             errors.append("live_readback requires host/turn/runtime/time/tool evidence")
     events = case.get("events")
     if not isinstance(events, list) or not events:
