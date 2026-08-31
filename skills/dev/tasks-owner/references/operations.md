@@ -40,6 +40,8 @@ Heartbeat、handoff 和历史动作不能扩权。
 任何动作产生新事实就从第 1 步继续，不能先输出总结。目标未完成且没有已准入实现或待完成准入时，必须重新同步、
 塑形或逐项证明等待；`ready=0`、空 Issue 列表和 `next_actor=external` 不能单独结束。
 
+`waiting_user`/`user_decision` 只有在现有 `decision_boundary_locator` 证明问题属于用户保留的产品行为、范围/优先级、重大成本/风险、权限/隐私/数据或不可逆外部结果，且既有事实与一次有界调查均无答案、没有安全可逆默认方案时才成立。必须给出精确问题、blocked action/scope，并继续未受阻工作。定位 workspace/Issue/PR/branch、选择实现/验证路线、reownership、shrink/split/reassign/defer、程序化 cancel 和普通 review-fix 均由 Owner 自主处理；只能由用户完成的机械动作按 `waiting_external` 记录，不伪装成用户决策。
+
 ## 终态门
 
 每个周期只能以以下状态结束：

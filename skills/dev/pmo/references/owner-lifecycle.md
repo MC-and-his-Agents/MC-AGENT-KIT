@@ -52,6 +52,8 @@ Owner 对 PMO 只按同一机器合同的 `owner_sparse_delta` 上报改变全�
 处置、PR、merge、closeout 与 cleanup 由 Owner 自主完成，PMO 不逐条审批，也不管理其临时
 Writer/Reviewer/Cleanup。
 
+普通 Unit 的 PMO 可见控制路径只有一次 `pmo_admission` 和一次 `unit_completed`；中间只有改变 acceptance、scope、ownership、DAG、用户权限边界或真实 material risk 的 `owner_sparse_delta` 才上行。ACK、release、START/STARTED、commit、测试、review-fix、CI、PR、branch/head 和无变化 Heartbeat 都留在 Owner 内部，既不是 PMO gate，也不产生 PMO 人类消息。
+
 blocker 必须用普通语言标明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor 与 wake/invalidation 条件。局部 blocker 仍由 Owner 在剩余可执行面内推进；只有没有剩余可执行面且等待 PMO、外部或用户时才路由为全局等待。finding 的 `exit_impact`、`treatment`、`authority`、`lifecycle` 正交记录；跨 Unit、超预算或出口裁决交 PMO，越过产品/成本/风险/权限边界交用户。
 
 Owner 标准标题为 `【Owner】<仓库简称>｜<能力域>｜<交付结果>`：仓库简称取 `repo_locator` 的仓库名或用户指定别名；能力域与交付结果使用简短、可辨识的业务表述，不写 runtime、临时状态或内部 task 名。

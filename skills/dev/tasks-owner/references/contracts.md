@@ -33,9 +33,7 @@ next_action
 还是 PMO，正式 writer 准入前都必须按机器合同补齐同一 `unit_identity`：产品出口、不变量、归属边界和收敛链。
 缺任一项只能继续只读塑形，不能开始写入。
 
-固定顺序为：合同 → task 确认 → 路由确认 → 执行释放 → release 确认 → START → STARTED → Owner 回读。
-缺一步、事实错配或 START 前写入都保持待准入并隔离输出。App 任务与原生 Subagent 的具体投递、回读和运行参数
-按平台引用执行。
+Owner 与内部 Writer 的安全握手固定为：合同 → task 确认 → 路由确认 → 执行释放 → release 确认 → START → STARTED → Owner 回读。缺一步、事实错配或 START 前写入都保持待准入并隔离输出；这些内部 receipt 不上行成为 PMO gate，也不要求 PMO 逐步 ACK/PROCEED 或生成消息。App 任务与原生 Subagent 的具体投递、回读和运行参数按平台引用执行。
 
 首次写入前必须核验：真实且不重复的任务身份；非 `main` 正式工作树；稳定 Unit/收敛链；完整合同和权限；
 readiness/能力兼容；适用的系统性闭包；STARTED；写入 ownership；当前/目标 head 与运行证据。

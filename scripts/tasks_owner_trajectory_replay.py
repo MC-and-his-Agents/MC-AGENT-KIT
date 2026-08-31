@@ -5,7 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tasks_owner_trajectory_schema import nonempty as _nonempty, policy_matches as _policy_matches, schema_errors as _schema_errors, valid_iso as _valid_iso, writer_publishable as _writer_publishable
+from tasks_owner_trajectory_schema import (
+    nonempty as _nonempty,
+    policy_matches as _policy_matches,
+    real_locator as _real_locator,
+    repair_budget_errors as _repair_budget_errors,
+    schema_errors as _schema_errors,
+    user_decision_errors as _user_decision_errors,
+    valid_iso as _valid_iso,
+    writer_publishable as _writer_publishable,
+)
 
 CANONICAL_EVENTS = {
     "DELIVERY_ROUTE_ACK", "contract_ack", "execution_release_ack", "STARTED", "BOOTSTRAP_READBACK",
@@ -431,15 +440,14 @@ class Replay:
 
 
 class ReviewReplay:
-    """Replay review finding admission and the generation-wide fix budget.
+    """Replay review finding admission and the convergence-chain fix budget.
 
     This is intentionally a small state machine: review evidence remains exact-head and
-    writer-quiescence evidence, while the semantic budget is keyed only by task/scope.
-    Reviewer, blocker class, file, head, and execution generation are observations, not
-    reset switches.
+    writer-quiescence evidence, while only a proven semantic chain change can reset the
+    budget. Owner, reviewer, task, branch, file, head, and generation are observations.
     """
 
-    DISPOSITIONS = {"fix_now", "defer", "reject", "split", "reassign", "user_decision"}
+    DISPOSITIONS = {"fix_now", "defer", "reject", "shrink", "split", "reassign", "user_decision"}
     SEVERITIES = {"P0", "P1", "P2", "P3"}
     BOUNDARIES = {"none", "production_subsystem", "permission_or_runtime"}
     SCOPE_CHANGES = {"shrink", "split", "reassign"}
@@ -450,7 +458,10 @@ class ReviewReplay:
         self.violations: set[str] = set()
         self.task_key = initial["task_key"]
         self.scope_revision = initial["scope_revision"]
-        self.round_count = initial.get("review_fix_round_count", 0)
+        self.decision_boundary_locator = initial.get("decision_boundary_locator")
+        budget = initial["repair_budget"]
+        self.convergence_chain_locator = budget["convergence_chain_locator"]
+        self.round_count = budget["finding_write_consumed"]
         self.first_review_seen = False
         self.current_review: dict[str, Any] | None = None
         self.dispositions: dict[str, dict[str, Any]] = {}
@@ -532,12 +543,13 @@ class ReviewReplay:
             self.violations.add("review_disposition")
             return
         disposition = facts["disposition"]
-        if disposition in {"defer", "split", "reassign"} and (not _nonempty(facts.get("carrier_locator")) or facts.get("carrier_locator") == "none"):
+        if disposition in {"defer", "shrink", "split", "reassign"} and not _real_locator(facts.get("carrier_locator")):
             self.violations.add("review_disposition")
         if disposition == "reject" and (not _nonempty(facts.get("rejection_basis")) or facts.get("rejection_basis") == "none"):
             self.violations.add("review_disposition")
         if disposition == "user_decision" and (
-            not _nonempty(facts.get("user_decision_locator")) or facts.get("user_decision_locator") == "none"
+            not _real_locator(facts.get("user_decision_locator"))
+            or _user_decision_errors(facts, self.decision_boundary_locator)
         ):
             self.violations.add("review_disposition")
         if disposition == "fix_now":
@@ -595,23 +607,56 @@ class ReviewReplay:
             prior_findings = set(self.current_review.get("finding_locators", []))
             if not prior_findings.issubset(self.dispositions):
                 self.violations.add("review_disposition")
+        status = facts.get("status")
+        trigger = facts.get("trigger_finding_locator")
+        matching_disposition = (
+            _real_locator(trigger)
+            and self.dispositions.get(trigger, {}).get("disposition") == status
+        )
+        to_budget = facts.get("to_repair_budget")
         valid = (
             event["actor"] == "owner"
             and event["tool"] in {"git_readback", "gh_readback"}
-            and facts.get("status") in self.SCOPE_CHANGES
-            and facts.get("narrower") is True
-            and self._required(facts, ("from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision", "evidence_locator"))
+            and status in self.SCOPE_CHANGES
+            and self.current_review is not None
+            and matching_disposition
+            and not self.awaiting_fresh_review
+            and isinstance(facts.get("narrower"), bool)
+            and self._required(facts, (
+                "from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision",
+                "from_convergence_chain_locator", "to_convergence_chain_locator",
+                "semantic_change", "evidence_locator", "trigger_finding_locator",
+            ))
             and facts.get("from_task_key") == self.task_key
             and facts.get("from_scope_revision") == self.scope_revision
+            and facts.get("from_convergence_chain_locator") == self.convergence_chain_locator
+            and facts.get("to_convergence_chain_locator") != self.convergence_chain_locator
+            and facts.get("semantic_change") in {"product_exit_change", "acceptance_change", "scope_change", "ownership_change"}
             and facts.get("to_task_key") != self.task_key
             and facts.get("to_scope_revision") != self.scope_revision
+            and all(_real_locator(facts.get(field)) for field in (
+                "from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision",
+                "from_convergence_chain_locator", "to_convergence_chain_locator", "evidence_locator",
+            ))
+            and not _repair_budget_errors(to_budget, facts.get("to_convergence_chain_locator"))
+            and to_budget.get("finding_write_consumed") == 0
         )
+        if facts.get("status") in {"shrink", "split"} and facts.get("narrower") is not True:
+            valid = False
+        if facts.get("status") == "reassign" and (
+            facts.get("semantic_change") != "ownership_change"
+            or facts.get("mismatch_kind") not in {"capability", "ownership"}
+            or not _real_locator(facts.get("mismatch_locator"))
+        ):
+            valid = False
         if not valid:
             self.violations.add("review_disposition")
             return
         self.task_key = facts["to_task_key"]
         self.scope_revision = facts["to_scope_revision"]
-        self.round_count = 0
+        self.convergence_chain_locator = facts["to_convergence_chain_locator"]
+        self.round_count = to_budget["finding_write_consumed"]
+        self.first_review_seen = False
         self.current_review = None
         self.dispositions = {}
         self.pending_fix = set()

@@ -104,30 +104,26 @@ lifecycle: <pending_evidence | decided | in_progress | verified | closed>
 其余 finding 默认 `defer`、`reject`、`split`、`reassign` 或 `user_decision`。`P2/P3` 不是绝对禁止
 修复，但必须提供上述验收/不变量映射和延期风险；“发现了真实问题”本身不能扩大当前批次。
 `defer`、`split`、`reassign` 必须写入已有权威 backlog/deferred carrier locator；`reject` 必须写明
-可回读的 `rejection_basis`；`user_decision` 必须定位真实产品、权限或外部结果决策。
+可回读的 `rejection_basis`；`user_decision` 必须满足 operations 中的完整用户保留权证明，不能仅凭一个 decision locator 把职责内问题转给用户。
 
-## Generation-wide review-fix circuit breaker
+## Convergence-chain review-fix circuit breaker
 
-`review_fix_round_count` 只统计首次 fresh review 后，因已 admission 的 finding 对被审 change set
-发生的写入回合；一次 finding disposition 到下一次 writer quiescence + fresh review 算一轮。多个 finding
-可在同一轮合并修复，不按 finding 数量计数。
+共享 `repair_budget` 只统计首次 fresh review 后，因已 admission 的 finding 对被审 change set 发生的写入回合；一次 finding disposition 到下一次 writer quiescence + fresh review 算一轮。多个 finding 可在同一轮合并修复，不按 finding 数量计数。
 
 ```text
-review_fix_round_count: <0 | 1>
-review_fix_scope_key: <task_key + scope_revision>
-review_fix_round_locator: <disposition/write/fresh-review evidence>
+convergence_chain_locator: <稳定产品出口与因果链>
+finding_write_limit: 1
+finding_write_consumed: <0 | 1>
+repair_evidence_locators: <每个已消费回合的证据>
+reset_only_on: <product_exit_change | acceptance_change | scope_change | ownership_change>
 ```
 
-`review_fix_round_count >= 1` 后，禁止在同一 `task_key + scope_revision` 启动第二轮 finding-driven 写入。
-更换 reviewer、文件、`blocker_class`、head/commit 或 execution generation 都不能重置计数；不得以
-“新类别问题”产生 `FIX3`/`FIX4`。
+`finding_write_consumed >= finding_write_limit` 后，禁止在同一 convergence chain 启动第二轮 finding-driven 写入。更换 Owner、reviewer、task、文件、branch、`blocker_class`、head/commit 或 execution generation 都不能重置预算；不得以“新类别问题”产生 `FIX3`/`FIX4`。
 
 同一 governing invariant 的预算还必须绑定 `convergence_chain_locator`；即使 task key 或 scope revision
 因机械路径变化而不同，只要产品出口、不变量和 ownership 未变，仍沿用同一已消耗预算。
 
-只有有证据的 acceptance/ownership/scope 改变，并完成实际 `shrink`/`split`/`reassign`，形成更窄的新
-`task_key`（同时记录新 scope revision 和证据 locator），才可开始新的修复预算。剩余问题按以下路径
-处理：
+只有 fresh review 中当前 finding 已明确 disposition 为 `shrink`/`split`/`reassign`，且没有待复审写入时，才允许切链。切链同时记录 trigger finding、旧/新 convergence chain、task/scope revision、语义变化证据和绑定新链且 `consumed=0` 的 `to_repair_budget`；切链后必须重新 fresh review。`reassign` 还必须绑定真实 capability 或 ownership mismatch locator；换 Owner 本身不构成新链。剩余问题按以下路径处理：
 
 - P0/P1 且确实阻断当前验收：`shrink`、`split` 或 `reassign`，进入新的 `task_key`；
 - P2/P3 或无当前验收映射：`defer`/`reject`；
@@ -143,11 +139,13 @@ review_fix_round_locator: <disposition/write/fresh-review evidence>
 ```text
 product_exit_locator: <Parent/产品出口>
 convergence_chain_locator: <产品出口 + finding 因果链 + scope>
-review_fix_round_count: <0 | 1>
-reset_forbidden: true
+finding_write_limit: 1
+finding_write_consumed: <0 | 1>
+repair_evidence_locators: <已消费修复证据>
+reset_only_on: <product_exit_change | acceptance_change | scope_change | ownership_change>
 ```
 
-新 Issue、Owner、branch/head 或 execution generation 不能重置该链。只有证据充分的 acceptance/ownership/scope 改变，并实际完成 `shrink`、`split` 或 `reassign` 形成更窄的新 `task_key`，才开始一条新的收敛链；这不是对原链的预算重置。熔断仅停止未经裁决的范围扩张，不削弱已证明的质量门禁。
+新 Issue、Owner、reviewer、branch/head 或 execution generation 不能重置该链。只有证据充分的 product exit/acceptance/ownership/scope 改变，并实际完成 `shrink`、`split` 或有 mismatch 证据的 `reassign`，才开始一条新的收敛链；这不是对原链的预算重置。熔断仅停止未经裁决的范围扩张，不削弱已证明的质量门禁。
 
 ## 下游反向信号
 

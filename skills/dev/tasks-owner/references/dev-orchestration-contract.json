@@ -50,7 +50,8 @@
       "branch",
       "head",
       "reviewer",
-      "execution_generation"
+      "execution_generation",
+      "owner"
     ],
     "new_chain_requires": [
       "product_exit_change",
@@ -139,9 +140,24 @@
       "commit",
       "test_passed",
       "review_started",
+      "ack",
+      "started",
+      "execution_release",
+      "proceed",
+      "review_fix",
+      "ci",
+      "pull_request",
+      "branch",
+      "head",
       "heartbeat",
       "thread_active"
-    ]
+    ],
+    "normal_path_visible_events": [
+      "pmo_admission",
+      "unit_completed"
+    ],
+    "material_delta_event": "owner_sparse_delta",
+    "normal_path_human_messages": 0
   },
   "product_frontier": {
     "required_fields": [
@@ -182,6 +198,27 @@
       "freshness",
       "wake_condition",
       "invalidation_condition"
+    ],
+    "waiting_user_required_fields": [
+      "decision_boundary_locator",
+      "decision_authority",
+      "existing_truth_exhausted",
+      "bounded_investigation_locator",
+      "bounded_investigation_status",
+      "safe_reversible_default_available",
+      "safe_reversible_default_locator",
+      "exact_decision_question",
+      "blocked_action",
+      "blocking_scope",
+      "unaffected_work_continues",
+      "requires_user_judgment"
+    ],
+    "user_reserved_authorities": [
+      "product_behavior",
+      "scope_or_priority",
+      "material_cost_or_risk",
+      "permission_privacy_data",
+      "irreversible_external_result"
     ],
     "closure_status": ["complete", "incomplete"],
     "whole_cycle_wait_allowed_classifications": [
