@@ -48,8 +48,10 @@ actions:
 `waiting_user` 不是不确定时的逃生口。它必须直接等于当前 admission 的 `decision_boundary_locator`，next actor 必须为 user，并证明问题属于产品行为、范围/优先级、重大成本/风险、权限/隐私/数据或不可逆外部结果的用户保留权；同时绑定既有事实已穷尽、状态为 complete 的有界调查 locator、不存在安全可逆默认方案、精确 decision question/blocked action/blocking scope，并证明无关前沿继续。定位 workspace/Issue/PR/branch、选择实现或验证路线、Owner 恢复/reownership、shrink/split/reassign/defer、程序化 cancel 和普通 review-fix 都是 PMO/Owner 职责，不能进入 `waiting_user`。只能由用户执行但不需要产品判断的机械动作归 `waiting_external` 并提供现有 waiting proof；`waiting_user` 不得附加第二套 waiting proof。
 每个未完成出口和 gap 必须恰好出现一次。只有 `frontier_closure_status=complete`，且所有剩余 gap 都是
 `active_execution`、`waiting_external` 或 `waiting_user`，整个周期才可等待。`waiting_external` 的 proof 必须有
-subject、不可替代 external condition、responsible party、evidence locator、observed_at/freshness、wake 与
-invalidation；缺任一项即改为 `replan_or_reownership_pending`。Issue 仍 OPEN、历史 blocked-by/handoff、旧 external
+subject、不可替代 external condition、responsible party、与 gap 责任方一致的 next actor、
+`requires_user_judgment: false`、evidence locator、observed_at/freshness、wake 与 invalidation；缺任一项即改为
+`replan_or_reownership_pending`。非用户责任方必须写作 `external:<responsible_party>`；只能由用户执行但无需判断的
+机械动作可以保留 `next_actor=user`。Issue 仍 OPEN、历史 blocked-by/handoff、旧 external
 描述、`ready=0` 或没有 writer 都不是等待证明。关系、merge、Owner、外部事实或用户纠偏变化时，同周期失效旧 proof
 并重算；漏掉一个出口或仍有 owner-actionable gap 都不能返回 `waiting`。
 `complete` 只证明枚举、分类与证据闭包完整；即使仍有 execution/admission/replan/closeout 动作也应为 complete，

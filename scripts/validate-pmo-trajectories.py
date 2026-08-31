@@ -167,7 +167,7 @@ KNOWN_FACT_KEYS = frozenset(
     sentinel_query shared_carrier shared_carriers shared_product_effect shortest_product_validation
     skill_locator skill_status source_cursor source_locator stale_handoff_claims_ready_unit target_head receipt finding
     tasks_owner_dependency technical_sources terminal_reason theoretical_pnpm_edge title trigger truth_status unaffected_scope
-    uncommitted_work urgent_risk user_approval user_challenge user_requested_detail verified_at waiting_proof
+    uncommitted_work urgent_risk user_approval user_challenge user_requested_detail verified_at waiting_proof responsible_party
     targeted_readback_count wake_condition width_health writer_started writer_width writers_needed
     """.split()
 )
@@ -297,6 +297,26 @@ def waiting_proof_errors(proof: Any, *, require_fresh: bool = True) -> list[str]
         errors.append("waiting_proof expires_at is not fresh")
     if require_fresh and freshness(proof.get("sentinel_due_at")) == "expired":
         errors.append("waiting_proof sentinel_due_at is already due")
+    return errors
+
+
+def waiting_proof_context_errors(facts: dict[str, Any]) -> list[str]:
+    proof = facts.get("waiting_proof")
+    if not isinstance(proof, dict):
+        return ["waiting_proof must be an object"]
+    bindings = {
+        "generation": "current_generation",
+        "target_head": "main_head",
+        "revision": "current_semantic_revision",
+        "responsible_party": "responsible_party",
+        "next_actor": "next_actor",
+    }
+    errors: list[str] = []
+    for proof_field, fact_field in bindings.items():
+        if fact_field not in facts:
+            errors.append(f"waiting_proof missing current binding {fact_field}")
+        elif proof.get(proof_field) != facts.get(fact_field):
+            errors.append(f"waiting_proof {proof_field} does not match current {fact_field}")
     return errors
 
 
@@ -771,7 +791,7 @@ def _derive_incident(facts: dict[str, Any]) -> str | None:
         return "ESCALATE_USER" if _decision_fields(facts) else None
     if path == "wait":
         proof = facts.get("waiting_proof")
-        if waiting_proof_errors(proof) or _surface_open(facts):
+        if waiting_proof_errors(proof) or waiting_proof_context_errors(facts) or _surface_open(facts):
             return None
         if family == "human-communication" and facts.get("notification") != "none":
             return None
@@ -851,9 +871,9 @@ def derive_verdict(facts: dict[str, Any]) -> str | None:
     if facts.get("capability_status") == "incompatible" and facts.get("writer_started") is False:
         return "SHAPE_WORK_ITEMS"
     if facts.get("external_gate") and facts.get("internal_successor") == "none":
-        return "KEEP_CURRENT"
+        return "KEEP_CURRENT" if not waiting_proof_context_errors(facts) else None
     if facts.get("parent_user_outcome") and facts.get("real_provider_evidence") == "missing":
-        return "KEEP_CURRENT"
+        return "KEEP_CURRENT" if not waiting_proof_context_errors(facts) else None
     if facts.get("shared_carriers") and facts.get("independent_acceptance_and_rollback") is False:
         return "CREATE_OR_WAKE_OWNER"
     if facts.get("current_unit") == "convergence" and facts.get("next_unlock_readiness") == "ready":
@@ -948,6 +968,12 @@ def validate_case(case: dict[str, Any]) -> list[str]:
         errors.extend(_incident_fact_errors(facts))
     if path == "wait" or isinstance(facts.get("waiting_proof"), dict):
         errors.extend(waiting_proof_errors(facts.get("waiting_proof"), require_fresh=path == "wait"))
+        if path == "wait" or (
+            facts.get("external_gate") and facts.get("internal_successor") == "none"
+        ) or (
+            facts.get("parent_user_outcome") and facts.get("real_provider_evidence") == "missing"
+        ):
+            errors.extend(waiting_proof_context_errors(facts))
         if path == "wait" and _surface_open(facts):
             errors.append("wait path cannot have executable surface")
     errors.extend(_audit_errors(facts))
@@ -1058,6 +1084,18 @@ def self_test(path: Path) -> list[str]:
     wait_case = _find(wait_expired, lambda facts: facts.get("incident_family") == "heartbeat-recovery" and facts.get("matrix_path") == "wait")
     wait_case["facts"]["waiting_proof"]["expires_at"] = "past"
     rejects("expired waiting proof", wait_expired, "expires_at is not fresh")
+
+    for proof_field, value in (
+        ("target_head", "wrong-head"),
+        ("generation", 999),
+        ("revision", 999),
+        ("responsible_party", "wrong-owner"),
+        ("next_actor", "owner"),
+    ):
+        stale_binding = copy.deepcopy(cases)
+        wait_case = _find(stale_binding, lambda facts: facts.get("incident_family") == "heartbeat-recovery" and facts.get("matrix_path") == "wait")
+        wait_case["facts"]["waiting_proof"][proof_field] = value
+        rejects(f"waiting proof {proof_field} binding", stale_binding, "does not match current")
 
     executable_wait = copy.deepcopy(cases)
     wait_case = _find(executable_wait, lambda facts: facts.get("incident_family") == "release-acceptance-gating" and facts.get("matrix_path") == "wait")

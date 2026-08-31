@@ -105,6 +105,10 @@ lifecycle: <pending_evidence | decided | in_progress | verified | closed>
 修复，但必须提供上述验收/不变量映射和延期风险；“发现了真实问题”本身不能扩大当前批次。
 `defer`、`split`、`reassign` 必须写入已有权威 backlog/deferred carrier locator；`reject` 必须写明
 可回读的 `rejection_basis`；`user_decision` 必须满足 operations 中的完整用户保留权证明，不能仅凭一个 decision locator 把职责内问题转给用户。
+若 finding 已映射当前验收/不变量，或属于有证据的 P0/P1，且当前结果不修复即不安全，则不得用
+`defer` 或 `reject` 掩盖；只能 `fix_now`、以 `shrink`/`split`/`reassign` 完成可回读的 scope/ownership
+transition 后重新 review，或在确属用户保留权时进入完整 `user_decision`。仅填写 carrier 而未发生权威
+transition 的 scope disposition 不能收口，更不能在原 scope/head 上得到 `SHIP`。
 
 ## Convergence-chain review-fix circuit breaker
 

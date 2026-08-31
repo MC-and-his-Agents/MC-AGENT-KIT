@@ -280,6 +280,8 @@
       "subject",
       "external_condition",
       "responsible_party",
+      "next_actor",
+      "requires_user_judgment",
       "evidence_locator",
       "observed_at",
       "freshness",
