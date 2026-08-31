@@ -168,6 +168,12 @@ machine_projection:
 4. 新 generation/revision 或真实产品效果、风险、next action、wake/invalidation 变化才进入 `aggregate` 或 `immediate` 判断。
 5. 缺少发生时间时必须显式 `unknown` 并保留证据；不能用 receipt 时间冒充 occurred time，也不能因无法排序就猜测新进展。
 
+### canonical disposition 优先级
+
+持久来源中较新的 `OWNER_TERMINAL`、`RETHINK`、`SHIP`、`interrupted` 或 `scope-violation` 原子淘汰旧 checkpoint 的 `active|waiting`。prompt、摘要、Owner 静默回合和 direct delivery 丢失都只是投影事实，不能覆盖可回读的 canonical disposition。
+
+在诊断、替换或中断 Owner、读取冻结 carrier 之前，必须先比较 canonical cursor/generation；冲突时最多做一次定向回读。若较新事实为终态，同周期将 writer width 归零，重规划并只重算受影响的 Unit、Parent、Milestone 与 successor；不得先执行上述恢复副作用。已消费或更旧事实的重放保持幂等，不重复回读、重算或通知。较新 `active` 事实则继续路由真实 delta，作为普通路径的 proceed-control。
+
 ## 不可变事件 payload
 
 只有 notification decision 为 `aggregate` 或 `immediate` 且存在 human projection 时，默认人类消息才附最多三行普通中文摘要和按需展开的 evidence locator；完整 machine payload 只进入机器/控制通道，不追加到默认人类消息。`silent` 或 machine-only 事件只记录/传递 machine projection，不生成占位的人类消息。payload 只放发送前已经成立的事实；它是 machine projection 的事件部分，不是 human projection：

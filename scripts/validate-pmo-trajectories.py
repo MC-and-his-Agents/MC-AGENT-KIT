@@ -73,6 +73,10 @@ FAST_CHANGE_VECTOR_FIELDS = frozenset(
     }
 )
 FAST_ACTIONS = {"cursor_check", "cache_reuse", "cas_read", "proof_reuse", "dedupe_event"}
+TERMINAL_DISPOSITIONS = {"terminal", "rethink", "ship", "interrupted", "scope_violation"}
+CANONICAL_DISPOSITIONS = TERMINAL_DISPOSITIONS | {"active"}
+TERMINAL_CLOSURE = {"unit", "parent", "milestone", "successor", "writer_width"}
+FORBIDDEN_TERMINAL_ACTIONS = {"diagnostic", "interrupt", "replacement", "frozen_carrier_read"}
 LOCATOR_SENTINELS = {"", "none", "null", "missing", "unknown", "n/a", "na", "tbd"}
 AUTHORITY_REQUIRED = {
     "contract_locator",
@@ -134,14 +138,14 @@ TASKS_OWNER_INSTALL_SOURCE = "github:MC-and-his-Agents/MC-AGENT-KIT@main:skills/
 TASKS_OWNER_INSTALL_TARGET = "codex-skill-home:tasks-owner"
 KNOWN_FACT_KEYS = frozenset(
     """
-    active_owner_count admission_pending affected_scope aggregation_state audit_actions audit_path
+    active_owner_count admission_pending affected_closure affected_scope aggregation_state audit_actions audit_path
     authority authorization authorized_repo authorized_scope authority_contract authority_contract_summary candidate_safe_slice canonical_fact
-    canonical_fact_id capability_domain capability_status capacity chain change_entity change_vector
-    checkpoint_cas checkpoint_identity ci clean_vm clean_vm_verification closed_children closure
+    canonical_cursor canonical_disposition canonical_fact_id canonical_generation capability_domain capability_status capacity chain change_entity change_vector
+    checkpoint_cas checkpoint_disposition checkpoint_generation checkpoint_identity ci clean_vm clean_vm_verification closed_children closure
     closure_status consumed_at consumer_owner consumer_scope_owns_upstream_seam critical_path_stable_cycles
     critical_path_width current_fix current_generation current_path_evidence current_semantic_revision
     current_skill_digest current_unit current_wave_work_items cursor_advanced cycle decision decision_owner
-    deep_reason default_consequence deferred_carrier deferred_detail delivery_attempt delivery_attempts
+    deep_reason default_consequence deferred_carrier deferred_detail delivery_attempt delivery_attempts direct_delivery duplicate_locator_reads durable_checkpoint_semantic_writes
     delivery_result delivery_unit delivery_unit_complete dependency_relation_writes dependency_repo
     desired_runtime discovered_risk dmg_build downstream_first_slice early_return enabling_progress
     engineering_activity event event_key events evidence evidence_cache evidence_template exact_main
@@ -150,21 +154,21 @@ KNOWN_FACT_KEYS = frozenset(
     human_default human_projection human_summary impact implementation_admitted_inflight incident_family
     incident_improvement independent_acceptance_and_rollback internal_contract internal_successor invalidation
     machine_projection main_head matrix_path mature_standard_or_oss merge_gate merged_prs mode_requested
-    native_blocked_by new_closure_digest new_truth_digest newer_checkpoint next_actor next_audit_path
+    full_frontier_recompute_count generation_change_count human_message_count native_blocked_by new_closure_digest new_truth_digest newer_checkpoint next_actor next_audit_path no_delta_cycles
     next_change_vector next_unlock_facts next_unlock_readiness non_blocking_hardening non_blocking_work
-    notification observed_at observed_runtime observed_title occurred_at orchestrator_runtime owner
+    notification observed_at observed_runtime observed_title occurred_at orchestrator_runtime owner owner_turn_projection
     owner_a_desired owner_a_event_receipt owner_a_observed owner_a_runtime owner_b_event owner_b_runtime
     owner_events owner_status parent_acceptance parent_user_outcome payload_event_key pending_owner_events
     pinned planning_writes post_gates pre_increment presentation_capability previous_skill_digest
-    prior_semantic_revision product_effect product_goal product_outcome product_progress projection_sources
+    prior_semantic_revision product_effect product_goal product_outcome product_progress projection_sources prompt_disposition prompt_generation
     protocol_fields real_provider_evidence received_at recovery_evidence remaining_executable_surface repo_short_name
     remaining_gaps remaining_surface repair replay_generation repo_b_owner_requested reproduced_failure
-    requested_change retry_same_event_key review risk runtime_recovery safe_path security_risk semantic_revision semantic_revisions
+    recovery_actions requested_change retry_same_event_key review risk runtime_recovery safe_path security_risk semantic_revision semantic_revisions
     sentinel_query shared_carrier shared_carriers shared_product_effect shortest_product_validation
     skill_locator skill_status source_cursor source_locator stale_handoff_claims_ready_unit target_head receipt finding
     tasks_owner_dependency technical_sources terminal_reason theoretical_pnpm_edge title trigger truth_status unaffected_scope
     uncommitted_work urgent_risk user_approval user_challenge user_requested_detail verified_at waiting_proof
-    wake_condition width_health writer_started writers_needed
+    targeted_readback_count wake_condition width_health writer_started writer_width writers_needed
     """.split()
 )
 
@@ -473,6 +477,80 @@ def _audit_errors(facts: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _no_delta_errors(facts: dict[str, Any]) -> list[str]:
+    if "no_delta_cycles" not in facts:
+        return []
+    errors: list[str] = []
+    if facts.get("no_delta_cycles") != 50:
+        errors.append("no-delta holdout must cover exactly 50 cycles")
+    vector = facts.get("change_vector")
+    if not isinstance(vector, dict) or any(value not in (False, 0, None, "", "none") for value in vector.values()):
+        errors.append("no-delta holdout requires an empty canonical change vector")
+    if facts.get("audit_path") != "Fast" or facts.get("early_return") is not True:
+        errors.append("no-delta holdout must stay on the Fast early-return path")
+    if facts.get("prior_semantic_revision") != facts.get("current_semantic_revision"):
+        errors.append("no-delta cycles must not change semantic_revision")
+    for field in (
+        "durable_checkpoint_semantic_writes", "human_message_count", "generation_change_count",
+        "full_frontier_recompute_count", "duplicate_locator_reads",
+    ):
+        if facts.get(field) != 0:
+            errors.append(f"no-delta cycles require {field}=0")
+    return errors
+
+
+def _canonical_precedence_errors(facts: dict[str, Any]) -> list[str]:
+    if "canonical_disposition" not in facts:
+        return []
+    required = {
+        "canonical_cursor", "canonical_generation", "checkpoint_disposition", "checkpoint_generation",
+        "direct_delivery", "owner_turn_projection", "targeted_readback_count", "recovery_actions",
+        "affected_closure", "writer_width",
+    }
+    errors = [f"canonical precedence missing {field}" for field in sorted(required - set(facts))]
+    disposition = facts.get("canonical_disposition")
+    if disposition not in CANONICAL_DISPOSITIONS:
+        errors.append("canonical disposition is invalid")
+    for field in ("canonical_generation", "checkpoint_generation", "targeted_readback_count", "writer_width"):
+        value = facts.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            errors.append(f"canonical precedence requires non-negative integer {field}")
+    if not real_locator(facts.get("canonical_cursor")):
+        errors.append("canonical precedence requires a durable cursor")
+    if facts.get("direct_delivery") not in {"delivered", "missing"}:
+        errors.append("canonical precedence direct_delivery is invalid")
+    if facts.get("owner_turn_projection") not in {"message", "silent"}:
+        errors.append("canonical precedence owner_turn_projection is invalid")
+    actions = facts.get("recovery_actions")
+    closure = facts.get("affected_closure")
+    if not isinstance(actions, list) or any(not nonempty(action) for action in actions):
+        errors.append("canonical precedence recovery_actions must be a string array")
+        actions = []
+    if not isinstance(closure, list) or not TERMINAL_CLOSURE <= set(closure):
+        errors.append("canonical precedence must close unit, parent, milestone, successor and writer width")
+    canonical_generation = facts.get("canonical_generation")
+    checkpoint_generation = facts.get("checkpoint_generation")
+    if not isinstance(canonical_generation, int) or not isinstance(checkpoint_generation, int):
+        return errors
+    if canonical_generation <= checkpoint_generation:
+        if actions or facts.get("targeted_readback_count") != 0:
+            errors.append("stale or already-consumed canonical facts must be side-effect free")
+        return errors
+    if facts.get("targeted_readback_count", 0) > 1:
+        errors.append("canonical conflict allows at most one targeted readback")
+    if disposition in TERMINAL_DISPOSITIONS:
+        if facts.get("writer_width") != 0:
+            errors.append("newer canonical terminal must set writer width to zero")
+        if not {"replan", "recompute_affected_frontier"} <= set(actions):
+            errors.append("newer canonical terminal must replan and recompute the affected frontier")
+        forbidden = sorted(set(actions) & FORBIDDEN_TERMINAL_ACTIONS)
+        if forbidden:
+            errors.append(f"newer canonical terminal forbids recovery actions {forbidden}")
+    elif facts.get("writer_width", 0) < 1 or not {"route_delta", "recompute_affected_frontier"} <= set(actions):
+        errors.append("newer canonical active fact must route the real delta and recompute its affected frontier")
+    return errors
+
+
 def _width_errors(facts: dict[str, Any]) -> list[str]:
     if facts.get("critical_path_width") != 1:
         return []
@@ -732,6 +810,10 @@ def derive_verdict(facts: dict[str, Any]) -> str | None:
     """Derive a verdict from facts only; expected prose is intentionally unused."""
     if "incident_family" in facts or "matrix_path" in facts:
         return _derive_incident(facts)
+    if facts.get("canonical_disposition") in CANONICAL_DISPOSITIONS:
+        if facts.get("canonical_generation", -1) <= facts.get("checkpoint_generation", -1):
+            return "KEEP_CURRENT"
+        return "CORRECT_DRIFT" if facts["canonical_disposition"] in TERMINAL_DISPOSITIONS else "ROUTE_INFO"
     if isinstance(facts.get("owner_events"), list):
         return "ROUTE_INFO"
     if facts.get("delivery_attempt", {}).get("status") == "failed":
@@ -869,6 +951,8 @@ def validate_case(case: dict[str, Any]) -> list[str]:
         if path == "wait" and _surface_open(facts):
             errors.append("wait path cannot have executable surface")
     errors.extend(_audit_errors(facts))
+    errors.extend(_no_delta_errors(facts))
+    errors.extend(_canonical_precedence_errors(facts))
     errors.extend(_width_errors(facts))
     errors.extend(_projection_errors(facts))
     errors.extend(_authority_contract_errors(facts))
@@ -914,8 +998,8 @@ def validate_document(cases: list[dict[str, Any]]) -> list[str]:
         else:
             legacy += 1
         failures.extend(f"line {line}: {error}" for error in validate_case(case))
-    if legacy != 47:
-        failures.append(f"coverage: expected 47 non-incident product cases, found {legacy}")
+    if legacy != 51:
+        failures.append(f"coverage: expected 51 non-incident product cases, found {legacy}")
     expected_matrix = {(family, path) for family in INCIDENT_FAMILIES for path in MATRIX_PATHS}
     missing = sorted(expected_matrix - matrix)
     extra = sorted(matrix - expected_matrix)
@@ -1034,6 +1118,33 @@ def self_test(path: Path) -> list[str]:
     fast_action = copy.deepcopy(cases)
     _find(fast_action, lambda facts: facts.get("audit_path") == "Fast")["facts"]["audit_actions"] = []
     rejects("Fast empty light actions", fast_action, "non-empty list")
+
+    for field, value in (
+        ("current_semantic_revision", 5),
+        ("durable_checkpoint_semantic_writes", 1),
+        ("human_message_count", 1),
+        ("generation_change_count", 1),
+        ("full_frontier_recompute_count", 1),
+        ("duplicate_locator_reads", 1),
+    ):
+        candidate = copy.deepcopy(cases)
+        no_delta = _find(candidate, lambda facts: facts.get("no_delta_cycles") == 50)
+        no_delta["facts"][field] = value
+        rejects(f"no-delta mutation {field}", candidate, "no-delta cycles")
+
+    for label, mutate in (
+        ("terminal duplicate readback", lambda facts: facts.update(targeted_readback_count=2)),
+        ("terminal replacement", lambda facts: facts["recovery_actions"].append("replacement")),
+        ("terminal stale width", lambda facts: facts.update(writer_width=1)),
+        ("terminal incomplete closure", lambda facts: facts["affected_closure"].remove("milestone")),
+    ):
+        candidate = copy.deepcopy(cases)
+        terminal = _find(
+            candidate,
+            lambda facts: facts.get("canonical_disposition") == "rethink" and facts.get("canonical_generation") == 3,
+        )
+        mutate(terminal["facts"])
+        rejects(label, candidate, "canonical")
 
     bounded_heartbeat = copy.deepcopy(cases)
     bounded = _find(bounded_heartbeat, lambda facts: isinstance(facts.get("incident_improvement"), dict) and facts["incident_improvement"].get("status") == "bounded_revision")

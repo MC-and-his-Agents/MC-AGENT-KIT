@@ -35,6 +35,8 @@ Skill 只在被激活、skill_locator 改变、skill_digest 变化或 Skill evid
 
 Fast 命中空 change vector 时只做 cursor/cache/CAS 的轻量确认，立即返回 `KEEP_CURRENT`，不得进入完整同步、DAG、handoff 或全员 runtime/title/pin 循环；Deep 是异常路径，不能成为永久默认。重复唤醒不得重复创建 Owner、派工、写 GitHub 或发送人类通知。
 
+空 change vector 不产生语义写入：不得递增 semantic revision、写入持久产品/控制状态、改变 generation、全量重算前沿或发送人类消息，也不得在 cursor 未变化时重复读取同一 locator。连续 50 个无 canonical delta 的回归周期必须保持这些计数均为零；轻量 cursor/cache/CAS 读取不等于持久语义写入。
+
 due sentinel 本身是 Affected-slice 入口，不等待查询结果才选路；范围只包含该 waiting proof 的 subject 及其有限闭包。查询结果未变化且 evidence 可验证时，以 checkpoint CAS 刷新 observed_at、expires_at 和 sentinel_due_at，保持 semantic revision 与人类通知不变，下一次空 change vector 才走 Fast。查询发现 mismatch/new fact 时立即使旧 proof 失效并在该闭包内重算；查询不可用、结果 unknown 或闭包不完整时进入 Deep。
 
 ## Affected-slice 闭包
