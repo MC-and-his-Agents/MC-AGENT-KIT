@@ -428,7 +428,7 @@ def skill_version(path: Path) -> str | None:
 
 def validate_contract(contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "1.1.0":
+    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "1.2.0":
         errors.append("共享合同身份或版本错误")
     if contract.get("authority_source") != "tasks-owner":
         errors.append("共享合同权威来源错误")
@@ -715,7 +715,7 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
         if not isinstance(admission, dict) or not PMO_ADMISSION_FIELDS <= set(admission):
             errors.append("PMO 准入 envelope 不完整")
         else:
-            if admission.get("contract_id") != "dev-orchestration" or admission.get("schema_version") != "1.1.0":
+            if admission.get("contract_id") != "dev-orchestration" or admission.get("schema_version") != "1.2.0":
                 errors.append("PMO 准入 envelope 使用了不兼容的共享合同")
             for field in PMO_ADMISSION_FIELDS:
                 value = admission.get(field)
@@ -985,16 +985,16 @@ def self_test() -> list[str]:
         ("首次 occurrence", lambda value: value["skill_feedback"].update(new_issue_occurrence="unknown")),
         ("反馈失败状态", lambda value: value["skill_feedback"]["failure_status"]["candidate"].remove("write_failed")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
-        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.11.0")),
+        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.12.0")),
     ):
         bad_contract = copy.deepcopy(contract)
         mutate(bad_contract)
         if not validate_contract(bad_contract):
             failures.append(f"破坏{label}的变异未被拒绝")
     pmo_compatibility = contract["compatible_skills"]["pmo"]
-    if not version_is_compatible("0.10.1", pmo_compatibility):
+    if not version_is_compatible("0.11.1", pmo_compatibility):
         failures.append("高于最低版本的兼容补丁版本被错误拒绝")
-    if version_is_compatible("0.9.9", pmo_compatibility):
+    if version_is_compatible("0.10.9", pmo_compatibility):
         failures.append("低于最低版本的 Skill 被错误接受")
     cycles = load_jsonl(CYCLES)
     bad_cycles = copy.deepcopy(cycles)
