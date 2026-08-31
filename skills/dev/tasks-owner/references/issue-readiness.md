@@ -126,15 +126,26 @@ Issue readiness 还必须回答首个消费者如何消费上游 capability；�
 capability_compatibility:
   consumer_acceptance: <消费者验收 locator>
   capability_locator: <能力/接口 locator>
-  required_semantics: <消费者要求的语义>
-  observed_semantics: <回读到的语义>
+  selected_execution_surface: <local | native_subagent | app_task | external>
+  next_actual_action_locator: <下一实际动作 locator>
+  required_semantics:
+    carrier_binding: <所需 cwd/worktree + git common-dir 或精确任务 carrier>
+    target_identity: <所需 root/delegated/任务 identity>
+    <permission | requested_runtime | approval | monitoring | cancel | readback>: <下一动作所需精确值>
+  observed_semantics: <从 surface schema / readback 回读到的同键精确值>
   existence_evidence: <存在性证据>
   probe_or_contract_check: <最小 probe/contract 检查>
-  negative_or_unavailable_behavior: <缺失/不可用时的行为>
+  negative_or_unavailable_behavior: <replan_or_reownership_pending | waiting_external | not_applicable>
   status: <compatible | missing | incompatible | provided_by_current_batch | not_applicable>
+  side_effect_attempted: false
+  prior_equivalent_failure: <true | false>
+  equivalent_failure_evidence: <probe_or_contract_check@same-schema-environment-authority | not_applicable>
+  probe_attempted: <true | false>
 ```
 
 名称、类型、Issue 编号或 fixture 存在不能替代语义比较和 probe。`missing|incompatible` 时，先 shrink/split/reassign 或塑形最窄上游 Work Item；只有产品边界改变才交用户。能力自包含且无外部消费者时才可标 `not_applicable`。该门禁在 START 前完成；未通过不得以“已 ready”开始 writer。
+
+这里只列下一实际动作需要的能力；`carrier_binding` 与 `target_identity` 是 writer admission 的基础项，permission、requested runtime、approval、monitoring、cancel 和 readback 按动作选取。`compatible` 要求每个 required 键的精确值都与 observed 值一致，并符合所选 surface：local 绑定当前 thread，native subagent 绑定原生 Agent，App task 绑定 exact task，external 绑定精确外部目标；仓库动作使用显式 git common-dir/cwd carrier，monitoring 必须 targeted。不能只凭能力名称或两边相同的错误值放行。普通本地可逆任务不因缺少未使用的 monitoring、cancel 或外部 readback 被拒绝。`prior_equivalent_failure` 只从 durable canonical readback 恢复；为 true 时 evidence 必须精确绑定当前 contract check 的同 schema/environment/authority identity，并保持 hold、`probe_attempted=false`，不创建 probe 候选或重复等待。
 
 ## 可选 `write-a-goal` 增强
 

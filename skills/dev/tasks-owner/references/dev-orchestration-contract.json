@@ -66,7 +66,63 @@
       "governing_invariant_locator",
       "ownership_boundary_locator",
       "convergence_chain_locator"
-    ]
+    ],
+    "capability_compatibility_required_fields": [
+      "consumer_acceptance",
+      "capability_locator",
+      "selected_execution_surface",
+      "next_actual_action_locator",
+      "required_semantics",
+      "observed_semantics",
+      "existence_evidence",
+      "probe_or_contract_check",
+      "negative_or_unavailable_behavior",
+      "status",
+      "side_effect_attempted",
+      "prior_equivalent_failure",
+      "equivalent_failure_evidence",
+      "probe_attempted"
+    ],
+    "execution_surfaces": ["local", "native_subagent", "app_task", "external"],
+    "surface_identity_prefix": {
+      "local": "thread:",
+      "native_subagent": "native-subagent:",
+      "app_task": "app-task:",
+      "external": "external:"
+    },
+    "surface_capability_locator_prefix": {
+      "local": ["tool:"],
+      "native_subagent": ["host:native-"],
+      "app_task": ["host:app-", "host:exact-task-"],
+      "external": ["external:"]
+    },
+    "surface_carrier_prefix": {
+      "local": ["git-common-dir:"],
+      "native_subagent": ["git-common-dir:"],
+      "app_task": ["git-common-dir:", "task:"],
+      "external": ["external:"]
+    },
+    "targeted_monitoring_prefix": "targeted:",
+    "action_scoped_semantics": [
+      "carrier_binding",
+      "target_identity",
+      "permission",
+      "requested_runtime",
+      "approval",
+      "monitoring",
+      "cancel",
+      "readback"
+    ],
+    "capability_status": [
+      "compatible",
+      "missing",
+      "incompatible",
+      "provided_by_current_batch",
+      "not_applicable"
+    ],
+    "negative_behavior": ["replan_or_reownership_pending", "waiting_external", "not_applicable"],
+    "admitted_status": "compatible",
+    "unchanged_evidence_action": "hold_without_probe"
   },
   "systemic_invariant_closure": {
     "required_fields": [
@@ -91,7 +147,8 @@
       "basis"
     ],
     "surface_status": ["covered", "not_applicable"],
-    "closure_status": ["ready", "incomplete", "invalidated"]
+    "closure_status": ["ready", "incomplete", "invalidated"],
+    "required_ordering": "predicate_before_first_observable_side_effect"
   },
   "pmo_admission": {
     "required_fields": [

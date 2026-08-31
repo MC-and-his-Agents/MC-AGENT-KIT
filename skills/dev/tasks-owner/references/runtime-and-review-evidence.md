@@ -14,6 +14,12 @@ revision/digest 和执行代次。公开 metadata 缺字段时，只可使用宿
 缺失、矛盾、无法消歧、工作树/head 错配、未知 profile 或静默 fallback 都只隔离受影响任务；不消费结果、不
 准入、不 merge/closeout，也不自动改配置、重启或换 profile。checkpoint 只保存 evidence locator、状态和目标。
 
+## 下一动作 capability compatibility
+
+writer admission 只核验已选 execution surface 和下一实际动作：总是证明 carrier 与 root/delegated/任务 identity 可绑定，再按动作需要选择 permission、requested runtime、approval、monitoring、cancel 或 readback。required 与 observed 对同一键的精确值必须相等，且 identity、capability contract、cwd/carrier 和 targeted monitoring 必须属于所选 surface。能力事实使用 [issue-readiness.md](issue-readiness.md) 已有的 `capability_compatibility`；不建立第二份 runtime profile 或全量 preflight。
+
+`compatible` 且未发生创建/副作用才可准入。`missing|incompatible|provided_by_current_batch|not_applicable` 保持 `hold_before_writer`，再进入既有 `replan_or_reownership_pending` 或带 proof 的 `waiting_external`；不得自动转成 `waiting_user`。从 durable canonical readback 恢复的等价失败必须精确绑定当前 contract check 的同 schema/environment/authority identity；一致时保持 hold 且禁止重复 probe。若 exact-task cancel 已可用，下一动作同时要求 `cancel` 与 `readback`，Owner 自行取消 `waitingOnApproval` 动作并回读 terminal/旧动作未执行，不能要求用户代操作。
+
 ## 系统性不变量闭包
 
 readiness 判定需要闭包时，正式 writer admission 前形成：
@@ -23,7 +29,7 @@ systemic_invariant_closure:
   governing_invariant_locator: <全称不变量>
   subject: <受约束事实>
   coverage: <适用生命周期和范围>
-  ordering: <必须先后顺序>
+  ordering: predicate_before_first_observable_side_effect
   failure: <拒绝、回滚或无副作用规则>
   surfaces:
     - lifecycle_surface: <create | persist | restore | migrate | delete | other>
@@ -42,6 +48,8 @@ systemic_invariant_closure:
 所有适用 surface pair 必须 covered，正向、负向/不可用、ordering 和 no-side-effect 证据齐全。多个只读探索可以
 并行，Owner 只汇总一张矩阵；正式实现仍使用一个稳定 Unit、writer 和 convergence chain。checkpoint 只保存
 invariant/closure locator、digest 和 status。
+
+此闭包只用于适用的高风险 consumer seam；Owner / 项目 validator 证明具体 predicate 和首个副作用位置，PMO 只回读 applicability、`ready` 状态与 evidence locator。普通文档或可逆本地代码路径不要求该闭包。
 
 首次 review 若发现同一不变量遗漏，旧矩阵失效；完整刷新所有适用面，把同链缺口合并进唯一一次有界修复，再生成
 fresh preflight。再次遗漏必须 `systemic_invariant_closure_incomplete` / `review_churn_action: rethink`，

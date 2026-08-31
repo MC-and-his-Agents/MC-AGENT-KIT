@@ -54,6 +54,8 @@ Writer/Reviewer/Cleanup。
 
 普通 Unit 的 PMO 可见控制路径只有一次 `pmo_admission` 和一次 `unit_completed`；中间只有改变 acceptance、scope、ownership、DAG、用户权限边界或真实 material risk 的 `owner_sparse_delta` 才上行。ACK、release、START/STARTED、commit、测试、review-fix、CI、PR、branch/head 和无变化 Heartbeat 都留在 Owner 内部，既不是 PMO gate，也不产生 PMO 人类消息。
 
+Writer admission 的 runtime compatibility 按下一实际动作计算。Owner / 项目 validator 负责 permission、cwd/carrier、approval、monitor/cancel/readback 和高风险 consumer seam 的具体证明；PMO 只核验现有 `capability_compatibility` / `systemic_invariant_closure` 的适用性、状态与 locator，不解析项目内部顺序，也不把 capability 缺失转交用户。
+
 blocker 必须用普通语言标明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor 与 wake/invalidation 条件。局部 blocker 仍由 Owner 在剩余可执行面内推进；只有没有剩余可执行面且等待 PMO、外部或用户时才路由为全局等待。finding 的 `exit_impact`、`treatment`、`authority`、`lifecycle` 正交记录；跨 Unit、超预算或出口裁决交 PMO，越过产品/成本/风险/权限边界交用户。
 
 PMO 分别消费 product、merge、release readiness，不用一个 Hosted 结果覆盖三层。验证权威按用户、Issue acceptance、最近仓库规则、Skill 默认解析；只有 effective authority、branch protection、release 或 security 合同要求的 Hosted check 才阻塞相应层。无关基线失败进入独立 backlog，不回滚已核验产品增量。

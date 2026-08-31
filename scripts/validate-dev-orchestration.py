@@ -33,6 +33,17 @@ CAPABILITIES = {
     "bounded_finding_fix", "delivery_closeout", "bounded_execution_retrospective",
     "skill_feedback_candidate", "product_frontier_closure", "native_skill_feedback",
 }
+CAPABILITY_COMPATIBILITY_FIELDS = {
+    "consumer_acceptance", "capability_locator", "selected_execution_surface",
+    "next_actual_action_locator", "required_semantics", "observed_semantics",
+    "existence_evidence", "probe_or_contract_check", "negative_or_unavailable_behavior",
+    "status", "side_effect_attempted", "prior_equivalent_failure",
+    "equivalent_failure_evidence", "probe_attempted",
+}
+ACTION_SCOPED_SEMANTICS = {
+    "carrier_binding", "target_identity", "permission", "requested_runtime", "approval",
+    "monitoring", "cancel", "readback",
+}
 PMO_ADMISSION_FIELDS = {
     "contract_id", "schema_version", "authority_origin", "scope_kind", "scope_locator",
     "planning_truth_locator", "product_goal", "expected_contribution", "acceptance_locator",
@@ -122,6 +133,10 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def real_locator(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() not in {"", "none", "missing", "unknown"}
+
+
+def concrete_prefixed(value: Any, prefixes: list[str]) -> bool:
+    return isinstance(value, str) and any(value.startswith(prefix) and real_locator(value[len(prefix):]) for prefix in prefixes)
 
 
 def semver(value: Any) -> tuple[int, int, int] | None:
@@ -354,7 +369,9 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
     if facts.get("current_delivery_action") is True:
         return "continue_delivery"
     if facts.get("systemic_invariant"):
-        ready = not writer_admission_errors(facts)
+        if unit_identity_errors(facts) or capability_compatibility_errors(facts, require_compatible=False):
+            return None
+        ready = facts["capability_compatibility"]["status"] == "compatible"
         return "start_writer" if ready and facts.get("closure_status") == "complete" and not closure_errors(facts.get("closure")) else "hold_before_writer"
     if facts.get("existing_unit"):
         return "new_unit" if facts.get("scope_change") else "same_unit"
@@ -395,8 +412,9 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
             return "candidate"
         return "create_new_feedback_issue" if facts.get("github_feedback_capability_available") is True else "candidate"
     if facts.get("writer_admission_requested"):
-        if facts.get("mandate_complete") and not mandate_errors(facts) and not writer_admission_errors(facts):
-            return "admit_unit_writer"
+        if facts.get("mandate_complete") and not mandate_errors(facts) and not unit_identity_errors(facts) and not capability_compatibility_errors(facts, require_compatible=False):
+            status = facts["capability_compatibility"]["status"]
+            return "admit_unit_writer" if status == "compatible" else "hold_before_writer"
         return None
     if facts.get("mandate_complete") and not mandate_errors(facts):
         return "activate_owner"
@@ -435,8 +453,36 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     if set(contract.get("pmo_admission", {}).get("required_fields", [])) != PMO_ADMISSION_FIELDS:
         errors.append("PMO 准入字段不完整")
     unit_fields = set(contract.get("unit_identity", {}).get("required_fields", []))
-    if set(contract.get("writer_admission", {}).get("required_unit_identity_fields", [])) != unit_fields:
+    writer = contract.get("writer_admission", {})
+    if set(writer.get("required_unit_identity_fields", [])) != unit_fields:
         errors.append("writer 准入没有复用唯一 Unit 身份")
+    if (
+        set(writer.get("capability_compatibility_required_fields", [])) != CAPABILITY_COMPATIBILITY_FIELDS
+        or set(writer.get("action_scoped_semantics", [])) != ACTION_SCOPED_SEMANTICS
+        or set(writer.get("execution_surfaces", [])) != {"local", "native_subagent", "app_task", "external"}
+        or writer.get("surface_identity_prefix") != {
+            "local": "thread:", "native_subagent": "native-subagent:",
+            "app_task": "app-task:", "external": "external:",
+        }
+        or writer.get("surface_capability_locator_prefix") != {
+            "local": ["tool:"], "native_subagent": ["host:native-"],
+            "app_task": ["host:app-", "host:exact-task-"], "external": ["external:"],
+        }
+        or writer.get("surface_carrier_prefix") != {
+            "local": ["git-common-dir:"], "native_subagent": ["git-common-dir:"],
+            "app_task": ["git-common-dir:", "task:"], "external": ["external:"],
+        }
+        or writer.get("targeted_monitoring_prefix") != "targeted:"
+        or set(writer.get("capability_status", [])) != {
+            "compatible", "missing", "incompatible", "provided_by_current_batch", "not_applicable",
+        }
+        or set(writer.get("negative_behavior", [])) != {
+            "replan_or_reownership_pending", "waiting_external", "not_applicable",
+        }
+        or writer.get("admitted_status") != "compatible"
+        or writer.get("unchanged_evidence_action") != "hold_without_probe"
+    ):
+        errors.append("writer action-scoped capability 合同不完整")
     verification = contract.get("verification_authority", {})
     if (
         verification.get("source_order") != ["user", "issue", "repository", "skill_default"]
@@ -450,7 +496,10 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     ):
         errors.append("验证权威与 readiness 分层合同不完整")
     closure = contract.get("systemic_invariant_closure", {})
-    if not {"required_fields", "surface_required_fields", "surface_status", "closure_status"} <= set(closure):
+    if (
+        not {"required_fields", "surface_required_fields", "surface_status", "closure_status", "required_ordering"} <= set(closure)
+        or closure.get("required_ordering") != "predicate_before_first_observable_side_effect"
+    ):
         errors.append("系统性闭包机器 schema 不完整")
     for skill, compatibility in contract.get("compatible_skills", {}).items():
         if set(compatibility) != {"tested_artifact_version", "minimum_compatible_version", "required_contract_schema_major"}:
@@ -634,6 +683,8 @@ def closure_errors(closure: Any) -> list[str]:
         return ["系统性闭包的说明或摘要不能为空"]
     if closure.get("status") != "ready":
         return ["用于 writer 准入的系统性闭包必须 ready"]
+    if closure.get("ordering") != schema["required_ordering"]:
+        return ["系统性闭包必须证明 predicate 早于首次可观察副作用"]
     surfaces = closure.get("surfaces")
     if not isinstance(surfaces, list) or not surfaces:
         return ["系统性闭包没有适用面"]
@@ -716,7 +767,7 @@ def continuous_lane_errors(facts: dict[str, Any]) -> list[str]:
     return errors
 
 
-def writer_admission_errors(facts: dict[str, Any]) -> list[str]:
+def unit_identity_errors(facts: dict[str, Any]) -> list[str]:
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     fields = set(contract["writer_admission"]["required_unit_identity_fields"])
     identity = facts.get("unit_identity")
@@ -725,6 +776,82 @@ def writer_admission_errors(facts: dict[str, Any]) -> list[str]:
     if not isinstance(identity, dict):
         return ["writer 准入缺少 Unit 身份"]
     return [f"writer 准入缺少 {field}" for field in fields if not real_locator(identity.get(field))]
+
+
+def capability_compatibility_errors(facts: dict[str, Any], require_compatible: bool = True) -> list[str]:
+    schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["writer_admission"]
+    capability = facts.get("capability_compatibility")
+    if not isinstance(capability, dict) or not CAPABILITY_COMPATIBILITY_FIELDS <= set(capability):
+        return ["writer 准入缺少 action-scoped capability compatibility"]
+    errors: list[str] = []
+    for field in (
+        "consumer_acceptance", "capability_locator", "next_actual_action_locator",
+        "existence_evidence", "probe_or_contract_check",
+    ):
+        if not real_locator(capability.get(field)):
+            errors.append(f"capability compatibility 缺少 {field}")
+    surface = capability.get("selected_execution_surface")
+    if surface not in schema["execution_surfaces"]:
+        errors.append("capability compatibility 的执行 surface 无效")
+    required = capability.get("required_semantics")
+    observed = capability.get("observed_semantics")
+    if (
+        not isinstance(required, dict) or not {"carrier_binding", "target_identity"} <= set(required)
+        or not set(required) <= ACTION_SCOPED_SEMANTICS
+        or any(not real_locator(value) for value in required.values())
+    ):
+        errors.append("capability compatibility 的下一动作语义无效")
+    if (
+        not isinstance(observed, dict)
+        or not set(observed) <= ACTION_SCOPED_SEMANTICS
+        or any(not real_locator(value) for value in observed.values())
+    ):
+        errors.append("capability compatibility 的已观察语义无效")
+    if isinstance(required, dict) and surface in schema["execution_surfaces"]:
+        identity = required.get("target_identity")
+        carrier = required.get("carrier_binding")
+        locator = capability.get("capability_locator")
+        if not concrete_prefixed(identity, [schema["surface_identity_prefix"][surface]]):
+            errors.append("selected execution surface 与 target identity 不一致")
+        if not concrete_prefixed(carrier, schema["surface_carrier_prefix"][surface]):
+            errors.append("selected execution surface 与 cwd/carrier 不一致")
+        if not concrete_prefixed(locator, schema["surface_capability_locator_prefix"][surface]):
+            errors.append("selected execution surface 与 capability contract identity 不一致")
+        if "monitoring" in required and (
+            not concrete_prefixed(required["monitoring"], [schema["targeted_monitoring_prefix"]])
+        ):
+            errors.append("delegated monitoring 必须绑定 exact target")
+    status = capability.get("status")
+    if status not in schema["capability_status"]:
+        errors.append("capability compatibility 状态无效")
+    elif isinstance(required, dict) and isinstance(observed, dict):
+        compatible = all(observed.get(key) == value for key, value in required.items())
+        if (status == "compatible") != compatible:
+            errors.append("capability compatibility 状态与 required/observed semantics 矛盾")
+    if capability.get("negative_or_unavailable_behavior") not in schema["negative_behavior"]:
+        errors.append("capability compatibility 缺少既有恢复状态")
+    if capability.get("side_effect_attempted") is not False:
+        errors.append("capability compatibility 必须在创建或相关副作用前完成")
+    prior_failure = capability.get("prior_equivalent_failure")
+    probe_attempted = capability.get("probe_attempted")
+    expected_prior_evidence = f"{capability.get('probe_or_contract_check')}@same-schema-environment-authority"
+    if not isinstance(prior_failure, bool) or not isinstance(probe_attempted, bool):
+        errors.append("capability compatibility 缺少等价失败去重事实")
+    elif prior_failure and (
+        status == "compatible"
+        or capability.get("equivalent_failure_evidence") != expected_prior_evidence
+        or probe_attempted
+    ):
+        errors.append("相同 route/environment/authority 的失败不得重复 probe")
+    elif not prior_failure and capability.get("equivalent_failure_evidence") != "not_applicable":
+        errors.append("首次 capability 检查不得伪造等价失败证据")
+    if require_compatible and status != schema["admitted_status"]:
+        errors.append("下一实际动作所需 capability 尚未 compatible")
+    return errors
+
+
+def writer_admission_errors(facts: dict[str, Any]) -> list[str]:
+    return unit_identity_errors(facts) + capability_compatibility_errors(facts)
 
 
 def validate_cycles(rows: list[dict[str, Any]]) -> list[str]:
@@ -842,6 +969,10 @@ def self_test() -> list[str]:
         ("验证权威顺序", lambda value: value["verification_authority"]["source_order"].reverse()),
         ("Hosted 条件门禁", lambda value: value["verification_authority"]["hosted_required_when"].remove("effective_authority")),
         ("验证证据复用键", lambda value: value["verification_authority"]["evidence_reuse_key"].remove("environment_class")),
+        ("action-scoped capability", lambda value: value["writer_admission"]["action_scoped_semantics"].remove("cancel")),
+        ("execution surface identity", lambda value: value["writer_admission"]["surface_identity_prefix"].update(local="app-task:")),
+        ("capability 不变证据策略", lambda value: value["writer_admission"].update(unchanged_evidence_action="retry_probe")),
+        ("高风险副作用顺序", lambda value: value["systemic_invariant_closure"].update(required_ordering="first_observable_side_effect_before_predicate")),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
         ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),
@@ -939,6 +1070,96 @@ def self_test() -> list[str]:
             writer_case["facts"][identity_key].pop(field)
             if not validate_integration(bad_identity):
                 failures.append(f"{case_id} 缺少 {field} 的 writer 准入变异未被拒绝")
+    capability_fields = json.loads(CONTRACT.read_text(encoding="utf-8"))["writer_admission"]["capability_compatibility_required_fields"]
+    for field in capability_fields:
+        bad_capability = copy.deepcopy(integration)
+        writer_case = next(row for row in bad_capability if row["id"] == "direct-user-writer-admission")
+        writer_case["facts"]["capability_compatibility"].pop(field)
+        if not validate_integration(bad_capability):
+            failures.append(f"缺少 {field} 的 action-scoped capability 变异未被拒绝")
+    missing_required_semantic = copy.deepcopy(integration)
+    capability = next(row for row in missing_required_semantic if row["id"] == "direct-user-writer-admission")["facts"]["capability_compatibility"]
+    capability["observed_semantics"].pop("permission")
+    if not validate_integration(missing_required_semantic):
+        failures.append("下一动作缺少 required permission 的变异未被拒绝")
+    for semantic in ("carrier_binding", "target_identity", "permission"):
+        mismatched_semantic = copy.deepcopy(integration)
+        capability = next(row for row in mismatched_semantic if row["id"] == "direct-user-writer-admission")["facts"]["capability_compatibility"]
+        capability["observed_semantics"][semantic] = f"mismatch:{semantic}"
+        if not validate_integration(mismatched_semantic):
+            failures.append(f"required/observed {semantic} 精确值不一致的变异未被拒绝")
+    for label, case_id, semantic, value in (
+        ("local target identity", "direct-user-writer-admission", "target_identity", "app-task:delegated"),
+        ("native target identity", "pmo-unit-writer-admission", "target_identity", "thread:current"),
+        ("ambient cwd/carrier", "direct-user-writer-admission", "carrier_binding", "ambient:cwd"),
+        ("non-targeted monitoring", "pmo-unit-writer-admission", "monitoring", "all-agents"),
+    ):
+        wrong_surface_binding = copy.deepcopy(integration)
+        capability = next(row for row in wrong_surface_binding if row["id"] == case_id)["facts"]["capability_compatibility"]
+        capability["required_semantics"][semantic] = value
+        capability["observed_semantics"][semantic] = value
+        if not validate_integration(wrong_surface_binding):
+            failures.append(f"selected surface 接受错误 {label} 的变异未被拒绝")
+    wrong_contract_identity = copy.deepcopy(integration)
+    capability = next(row for row in wrong_contract_identity if row["id"] == "pmo-unit-writer-admission")["facts"]["capability_compatibility"]
+    capability["capability_locator"] = "tool:local-shell"
+    if not validate_integration(wrong_contract_identity):
+        failures.append("selected surface 接受错误 capability contract identity 的变异未被拒绝")
+    for label, case_id, field, value in (
+        ("target identity", "direct-user-writer-admission", "target_identity", "thread:"),
+        ("target identity sentinel", "direct-user-writer-admission", "target_identity", "thread:unknown"),
+        ("cwd/carrier", "direct-user-writer-admission", "carrier_binding", "git-common-dir:"),
+        ("cwd/carrier sentinel", "direct-user-writer-admission", "carrier_binding", "git-common-dir:none"),
+        ("targeted monitoring", "pmo-unit-writer-admission", "monitoring", "targeted:"),
+        ("targeted monitoring sentinel", "pmo-unit-writer-admission", "monitoring", "targeted:missing"),
+    ):
+        empty_target = copy.deepcopy(integration)
+        capability = next(row for row in empty_target if row["id"] == case_id)["facts"]["capability_compatibility"]
+        capability["required_semantics"][field] = value
+        capability["observed_semantics"][field] = value
+        if not validate_integration(empty_target):
+            failures.append(f"只有前缀而无实体的 {label} 变异未被拒绝")
+    empty_contract_identity = copy.deepcopy(integration)
+    capability = next(row for row in empty_contract_identity if row["id"] == "direct-user-writer-admission")["facts"]["capability_compatibility"]
+    for value in ("tool:", "tool:none"):
+        capability["capability_locator"] = value
+        if not validate_integration(copy.deepcopy(empty_contract_identity)):
+            failures.append("只有前缀或 sentinel 的 capability contract identity 变异未被拒绝")
+    attempted_before_admission = copy.deepcopy(integration)
+    capability = next(row for row in attempted_before_admission if row["id"] == "delegated-required-capability-missing")["facts"]["capability_compatibility"]
+    capability["side_effect_attempted"] = True
+    if not validate_integration(attempted_before_admission):
+        failures.append("capability 不兼容却已创建或产生副作用的变异未被拒绝")
+    forged_compatible = copy.deepcopy(integration)
+    capability = next(row for row in forged_compatible if row["id"] == "delegated-required-capability-missing")["facts"]["capability_compatibility"]
+    capability["status"] = "compatible"
+    if not validate_integration(forged_compatible):
+        failures.append("缺失 capability 被伪装为 compatible 的变异未被拒绝")
+    escalated_to_user = copy.deepcopy(integration)
+    capability = next(row for row in escalated_to_user if row["id"] == "delegated-required-capability-missing")["facts"]["capability_compatibility"]
+    capability["negative_or_unavailable_behavior"] = "waiting_user"
+    if not validate_integration(escalated_to_user):
+        failures.append("runtime capability 缺失被转交用户的变异未被拒绝")
+    cancel_without_readback = copy.deepcopy(integration)
+    capability = next(row for row in cancel_without_readback if row["id"] == "approval-cancel-remains-owner-actionable")["facts"]["capability_compatibility"]
+    capability["observed_semantics"].pop("readback")
+    if not validate_integration(cancel_without_readback):
+        failures.append("exact-task cancel 缺少 terminal/旧动作未执行回读的变异未被拒绝")
+    repeated_probe = copy.deepcopy(integration)
+    capability = next(row for row in repeated_probe if row["id"] == "unchanged-delegated-failure-does-not-reprobe")["facts"]["capability_compatibility"]
+    capability["probe_attempted"] = True
+    if not validate_integration(repeated_probe):
+        failures.append("相同 route/environment/authority 失败的重复 probe 变异未被拒绝")
+    reset_prior_failure = copy.deepcopy(integration)
+    capability = next(row for row in reset_prior_failure if row["id"] == "unchanged-delegated-failure-does-not-reprobe")["facts"]["capability_compatibility"]
+    capability["prior_equivalent_failure"] = False
+    if not validate_integration(reset_prior_failure):
+        failures.append("保留旧 evidence 却重置 prior failure 的变异未被拒绝")
+    changed_prior_evidence = copy.deepcopy(integration)
+    capability = next(row for row in changed_prior_evidence if row["id"] == "unchanged-delegated-failure-does-not-reprobe")["facts"]["capability_compatibility"]
+    capability["equivalent_failure_evidence"] = "contract-check:other@same-schema-environment-authority"
+    if not validate_integration(changed_prior_evidence):
+        failures.append("等价失败 evidence 与当前 contract check 不一致的变异未被拒绝")
     bad_admission = copy.deepcopy(integration)
     pmo_case = next(row for row in bad_admission if row["id"] == "pmo-work-item-mandate")
     pmo_case["facts"]["pmo_admission"].pop("scope_locator")
@@ -996,6 +1217,11 @@ def self_test() -> list[str]:
         closure_case["facts"]["closure"]["surfaces"][0].pop(field)
         if not validate_integration(bad_closure):
             failures.append(f"缺少 {field} 的闭包适用面变异未被拒绝")
+    late_predicate = copy.deepcopy(integration)
+    closure_case = next(row for row in late_predicate if row["id"] == "systemic-closure-complete")
+    closure_case["facts"]["closure"]["ordering"] = "first_observable_side_effect_before_predicate"
+    if not validate_integration(late_predicate):
+        failures.append("高风险 predicate 晚于首次可观察副作用的变异未被拒绝")
     bad_feedback = copy.deepcopy(cycles)
     feedback_case = next(row for row in bad_feedback if row["id"] == "delivery-before-skill-feedback")
     feedback_case["facts"]["canonical_repository_match"] = False
