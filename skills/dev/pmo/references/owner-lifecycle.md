@@ -92,6 +92,8 @@ Owner 的专属 Heartbeat 每次唤醒也应先加载当前 `$tasks-owner` 并�
 
 已授权 in-scope 动作进入 `waitingOnApproval`/`waiting_user` 时：
 
+0. 先比较持久 canonical disposition/cursor/generation 与当前 checkpoint；较新的 terminal、RETHINK、SHIP、interrupted 或 scope-violation 立即淘汰旧 active/waiting，禁止诊断、替换、中断或读取冻结 carrier。Owner 静默和 direct delivery 丢失都不能证明 Owner 仍 active 或已经失败；冲突最多一次定向回读，并在同周期重规划受影响闭包。
+
 1. 判为 `CORRECT_DRIFT`，不是用户决策；
 2. 精确唤醒对应 Owner，而不是直接操作其 task；
 3. 要求 Owner 按 `$tasks-owner` 保留 branch/worktree/未提交成果，核验陈旧 locator，隔离或撤销重复写权，并重新 admission 唯一执行单元；
