@@ -35,7 +35,7 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 |---|---|
 | `local_verification_capability` | 只采用当前工作树可实际运行且可回读的命令；缺依赖时标记不可用，不伪造通过 |
 | `git_metadata_write_capability` | 只在用户已授权、非 `main` 任务分支执行；无独立 bridge 假设 |
-| `hosted_only_checks` | 由 PR/Hosted CI 提供真实 locator；本地成功不能替代 |
+| `hosted_only_checks` | 仅在 effective verification authority、branch protection、release 或 security 合同要求时，由 PR/Hosted CI 提供真实 locator；本地成功不能替代，未被要求的失败也不能阻塞产品 readiness |
 | `evidence_tier` | `exploratory`、`exact_head`、`exact_main`；head 变化只使绑定该 head 的证据失效 |
 
 ## GitHub 反馈写入

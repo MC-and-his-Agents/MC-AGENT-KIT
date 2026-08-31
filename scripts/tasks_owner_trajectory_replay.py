@@ -31,6 +31,113 @@ UNIT_TRANSITIONS = {
     "terminal": set(),
 }
 PUBLISH_TOOLS = {"stage": "git_stage", "commit": "git_commit", "push": "git_push", "pr": "gh_pr_create", "merge": "gh_pr_merge"}
+VERIFICATION_AUTHORITY_ORDER = ("user", "issue", "repository", "skill_default")
+
+
+def _verification_errors(facts: dict[str, Any], exact_head: Any, tree_digest: Any) -> list[str]:
+    errors: list[str] = []
+    authority = facts.get("verification_authority")
+    if not isinstance(authority, dict):
+        return ["merge requires verification authority"]
+    inputs = authority.get("authority_inputs")
+    if not isinstance(inputs, dict) or set(inputs) != set(VERIFICATION_AUTHORITY_ORDER):
+        return ["verification authority inputs are incomplete"]
+    effective_source = next((source for source in VERIFICATION_AUTHORITY_ORDER if _real_locator(inputs.get(source))), None)
+    if effective_source is None or authority.get("effective_source") != effective_source or authority.get("effective_locator") != inputs.get(effective_source):
+        errors.append("verification authority priority is inverted")
+    effective_required = authority.get("effective_required_checks")
+    branch = authority.get("branch_protection")
+    security = authority.get("security_contract")
+    required: list[str] = []
+    if not isinstance(effective_required, list) or any(not _real_locator(name) for name in effective_required) or len(effective_required) != len(set(effective_required)):
+        errors.append("effective verification authority checks are invalid")
+    else:
+        required.extend(effective_required)
+    for label, source in (("branch protection", branch), ("security contract", security)):
+        if not isinstance(source, dict) or set(source) != {"locator", "required_checks"}:
+            errors.append(f"{label} check authority is incomplete")
+            continue
+        checks = source.get("required_checks")
+        locator = source.get("locator")
+        if not isinstance(checks, list) or any(not _real_locator(name) for name in checks) or len(checks) != len(set(checks)) or (checks and not _real_locator(locator)):
+            errors.append(f"{label} required checks are invalid")
+            continue
+        required.extend(checks)
+    required = list(dict.fromkeys(required))
+    results = facts.get("check_results")
+    by_name: dict[str, dict[str, Any]] = {}
+    if not isinstance(results, list):
+        errors.append("merge check results are missing")
+    else:
+        for result in results:
+            if (
+                not isinstance(result, dict)
+                or set(result) != {"name", "status", "locator", "head"}
+                or not _real_locator(result.get("name"))
+                or result.get("status") not in {"success", "failed", "pending"}
+                or not _real_locator(result.get("locator"))
+                or not _real_locator(result.get("head"))
+                or result["name"] in by_name
+            ):
+                errors.append("merge check result is invalid")
+                continue
+            by_name[result["name"]] = result
+    for name in required:
+        result = by_name.get(name)
+        if not result or result.get("status") != "success" or result.get("head") != exact_head:
+            errors.append(f"required merge check is not successful on exact head: {name}")
+    for field in ("acceptance_evidence_locator", "product_evidence_locator"):
+        if not _real_locator(facts.get(field)):
+            errors.append(f"merge requires {field}")
+    pr_metadata = facts.get("pr_metadata")
+    if (
+        not isinstance(pr_metadata, dict)
+        or set(pr_metadata) != {"locator", "head"}
+        or not _real_locator(pr_metadata.get("locator"))
+        or pr_metadata.get("head") != exact_head
+    ):
+        errors.append("merge requires exact-head PR metadata")
+    if facts.get("product_readiness") != "ready":
+        errors.append("merge requires independently proven product readiness")
+    unrelated = facts.get("unrelated_check_failures", [])
+    failed_extras = {name for name, result in by_name.items() if name not in required and result.get("status") == "failed"}
+    if not isinstance(unrelated, list) or len(unrelated) != len(failed_extras):
+        errors.append("unrelated check failures need explicit non-blocking disposition")
+    else:
+        dispositions = set()
+        for item in unrelated:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"name", "locator", "carrier_locator", "disposition", "native_dependency_created"}
+                or item.get("name") not in failed_extras
+                or not _real_locator(item.get("locator"))
+                or not _real_locator(item.get("carrier_locator"))
+                or item.get("disposition") != "backlog"
+                or item.get("native_dependency_created") is not False
+            ):
+                errors.append("unrelated check failure incorrectly blocks current product readiness")
+                continue
+            dispositions.add(item["name"])
+        if dispositions != failed_extras:
+            errors.append("unrelated check failure disposition is incomplete")
+    reuse = facts.get("verification_reuse")
+    if reuse is not None:
+        fields = {
+            "current_tree_digest", "evidence_tree_digest", "current_acceptance_digest",
+            "evidence_acceptance_digest", "current_environment_class",
+            "evidence_environment_class", "evidence_locator",
+        }
+        if (
+            not isinstance(reuse, dict)
+            or set(reuse) != fields
+            or any(not _real_locator(reuse.get(field)) for field in fields)
+            or reuse.get("current_tree_digest") != reuse.get("evidence_tree_digest")
+            or reuse.get("current_tree_digest") != tree_digest
+            or reuse.get("current_acceptance_digest") != reuse.get("evidence_acceptance_digest")
+            or reuse.get("current_environment_class") != reuse.get("evidence_environment_class")
+        ):
+            errors.append("verification evidence reuse key does not match")
+    return errors
 
 
 class Replay:
@@ -238,8 +345,8 @@ class Replay:
     def publication_event(self, event: dict[str, Any]) -> None:
         kind, facts, seq = event["kind"], event["facts"], event["seq"]
         if kind == "head_readback":
-            if event["actor"] == "owner" and event["tool"] == "git_readback" and all(_nonempty(facts.get(field)) for field in ("diff_locator", "file_hashes_locator", "exact_head")):
-                self.head_readbacks.append({"seq": seq, "head": facts["exact_head"], "diff": facts["diff_locator"]})
+            if event["actor"] == "owner" and event["tool"] == "git_readback" and all(_real_locator(facts.get(field)) for field in ("diff_locator", "file_hashes_locator", "tree_digest", "exact_head")):
+                self.head_readbacks.append({"seq": seq, "head": facts["exact_head"], "diff": facts["diff_locator"], "tree": facts["tree_digest"]})
             else:
                 self.violations.add("writer_quiescence")
             return
@@ -268,6 +375,8 @@ class Replay:
         readback = next((item for item in reversed(self.head_readbacks) if item["seq"] > self.last_unit_change and item["head"] == exact_head), None)
         review = next((item for item in reversed(self.reviews) if readback and item["seq"] > readback["seq"] and item["head"] == exact_head), None)
         if event["actor"] != "owner" or action not in PUBLISH_TOOLS or event["tool"] != PUBLISH_TOOLS.get(action) or not readback or not review:
+            self.violations.add("writer_quiescence")
+        if action == "merge" and _verification_errors(facts, exact_head, readback.get("tree") if readback else None):
             self.violations.add("writer_quiescence")
 
     def cleanup_event(self, event: dict[str, Any]) -> None:

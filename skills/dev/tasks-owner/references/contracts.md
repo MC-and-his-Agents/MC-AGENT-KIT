@@ -58,9 +58,7 @@ writer 状态或 head 变化都会使旧收敛证明和审查失效。
 
 ## PR Ready 与 closeout
 
-PR Ready 必须绑定：当前验收映射、适用的闭包矩阵、preflight ready、语义范围 aligned、writer 已结束、fresh
-exact-head 独立审查、准确文件/diff、Hosted CI 和 PR metadata。审查 finding 先按 scope integrity 处置；同一
-Unit/收敛链只有一次 finding 驱动写入。
+PR Ready 必须绑定：当前验收映射、适用的闭包矩阵、preflight ready、语义范围 aligned、writer 已结束、fresh exact-head 独立审查、准确文件/diff、PR metadata，以及由有效验证权威实际要求的 checks。Hosted CI 仅在该权威、branch protection、release 或 security 合同要求时成为硬门；详细分层见 runtime-and-review-evidence。审查 finding 先按 scope integrity 处置；同一 Unit/收敛链只有一次 finding 驱动写入。
 
 Owner 只有独立回读产品验收、merge commit/target head、Issue/PR 状态、carrier 和必要 cleanup 后，才能声明
 completed。PR、commit、CI 或任务 final 单独都不能证明完成。外部或不可逆动作无法自动回滚时，立即停止并交用户

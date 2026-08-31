@@ -71,5 +71,17 @@ sibling scan 只检查与当前验收和 governing invariant 直接相关的相�
 合并为唯一一次有界修复，再重新审查。同一 Unit/收敛链第二次 finding 驱动写入被禁止；剩余问题按
 shrink/split/reassign/defer/reject/user decision 处理。
 
+## 验证权威与 readiness 分层
+
+有效验证权威严格按以下顺序解析，命中第一个可回读来源后停止：用户明确要求 → Issue acceptance → 最近的 `AGENTS.md`/项目验证配置 → Skill 默认。低优先级来源不能扩大高优先级要求；每次 merge 记录所有输入 locator、effective source/locator 与实际 required checks。
+
+- product readiness：只由当前 acceptance 与产品效果证据决定；merge check 或无关基线失败不能回滚已成立的产品事实。
+- merge readiness：要求 writer quiescence、fresh exact-head review、PR metadata，以及有效权威或 branch protection 实际要求的 checks。
+- release readiness：merge 后另以 exact-main、artifact/ledger、release/security/clean-host 合同核验；不能从 product/merge ready 推断。
+
+Hosted CI 只有在有效权威、branch protection、release 或 security 合同明确要求时才是当前 merge/release 的硬门；merge 事实把 effective-authority checks、branch-protection checks 和 security-contract checks 分别绑定各自 source locator，低优先级仓库默认不能冒充高优先级权威扩张要求。否则失败作为独立 backlog 事实，不建立当前产品 blocked-by，也不询问用户是否继续。required check 与 PR metadata 必须成功并绑定当前 exact head；额外非 required check 即使失败也只进入带 carrier 的独立 backlog，不否定 product readiness。
+
+本地或 Hosted 验证证据只有在 `tree_digest + acceptance_digest + environment_class` 三者相同且 evidence locator 可回读时才可复用。复用不替代 fresh exact-head review、当前 required-check SHA 或 PR metadata；任一键变化只刷新受影响验证，不自动全量重跑。
+
 requested 与 observed sandbox/permission 分开记录。只有宿主回读为只读才能称强隔离；低风险行为只读 fallback
 必须比较仓库/工作树前后状态并报告残余风险，高风险或状态不可观察时不接受审查结论。
