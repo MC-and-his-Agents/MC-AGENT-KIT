@@ -2,7 +2,7 @@
 name: tasks-owner
 description: 将当前 Codex App 对话初始化为一个明确、可定位交付范围的长期 Unit Owner，持续完成实现、验证、合并与收口；用户直接委任与 PMO 准入使用同一职责，只改变授权来源。评审、解释、Skill 维护、一次性修复或未明确委任时不激活。
 metadata:
-  version: "0.24.0"
+  version: "0.25.0"
 ---
 
 # Unit Owner
