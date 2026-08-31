@@ -44,6 +44,8 @@ actions:
 用户决策只暂停受影响动作，无冲突路径继续。
 `request_user_decision` 已包含该决策范围的等待与恢复条件；同一差距不得再追加
 `record_evidenced_wait`。后者只用于不需要用户决策的真实外部等待。
+
+`waiting_user` 不是不确定时的逃生口。它必须直接等于当前 admission 的 `decision_boundary_locator`，next actor 必须为 user，并证明问题属于产品行为、范围/优先级、重大成本/风险、权限/隐私/数据或不可逆外部结果的用户保留权；同时绑定既有事实已穷尽、状态为 complete 的有界调查 locator、不存在安全可逆默认方案、精确 decision question/blocked action/blocking scope，并证明无关前沿继续。定位 workspace/Issue/PR/branch、选择实现或验证路线、Owner 恢复/reownership、shrink/split/reassign/defer、程序化 cancel 和普通 review-fix 都是 PMO/Owner 职责，不能进入 `waiting_user`。只能由用户执行但不需要产品判断的机械动作归 `waiting_external` 并提供现有 waiting proof；`waiting_user` 不得附加第二套 waiting proof。
 每个未完成出口和 gap 必须恰好出现一次。只有 `frontier_closure_status=complete`，且所有剩余 gap 都是
 `active_execution`、`waiting_external` 或 `waiting_user`，整个周期才可等待。`waiting_external` 的 proof 必须有
 subject、不可替代 external condition、responsible party、evidence locator、observed_at/freshness、wake 与

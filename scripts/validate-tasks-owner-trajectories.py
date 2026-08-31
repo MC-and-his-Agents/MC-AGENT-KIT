@@ -96,17 +96,61 @@ def self_test(path: Path) -> list[str]:
 
     # user_decision needs a locator for the real product/permission/external decision.
     source = next(case for case in cases if case["id"] == "review-user-decision-with-locator-pass")
-    candidate = copy.deepcopy(source)
-    candidate["events"][1]["facts"]["user_decision_locator"] = "none"
-    if "review_disposition" not in evaluate(candidate):
-        failures.append("missing user decision locator mutation was not rejected")
+    for sentinel in ("none", "missing", "unknown", "tbd"):
+        candidate = copy.deepcopy(source)
+        candidate["events"][1]["facts"]["user_decision_locator"] = sentinel
+        if "review_disposition" not in evaluate(candidate):
+            failures.append(f"user decision locator sentinel {sentinel} was not rejected")
+    for label, mutate in (
+        ("authority", lambda facts: facts.pop("decision_boundary_locator")),
+        ("safe default", lambda facts: facts.update(safe_reversible_default_available=True)),
+        ("mechanical action", lambda facts: facts.update(requires_user_judgment=False)),
+    ):
+        candidate = copy.deepcopy(source)
+        mutate(candidate["events"][1]["facts"])
+        if "review_disposition" not in evaluate(candidate):
+            failures.append(f"user decision {label} mutation was not rejected")
 
-    # The counter is an explicit review contract field, not an implicit zero default.
+    # The shared repair budget is explicit and bound to a convergence chain.
     source = next(case for case in cases if case["id"] == "review-multifinding-single-round-pass")
     candidate = copy.deepcopy(source)
-    candidate["initial"].pop("review_fix_round_count")
+    candidate["initial"].pop("repair_budget")
     if not _schema_errors(candidate):
-        failures.append("missing review fix round counter was not rejected")
+        failures.append("missing convergence repair budget was not rejected")
+
+    source = next(case for case in cases if case["id"] == "review-scope-split-new-chain-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][2]["facts"]["to_convergence_chain_locator"] = "chain:issue-split"
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("same-chain fake split reset mutation was not rejected")
+    for label, mutate in (
+        ("evidence sentinel", lambda facts: facts.update(evidence_locator="none")),
+        ("new-chain sentinel", lambda facts: facts.update(to_convergence_chain_locator="none")),
+        ("missing trigger", lambda facts: facts.pop("trigger_finding_locator")),
+    ):
+        candidate = copy.deepcopy(source)
+        mutate(candidate["events"][2]["facts"])
+        if "review_disposition" not in evaluate(candidate):
+            failures.append(f"scope transition {label} mutation was not rejected")
+    candidate = copy.deepcopy(source)
+    candidate["events"] = candidate["events"][:3]
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("scope transition without fresh new-chain review was not rejected")
+
+    source = next(case for case in cases if case["id"] == "review-reassign-with-mismatch-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][2]["facts"].pop("mismatch_locator")
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("reassign without capability or ownership mismatch evidence was not rejected")
+
+    candidate = copy.deepcopy(source)
+    candidate["initial"]["repair_budget"]["convergence_chain_locator"] = "none"
+    if not _schema_errors(candidate):
+        failures.append("sentinel convergence chain was not rejected")
+    candidate = copy.deepcopy(source)
+    candidate["initial"]["repair_budget"]["repair_evidence_locators"] = ["none"]
+    if not _schema_errors(candidate):
+        failures.append("sentinel repair evidence was not rejected")
 
     # A second finding-driven write must fail even when the reviewer and generation
     # change.  This is the mutation form of the generation-wide circuit breaker.

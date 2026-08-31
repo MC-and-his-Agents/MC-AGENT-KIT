@@ -12,6 +12,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from tasks_owner_trajectory_schema import (
+    USER_DECISION_AUTHORITIES,
+    USER_DECISION_FIELDS,
+    repair_budget_errors,
+    user_decision_errors,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "skills/dev/tasks-owner/references/dev-orchestration-contract.json"
@@ -53,6 +60,11 @@ GAP_REQUIRED_FIELDS = {
 WAITING_PROOF_FIELDS = {
     "subject", "external_condition", "responsible_party", "evidence_locator",
     "observed_at", "freshness", "wake_condition", "invalidation_condition",
+}
+SPARSE_FORBIDDEN_KINDS = {
+    "ack", "started", "execution_release", "proceed", "commit", "test_passed",
+    "review_started", "review_fix", "ci", "pull_request", "branch", "head",
+    "heartbeat", "thread_active",
 }
 RETROSPECTIVE_TRIGGERS = {
     "user_correction", "explicit_skill_correction", "repeated_failure", "post_repair_recurrence",
@@ -268,6 +280,10 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
                 errors.append("waiting_external 使用了陈旧 waiting proof")
         elif "waiting_proof" in gap:
             errors.append("只有 waiting_external 可以携带 waiting proof")
+        if classification == "waiting_user":
+            errors.extend(user_decision_errors(gap, facts.get("decision_boundary_locator")))
+            if gap.get("owner_or_next_actor") != "user":
+                errors.append("waiting_user 的 next actor 必须是 user")
     if facts.get("product_exit_complete") and (exits or gaps):
         errors.append("产品出口完成时不能仍有出口或差距")
     if facts.get("product_exit_complete") and facts.get("frontier_closure_status") != "complete":
@@ -335,7 +351,7 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 def derive_integration(facts: dict[str, Any]) -> str | None:
-    if facts.get("current_delivery_action"):
+    if facts.get("current_delivery_action") is True:
         return "continue_delivery"
     if facts.get("systemic_invariant"):
         ready = not writer_admission_errors(facts)
@@ -405,11 +421,17 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     }:
         errors.append("Owner 委任字段不完整")
     cannot_reset = set(contract.get("unit_identity", {}).get("cannot_reset_by", []))
-    if not {"file", "path", "pull_request", "branch", "head", "reviewer", "execution_generation"} <= cannot_reset:
+    if not {"file", "path", "pull_request", "branch", "head", "reviewer", "execution_generation", "owner"} <= cannot_reset:
         errors.append("Unit 身份仍可被实现载体错误重置")
     sparse = contract.get("owner_sparse_delta", {})
-    if not {"commit", "test_passed", "review_started", "heartbeat", "thread_active"} <= set(sparse.get("forbidden_kinds", [])):
+    if not SPARSE_FORBIDDEN_KINDS <= set(sparse.get("forbidden_kinds", [])):
         errors.append("稀疏增量仍允许日常工程噪声")
+    if (
+        sparse.get("normal_path_visible_events") != ["pmo_admission", "unit_completed"]
+        or sparse.get("material_delta_event") != "owner_sparse_delta"
+        or sparse.get("normal_path_human_messages") != 0
+    ):
+        errors.append("连续交付路径仍允许 PMO 控制面噪声")
     if set(contract.get("pmo_admission", {}).get("required_fields", [])) != PMO_ADMISSION_FIELDS:
         errors.append("PMO 准入字段不完整")
     unit_fields = set(contract.get("unit_identity", {}).get("required_fields", []))
@@ -436,6 +458,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         or set(frontier.get("owner_actionable_classifications", [])) != OWNER_ACTIONABLE_CLASSES
         or set(frontier.get("gap_required_fields", [])) != GAP_REQUIRED_FIELDS
         or set(frontier.get("waiting_proof_required_fields", [])) != WAITING_PROOF_FIELDS
+        or set(frontier.get("waiting_user_required_fields", [])) != USER_DECISION_FIELDS
+        or set(frontier.get("user_reserved_authorities", [])) != USER_DECISION_AUTHORITIES
         or set(frontier.get("whole_cycle_wait_allowed_classifications", [])) != WAIT_CLASSES
         or set(frontier.get("closure_status", [])) != {"complete", "incomplete"}
         or frontier.get("completed_requires_complete_closure") is not True
@@ -633,13 +657,50 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
             for field in PMO_ADMISSION_FIELDS:
                 value = admission.get(field)
                 if field == "repair_budget":
-                    if not isinstance(value, dict) or not value:
-                        errors.append("PMO 准入缺少修复预算")
+                    errors.extend(repair_budget_errors(value, admission.get("convergence_chain_locator")))
                 elif field in {"allowed_scope", "excluded_scope"}:
                     if not isinstance(value, list) or not value:
                         errors.append(f"PMO 准入 {field} 不能为空")
                 elif not isinstance(value, str) or not value.strip():
                     errors.append(f"PMO 准入 {field} 不能为空")
+    return errors
+
+
+def continuous_lane_errors(facts: dict[str, Any]) -> list[str]:
+    if "current_delivery_action" in facts and not isinstance(facts.get("current_delivery_action"), bool):
+        return ["current_delivery_action 必须是 boolean"]
+    if facts.get("current_delivery_action") is not True and "pmo_visible_events" not in facts:
+        return []
+    required = {"pmo_visible_events", "owner_internal_events", "owner_sparse_deltas", "pmo_human_message_count"}
+    if not required <= set(facts):
+        return ["当前普通交付动作缺少完整 continuous lane 事实"]
+    visible = facts.get("pmo_visible_events")
+    internal = facts.get("owner_internal_events")
+    deltas = facts.get("owner_sparse_deltas")
+    errors: list[str] = []
+    if not isinstance(visible, list) or not visible or visible[0] != "pmo_admission" or any(
+        event not in {"pmo_admission", "owner_sparse_delta", "unit_completed"}
+        for event in visible
+    ) or "pmo_admission" in visible[1:] or ("unit_completed" in visible and visible[-1] != "unit_completed"):
+        errors.append("普通 Unit 的 PMO 可见路径必须只有准入、可选 material delta 与 terminal")
+    elif any(event != "owner_sparse_delta" for event in visible[1:-1]):
+        errors.append("普通工程事件不得升级为 PMO gate")
+    if not isinstance(internal, list) or not internal or any(not real_locator(event) for event in internal):
+        errors.append("连续交付 proceed-control 必须保留 Owner 私有工程轨迹")
+    sparse = json.loads(CONTRACT.read_text(encoding="utf-8"))["owner_sparse_delta"]
+    if not isinstance(deltas, list) or len(deltas) != (visible.count("owner_sparse_delta") if isinstance(visible, list) else -1):
+        errors.append("每个 PMO-visible sparse delta 必须绑定一个机器事实")
+    elif any(
+        not isinstance(delta, dict)
+        or not set(sparse["required_fields"]) <= set(delta)
+        or delta.get("kind") not in sparse["allowed_kinds"]
+        or delta.get("kind") in sparse["forbidden_kinds"]
+        or any(not real_locator(delta.get(field)) for field in sparse["required_fields"])
+        for delta in deltas
+    ):
+        errors.append("PMO-visible sparse delta 缺少 material 事实或 evidence locator")
+    if facts.get("pmo_human_message_count") != 0:
+        errors.append("普通 Unit 内部工程进展不得产生 PMO 人类消息")
     return errors
 
 
@@ -692,6 +753,7 @@ def validate_integration(rows: list[dict[str, Any]]) -> list[str]:
         ids.add(row["id"])
         outcomes.add(row["expected"])
         errors.extend(f"integration line {line}: {error}" for error in feedback_fact_errors(row["facts"]))
+        errors.extend(f"integration line {line}: {error}" for error in continuous_lane_errors(row["facts"]))
         if derive_integration(row["facts"]) != row["expected"]:
             errors.append(f"integration line {line}: 期望与事实不一致")
         if row["expected"] in {"activate_owner", "admit_unit_writer"}:
@@ -763,6 +825,8 @@ def self_test() -> list[str]:
         ("反馈合同", lambda value: value.update(skill_feedback={})),
         ("复盘 trigger", lambda value: value["execution_retrospective"]["triggers"].remove("explicit_skill_correction")),
         ("完成态闭包", lambda value: value["product_frontier"].update(completed_requires_complete_closure=False)),
+        ("用户决策边界", lambda value: value["product_frontier"]["waiting_user_required_fields"].remove("decision_boundary_locator")),
+        ("连续交付路径", lambda value: value["owner_sparse_delta"]["normal_path_visible_events"].insert(1, "started")),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
         ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),
@@ -803,6 +867,34 @@ def self_test() -> list[str]:
         mutate(wait_case["facts"])
         if not validate_cycles(bad_wait):
             failures.append(f"{label}变异未被拒绝")
+    for label, mutate in (
+        ("缺少 authority locator", lambda gap: gap.pop("decision_boundary_locator")),
+        ("职责内事项升级", lambda gap: gap.update(decision_authority="owner_actionable")),
+        ("未完成有界调查", lambda gap: gap.update(existing_truth_exhausted=False)),
+        ("调查状态失败", lambda gap: gap.update(bounded_investigation_status="failed")),
+        ("存在安全可逆默认", lambda gap: gap.update(safe_reversible_default_available=True)),
+        ("默认方案 locator 存在", lambda gap: gap.update(safe_reversible_default_locator="default:available")),
+        ("机械动作伪装决策", lambda gap: gap.update(requires_user_judgment=False)),
+        ("冻结无关前沿", lambda gap: gap.update(unaffected_work_continues=False)),
+        ("责任方不是用户", lambda gap: gap.update(owner_or_next_actor="owner")),
+        ("附加第二套等待证明", lambda gap: gap.update(waiting_proof={})),
+    ):
+        bad_decision = copy.deepcopy(cycles)
+        decision = next(row for row in bad_decision if row["id"] == "user-decision-is-not-duplicated-wait")
+        mutate(decision["facts"]["gaps"][0])
+        if not validate_cycles(bad_decision):
+            failures.append(f"waiting_user {label}变异未被拒绝")
+    for field in ("decision_boundary_locator", "bounded_investigation_locator", "exact_decision_question", "blocked_action", "blocking_scope"):
+        bad_decision = copy.deepcopy(cycles)
+        decision = next(row for row in bad_decision if row["id"] == "user-decision-is-not-duplicated-wait")
+        decision["facts"]["gaps"][0][field] = "none"
+        if not validate_cycles(bad_decision):
+            failures.append(f"waiting_user {field} sentinel 变异未被拒绝")
+    bad_decision = copy.deepcopy(cycles)
+    decision = next(row for row in bad_decision if row["id"] == "user-decision-is-not-duplicated-wait")
+    decision["facts"]["decision_boundary_locator"] = "issue:other#authority"
+    if not validate_cycles(bad_decision):
+        failures.append("waiting_user admission authority mismatch 变异未被拒绝")
     missing_exit_gap = copy.deepcopy(cycles)
     multi_exit = next(row for row in missing_exit_gap if row["id"] == "multi-exit-closure")
     multi_exit["facts"]["gaps"].pop()
@@ -841,6 +933,41 @@ def self_test() -> list[str]:
     next(row for row in bad_admission_version if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]["schema_version"] = "1.0.0"
     if not validate_integration(bad_admission_version):
         failures.append("旧共享合同版本的 PMO 准入变异未被拒绝")
+    for label, mutate in (
+        ("预算上限", lambda budget: budget.update(finding_write_limit=999)),
+        ("收敛链", lambda budget: budget.update(convergence_chain_locator="chain:other")),
+        ("预算证据", lambda budget: budget.update(finding_write_consumed=1)),
+        ("非法重置", lambda budget: budget["reset_only_on"].append("execution_generation")),
+    ):
+        bad_budget = copy.deepcopy(integration)
+        admission = next(row for row in bad_budget if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]
+        mutate(admission["repair_budget"])
+        if not validate_integration(bad_budget):
+            failures.append(f"{label}变异未被拒绝")
+    noisy_lane = copy.deepcopy(integration)
+    lane = next(row for row in noisy_lane if row["id"] == "ordinary-unit-continuous-lane")
+    lane["facts"]["pmo_visible_events"].insert(1, "started")
+    if not validate_integration(noisy_lane):
+        failures.append("普通 Unit 的 PMO-visible STARTED 变异未被拒绝")
+    missing_lane = copy.deepcopy(integration)
+    lane = next(row for row in missing_lane if row["id"] == "ordinary-unit-continuous-lane")
+    for field in ("pmo_visible_events", "owner_internal_events", "owner_sparse_deltas", "pmo_human_message_count"):
+        lane["facts"].pop(field)
+    if not validate_integration(missing_lane):
+        failures.append("省略 continuous lane 事实的变异未被拒绝")
+    fake_delta = copy.deepcopy(integration)
+    lane = next(row for row in fake_delta if row["id"] == "ordinary-unit-continuous-lane")
+    lane["facts"]["pmo_visible_events"].insert(1, "owner_sparse_delta")
+    if not validate_integration(fake_delta):
+        failures.append("无 material 事实的 sparse delta 变异未被拒绝")
+    for malformed in ("true", 1):
+        malformed_lane = copy.deepcopy(integration)
+        lane = next(row for row in malformed_lane if row["id"] == "ordinary-unit-continuous-lane")
+        lane["facts"]["current_delivery_action"] = malformed
+        for field in ("pmo_visible_events", "owner_internal_events", "owner_sparse_deltas", "pmo_human_message_count"):
+            lane["facts"].pop(field)
+        if not validate_integration(malformed_lane):
+            failures.append(f"malformed current_delivery_action={malformed!r} 变异未被拒绝")
     closure_schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
     for field in closure_schema["required_fields"]:
         bad_closure = copy.deepcopy(integration)

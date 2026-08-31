@@ -17,10 +17,33 @@ ACTORS = {"owner", "task", "app_task", "native_subagent", "reviewer", "cleanup_s
 KINDS = set("unit_state delivery owner_wait completion completion_consumed successor head_readback fresh_review finding_disposition review_write scope_change closeout handoff publish cleanup_spawn cleanup_readback heartbeat automation_update automation_readback external_event owner_final wake_verified".split())
 TOOLS = set("spawn_agent wait_agent native_completion native_status list_agents codex_app__create_thread codex_app__send_message_to_thread codex_app__read_thread codex_app__automation_update git_readback reviewer_result gh_readback handoff_readback git_stage git_commit git_push gh_pr_create gh_pr_merge final native_completion_wake user_message github_event automation_wake".split())
 EXECUTION_KINDS = {"app_task", "native_subagent", "cleanup_subagent"}
+REPAIR_BUDGET_KEYS = {
+    "convergence_chain_locator", "finding_write_limit", "finding_write_consumed",
+    "repair_evidence_locators", "reset_only_on",
+}
+CONVERGENCE_RESET_REASONS = {
+    "product_exit_change", "acceptance_change", "scope_change", "ownership_change",
+}
+LOCATOR_SENTINELS = {"", "none", "null", "missing", "unknown", "n/a", "na", "tbd"}
+USER_DECISION_FIELDS = {
+    "decision_boundary_locator", "decision_authority", "existing_truth_exhausted",
+    "bounded_investigation_locator", "bounded_investigation_status",
+    "safe_reversible_default_available", "safe_reversible_default_locator",
+    "exact_decision_question", "blocked_action", "blocking_scope",
+    "unaffected_work_continues", "requires_user_judgment",
+}
+USER_DECISION_AUTHORITIES = {
+    "product_behavior", "scope_or_priority", "material_cost_or_risk",
+    "permission_privacy_data", "irreversible_external_result",
+}
 
 
 def nonempty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def real_locator(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() not in LOCATOR_SENTINELS
 
 
 def valid_iso(value: Any) -> bool:
@@ -49,6 +72,58 @@ def writer_publishable(unit: dict[str, Any]) -> bool:
 
 def policy_matches(policy: Any, state: Any) -> bool:
     return (policy == "delete" and state in {"removed", "already_absent"}) or (policy == "preserve" and state == "preserved")
+
+
+def repair_budget_errors(value: Any, convergence_chain_locator: Any = None) -> list[str]:
+    if not isinstance(value, dict) or set(value) != REPAIR_BUDGET_KEYS:
+        return ["repair budget must use the shared machine shape"]
+    errors: list[str] = []
+    chain = value.get("convergence_chain_locator")
+    if not real_locator(chain) or (convergence_chain_locator is not None and chain != convergence_chain_locator):
+        errors.append("repair budget must bind the convergence chain")
+    if value.get("finding_write_limit") != 1:
+        errors.append("repair budget permits exactly one finding-write round")
+    consumed = value.get("finding_write_consumed")
+    valid_consumed = isinstance(consumed, int) and not isinstance(consumed, bool) and consumed in {0, 1}
+    if not valid_consumed:
+        errors.append("repair budget consumed must be 0 or 1")
+    evidence = value.get("repair_evidence_locators")
+    if not isinstance(evidence, list) or any(not real_locator(item) for item in evidence) or len(evidence) != (consumed if valid_consumed else -1):
+        errors.append("repair budget must bind each consumed round to evidence")
+    reset_only_on = value.get("reset_only_on")
+    if not isinstance(reset_only_on, list) or any(not nonempty(item) for item in reset_only_on) or set(reset_only_on) != CONVERGENCE_RESET_REASONS:
+        errors.append("implementation identity cannot reset repair budget")
+    return errors
+
+
+def user_decision_errors(value: Any, expected_boundary_locator: Any = None) -> list[str]:
+    if not isinstance(value, dict) or not USER_DECISION_FIELDS <= set(value):
+        return ["waiting_user requires user-reserved decision evidence"]
+    errors: list[str] = []
+    for field in USER_DECISION_FIELDS - {
+        "existing_truth_exhausted", "safe_reversible_default_available",
+        "unaffected_work_continues", "requires_user_judgment",
+        "bounded_investigation_status", "safe_reversible_default_locator",
+    }:
+        if not real_locator(value.get(field)):
+            errors.append(f"waiting_user {field} must be locatable")
+    if not real_locator(expected_boundary_locator) or value.get("decision_boundary_locator") != expected_boundary_locator:
+        errors.append("waiting_user decision boundary must match current admission authority")
+    if value.get("decision_authority") not in USER_DECISION_AUTHORITIES:
+        errors.append("waiting_user decision is not user-reserved")
+    if value.get("existing_truth_exhausted") is not True or not real_locator(value.get("bounded_investigation_locator")):
+        errors.append("waiting_user requires bounded investigation of existing truth")
+    if value.get("bounded_investigation_status") != "complete":
+        errors.append("waiting_user bounded investigation is incomplete")
+    if value.get("safe_reversible_default_available") is not False:
+        errors.append("waiting_user is forbidden when a safe reversible default exists")
+    if value.get("safe_reversible_default_locator") != "none":
+        errors.append("waiting_user must prove that no safe reversible default exists")
+    if value.get("unaffected_work_continues") is not True:
+        errors.append("waiting_user may pause only its exact blocking scope")
+    if value.get("requires_user_judgment") is not True:
+        errors.append("mechanical user action belongs to waiting_external")
+    return errors
 
 
 def schema_errors(case: Any) -> list[str]:
@@ -83,11 +158,7 @@ def schema_errors(case: Any) -> list[str]:
     elif case.get("mode") == "review":
         if not nonempty(initial.get("task_key")) or not nonempty(initial.get("scope_revision")):
             errors.append("review initial requires task_key/scope_revision")
-        if "review_fix_round_count" not in initial:
-            errors.append("review initial requires explicit review_fix_round_count")
-        count = initial.get("review_fix_round_count")
-        if not isinstance(count, int) or isinstance(count, bool) or count not in {0, 1}:
-            errors.append("review initial requires review_fix_round_count 0 or 1")
+        errors.extend(repair_budget_errors(initial.get("repair_budget")))
     expected = case.get("expected")
     if not isinstance(expected, dict) or set(expected) != EXPECTED_KEYS:
         errors.append("expected must contain verdict and rule_id")
