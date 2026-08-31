@@ -64,9 +64,9 @@ def writer_publishable(unit: dict[str, Any]) -> bool:
         and unit.get("host_status") == "quiesced"
         and unit.get("write_authority") == "revoked"
         and unit.get("host_quiesce_capability") == "verified"
-        and nonempty(unit.get("quiesce_ack_locator"))
-        and nonempty(unit.get("revocation_evidence_locator"))
-        and nonempty(unit.get("observed_at"))
+        and real_locator(unit.get("quiesce_ack_locator"))
+        and real_locator(unit.get("revocation_evidence_locator"))
+        and valid_iso(unit.get("observed_at"))
     )
 
 
@@ -186,18 +186,18 @@ def schema_errors(case: Any) -> list[str]:
         seq = event.get("seq")
         if not isinstance(seq, int) or isinstance(seq, bool) or seq != index:
             errors.append(f"event {index} seq must be contiguous and ordered")
-        if not nonempty(event.get("turn")) or event.get("actor") not in ACTORS or event.get("kind") not in KINDS:
+        if not real_locator(event.get("turn")) or event.get("actor") not in ACTORS or event.get("kind") not in KINDS:
             errors.append(f"event {index} has invalid turn/actor/kind")
         locator = event.get("locator")
-        if not nonempty(locator) or locator in locators:
-            errors.append(f"event {index} locator must be non-empty and unique")
+        if not real_locator(locator) or locator in locators:
+            errors.append(f"event {index} locator must be real and unique")
         elif isinstance(locator, str):
             locators.add(locator)
         if event.get("tool") not in TOOLS:
             errors.append(f"event {index} has unknown tool")
-        if event.get("unit_id") is not None and not nonempty(event.get("unit_id")):
+        if event.get("unit_id") is not None and not real_locator(event.get("unit_id")):
             errors.append(f"event {index} has invalid unit_id")
-        if event.get("generation") is not None and not nonempty(event.get("generation")):
+        if event.get("generation") is not None and not real_locator(event.get("generation")):
             errors.append(f"event {index} has invalid generation")
         if not isinstance(event.get("args"), dict) or not isinstance(event.get("facts"), dict):
             errors.append(f"event {index} args/facts must be objects")

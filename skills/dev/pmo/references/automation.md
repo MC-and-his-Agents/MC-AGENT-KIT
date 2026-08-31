@@ -71,7 +71,7 @@ due sentinel 本身是 Affected-slice 入口，不等待查询结果才选路；
 
 ## Waiting proof（等待证明）
 
-waiting proof 必须绑定 subject identity、不可替代 external condition、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、freshness/expires_at、sentinel source 和 sentinel_due_at。缺字段即 proof 无效，必须在同周期重算为可执行、待准入或待重塑，不能 KEEP_CURRENT。
+waiting proof 必须绑定 subject identity、不可替代 external condition、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、freshness/expires_at、sentinel source 和 sentinel_due_at。generation/head/revision、responsible party 与 next actor 还必须逐项等于本周期当前 canonical facts；只有 proof 自身声称新鲜不能构成有效等待。缺字段或绑定不一致即 proof 无效，必须在同周期重算为可执行、待准入或待重塑，不能 KEEP_CURRENT。
 
 - TTL 和 sentinel_due_at 在形成 proof 时按事实波动性与影响确定；不臆测全局固定 TTL/interval。
 - sentinel 只在 due 时查询，不随每次 Heartbeat 重跑；sentinel_due_at 到期先生成该 proof 范围的 Affected-slice change vector。

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from tasks_owner_trajectory_schema import (
+    LOCATOR_SENTINELS,
     USER_DECISION_AUTHORITIES,
     USER_DECISION_FIELDS,
     repair_budget_errors,
@@ -71,6 +72,7 @@ GAP_REQUIRED_FIELDS = {
 WAITING_PROOF_FIELDS = {
     "subject", "external_condition", "responsible_party", "evidence_locator",
     "observed_at", "freshness", "wake_condition", "invalidation_condition",
+    "next_actor", "requires_user_judgment",
 }
 SPARSE_FORBIDDEN_KINDS = {
     "ack", "started", "execution_release", "proceed", "commit", "test_passed",
@@ -132,7 +134,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def real_locator(value: Any) -> bool:
-    return isinstance(value, str) and value.strip().lower() not in {"", "none", "missing", "unknown"}
+    return isinstance(value, str) and value.strip().lower() not in LOCATOR_SENTINELS
 
 
 def concrete_prefixed(value: Any, prefixes: list[str]) -> bool:
@@ -288,11 +290,21 @@ def cycle_fact_errors(facts: dict[str, Any]) -> list[str]:
         if classification == "waiting_external":
             proof = gap.get("waiting_proof")
             if not isinstance(proof, dict) or not WAITING_PROOF_FIELDS <= set(proof) or any(
-                not real_locator(proof.get(field)) for field in WAITING_PROOF_FIELDS
+                not real_locator(proof.get(field)) for field in WAITING_PROOF_FIELDS - {"requires_user_judgment"}
             ):
                 errors.append("waiting_external 缺少完整且当前的 waiting proof")
             elif str(proof["freshness"]).strip().lower() in {"stale", "expired", "invalid"}:
                 errors.append("waiting_external 使用了陈旧 waiting proof")
+            else:
+                actor = gap.get("owner_or_next_actor")
+                responsible = proof.get("responsible_party")
+                if proof.get("requires_user_judgment") is not False or proof.get("next_actor") != actor:
+                    errors.append("waiting_external 的 actor 必须绑定无需用户判断的 waiting proof")
+                elif actor != "user" and (
+                    not concrete_prefixed(actor, ["external:"])
+                    or actor != f"external:{responsible}"
+                ):
+                    errors.append("waiting_external 的责任方必须是 proof 对应的外部 actor")
         elif "waiting_proof" in gap:
             errors.append("只有 waiting_external 可以携带 waiting proof")
         if classification == "waiting_user":
@@ -366,13 +378,18 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 def derive_integration(facts: dict[str, Any]) -> str | None:
-    if facts.get("current_delivery_action") is True:
-        return "continue_delivery"
     if facts.get("systemic_invariant"):
         if unit_identity_errors(facts) or capability_compatibility_errors(facts, require_compatible=False):
             return None
         ready = facts["capability_compatibility"]["status"] == "compatible"
         return "start_writer" if ready and facts.get("closure_status") == "complete" and not closure_errors(facts.get("closure")) else "hold_before_writer"
+    if facts.get("writer_admission_requested"):
+        if facts.get("mandate_complete") and not mandate_errors(facts) and not unit_identity_errors(facts) and not capability_compatibility_errors(facts, require_compatible=False):
+            status = facts["capability_compatibility"]["status"]
+            return "admit_unit_writer" if status == "compatible" else "hold_before_writer"
+        return None
+    if facts.get("current_delivery_action") is True:
+        return "continue_delivery"
     if facts.get("existing_unit"):
         return "new_unit" if facts.get("scope_change") else "same_unit"
     if facts.get("retrospective"):
@@ -411,11 +428,6 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
         if facts.get("feedback_write_attempted"):
             return "candidate"
         return "create_new_feedback_issue" if facts.get("github_feedback_capability_available") is True else "candidate"
-    if facts.get("writer_admission_requested"):
-        if facts.get("mandate_complete") and not mandate_errors(facts) and not unit_identity_errors(facts) and not capability_compatibility_errors(facts, require_compatible=False):
-            status = facts["capability_compatibility"]["status"]
-            return "admit_unit_writer" if status == "compatible" else "hold_before_writer"
-        return None
     if facts.get("mandate_complete") and not mandate_errors(facts):
         return "activate_owner"
     return None
@@ -679,7 +691,7 @@ def closure_errors(closure: Any) -> list[str]:
     required = set(schema["required_fields"])
     if not required <= set(closure):
         return ["系统性闭包缺少范围、顺序、失败规则、适用面或摘要"]
-    if any(not isinstance(closure.get(key), str) or not closure[key].strip() for key in required - {"surfaces"}):
+    if any(not real_locator(closure.get(key)) for key in required - {"surfaces"}):
         return ["系统性闭包的说明或摘要不能为空"]
     if closure.get("status") != "ready":
         return ["用于 writer 准入的系统性闭包必须 ready"]
@@ -706,10 +718,12 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
         errors.append("Owner 授权来源无效")
     if facts.get("scope_kind") not in {"project_scope", "work_item"}:
         errors.append("Owner 范围类型无效")
-    if not isinstance(facts.get("scope_locator"), str) or not facts["scope_locator"].strip():
+    if not real_locator(facts.get("scope_locator")):
         errors.append("Owner 缺少范围定位")
-    if "global_tradeoff_authority" not in facts or not isinstance(facts.get("global_tradeoff_authority"), str) or not facts["global_tradeoff_authority"].strip():
+    if facts.get("authority_origin") == "user" and not real_locator(facts.get("global_tradeoff_authority")):
         errors.append("Owner 缺少全局取舍授权边界")
+    if facts.get("authority_origin") == "pmo" and facts.get("global_tradeoff_authority") != "none":
+        errors.append("PMO 不得继承用户全局取舍授权")
     if facts.get("authority_origin") == "pmo":
         admission = facts.get("pmo_admission")
         if not isinstance(admission, dict) or not PMO_ADMISSION_FIELDS <= set(admission):
@@ -722,9 +736,9 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
                 if field == "repair_budget":
                     errors.extend(repair_budget_errors(value, admission.get("convergence_chain_locator")))
                 elif field in {"allowed_scope", "excluded_scope"}:
-                    if not isinstance(value, list) or not value:
+                    if not isinstance(value, list) or not value or any(not real_locator(item) for item in value):
                         errors.append(f"PMO 准入 {field} 不能为空")
-                elif not isinstance(value, str) or not value.strip():
+                elif not real_locator(value):
                     errors.append(f"PMO 准入 {field} 不能为空")
     return errors
 
@@ -1003,6 +1017,10 @@ def self_test() -> list[str]:
         failures.append("动作乱序变异未被拒绝")
     for label, mutate in (
         ("等待证明缺字段", lambda facts: facts["gaps"][0]["waiting_proof"].pop("external_condition")),
+        ("等待证明缺 actor", lambda facts: facts["gaps"][0]["waiting_proof"].pop("next_actor")),
+        ("等待证明伪装用户判断", lambda facts: facts["gaps"][0]["waiting_proof"].update(requires_user_judgment=True)),
+        ("等待证明 actor 冲突", lambda facts: facts["gaps"][0].update(owner_or_next_actor="user")),
+        ("外部责任方冲突", lambda facts: facts["gaps"][0]["waiting_proof"].update(responsible_party="other-provider")),
         ("陈旧等待证明", lambda facts: facts["gaps"][0]["waiting_proof"].update(freshness="stale")),
         ("前沿闭包不完整", lambda facts: facts.update(frontier_closure_status="incomplete")),
         ("重复差距", lambda facts: facts["gaps"].append(copy.deepcopy(facts["gaps"][0]))),
@@ -1108,10 +1126,13 @@ def self_test() -> list[str]:
     for label, case_id, field, value in (
         ("target identity", "direct-user-writer-admission", "target_identity", "thread:"),
         ("target identity sentinel", "direct-user-writer-admission", "target_identity", "thread:unknown"),
+        ("target identity null sentinel", "direct-user-writer-admission", "target_identity", "thread:null"),
         ("cwd/carrier", "direct-user-writer-admission", "carrier_binding", "git-common-dir:"),
         ("cwd/carrier sentinel", "direct-user-writer-admission", "carrier_binding", "git-common-dir:none"),
+        ("cwd/carrier n/a sentinel", "direct-user-writer-admission", "carrier_binding", "git-common-dir:n/a"),
         ("targeted monitoring", "pmo-unit-writer-admission", "monitoring", "targeted:"),
         ("targeted monitoring sentinel", "pmo-unit-writer-admission", "monitoring", "targeted:missing"),
+        ("targeted monitoring na sentinel", "pmo-unit-writer-admission", "monitoring", "targeted:na"),
     ):
         empty_target = copy.deepcopy(integration)
         capability = next(row for row in empty_target if row["id"] == case_id)["facts"]["capability_compatibility"]
@@ -1121,7 +1142,7 @@ def self_test() -> list[str]:
             failures.append(f"只有前缀而无实体的 {label} 变异未被拒绝")
     empty_contract_identity = copy.deepcopy(integration)
     capability = next(row for row in empty_contract_identity if row["id"] == "direct-user-writer-admission")["facts"]["capability_compatibility"]
-    for value in ("tool:", "tool:none"):
+    for value in ("tool:", "tool:none", "tool:tbd", "tool:null"):
         capability["capability_locator"] = value
         if not validate_integration(copy.deepcopy(empty_contract_identity)):
             failures.append("只有前缀或 sentinel 的 capability contract identity 变异未被拒绝")
@@ -1169,6 +1190,22 @@ def self_test() -> list[str]:
     next(row for row in bad_admission_version if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]["schema_version"] = "1.0.0"
     if not validate_integration(bad_admission_version):
         failures.append("旧共享合同版本的 PMO 准入变异未被拒绝")
+    for sentinel in ("none", "unknown", "null", "missing", "n/a", "na", "tbd"):
+        direct_sentinel = copy.deepcopy(integration)
+        next(row for row in direct_sentinel if row["id"] == "direct-user-mandate")["facts"]["scope_locator"] = sentinel
+        if not validate_integration(direct_sentinel):
+            failures.append(f"direct mandate scope sentinel {sentinel} 未被拒绝")
+        for field in PMO_ADMISSION_FIELDS - {"repair_budget", "allowed_scope", "excluded_scope"}:
+            admission_sentinel = copy.deepcopy(integration)
+            admission = next(row for row in admission_sentinel if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]
+            admission[field] = sentinel
+            if not validate_integration(admission_sentinel):
+                failures.append(f"PMO admission {field} sentinel {sentinel} 未被拒绝")
+    for field in ("allowed_scope", "excluded_scope"):
+        admission_sentinel = copy.deepcopy(integration)
+        next(row for row in admission_sentinel if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"][field] = ["missing"]
+        if not validate_integration(admission_sentinel):
+            failures.append(f"PMO admission {field} sentinel 未被拒绝")
     for label, mutate in (
         ("预算上限", lambda budget: budget.update(finding_write_limit=999)),
         ("收敛链", lambda budget: budget.update(convergence_chain_locator="chain:other")),
@@ -1204,6 +1241,19 @@ def self_test() -> list[str]:
             lane["facts"].pop(field)
         if not validate_integration(malformed_lane):
             failures.append(f"malformed current_delivery_action={malformed!r} 变异未被拒绝")
+    for case_id in ("delegated-required-capability-missing", "systemic-closure-missing"):
+        disguised_gate = copy.deepcopy(integration)
+        case = next(row for row in disguised_gate if row["id"] == case_id)
+        case["facts"].update(
+            current_delivery_action=True,
+            pmo_visible_events=["pmo_admission", "unit_completed"],
+            owner_internal_events=["implementation", "validation"],
+            owner_sparse_deltas=[],
+            pmo_human_message_count=0,
+        )
+        case["expected"] = "continue_delivery"
+        if not validate_integration(disguised_gate):
+            failures.append(f"{case_id} 被普通 continuous lane 掩盖的变异未被拒绝")
     closure_schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
     for field in closure_schema["required_fields"]:
         bad_closure = copy.deepcopy(integration)
@@ -1211,6 +1261,11 @@ def self_test() -> list[str]:
         closure_case["facts"]["closure"].pop(field)
         if not validate_integration(bad_closure):
             failures.append(f"缺少 {field} 的闭包变异未被拒绝")
+    for field in set(closure_schema["required_fields"]) - {"surfaces"}:
+        bad_closure = copy.deepcopy(integration)
+        next(row for row in bad_closure if row["id"] == "systemic-closure-complete")["facts"]["closure"][field] = "missing"
+        if not validate_integration(bad_closure):
+            failures.append(f"sentinel {field} 的闭包变异未被拒绝")
     for field in closure_schema["surface_required_fields"]:
         bad_closure = copy.deepcopy(integration)
         closure_case = next(row for row in bad_closure if row["id"] == "systemic-closure-complete")

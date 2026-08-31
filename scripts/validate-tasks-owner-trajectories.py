@@ -86,6 +86,141 @@ def self_test(path: Path) -> list[str]:
         if rule not in evaluate(candidate):
             failures.append(f"mutation for {rule} was not rejected")
 
+    source = next(case for case in cases if case["id"] == "delivery-pass")
+    candidate = copy.deepcopy(source)
+    for event in candidate["events"]:
+        event["seq"] += 1
+    local = copy.deepcopy(candidate["events"][0])
+    local.update(seq=1, locator="delivery:local", tool="final", args={})
+    local["facts"] = {
+        "event": "STARTED",
+        "event_key": "task-1:g1:STARTED",
+        "delivery_state": "local_recorded",
+        "route_status": "STARTED_LOCAL_RECORDED",
+        "message_locator": "missing",
+        "recorded_at": "2026-08-10T09:59:59Z",
+    }
+    candidate["events"].insert(0, local)
+    if evaluate(candidate):
+        failures.append("valid local_recorded delivery state was rejected")
+
+    source = next(case for case in cases if case["id"] == "delivery-pass")
+    for sentinel in ("none", "missing", "unknown", "null", "n/a", "na", "tbd"):
+        candidate = copy.deepcopy(source)
+        for event in candidate["events"]:
+            if event.get("kind") == "delivery" and event.get("facts", {}).get("delivery_state") in {"delivered", "owner_verified", "consumed"}:
+                event["facts"]["message_locator"] = sentinel
+        if "canonical_delivery" not in evaluate(candidate):
+            failures.append(f"delivered message locator sentinel {sentinel} was not rejected")
+    for state, field in (("owner_verified", "verified_at"), ("consumed", "consumed_at")):
+        candidate = copy.deepcopy(source)
+        next(event for event in candidate["events"] if event.get("facts", {}).get("delivery_state") == state)["facts"][field] = "none"
+        if "canonical_delivery" not in evaluate(candidate):
+            failures.append(f"delivery {field} sentinel was not rejected")
+
+    for case_id, rule in (("writer-pass", "writer_quiescence"), ("cleanup-pass", "cleanup_terminal_consumed"), ("direct-pass", "direct_wake")):
+        source = next(case for case in cases if case["id"] == case_id)
+        for sentinel in ("none", "missing", "unknown", "null", "n/a", "na", "tbd"):
+            candidate = copy.deepcopy(source)
+            for event in candidate["events"]:
+                if event.get("kind") in {"completion", "completion_consumed"}:
+                    event["facts"]["completion_locator"] = sentinel
+            if rule not in evaluate(candidate):
+                failures.append(f"{case_id} completion locator sentinel {sentinel} was not rejected")
+
+    source = next(case for case in cases if case["id"] == "direct-pass")
+    live = copy.deepcopy(source)
+    live["source_kind"] = "live_readback"
+    live["evidence"] = {
+        "host_id": "host:local",
+        "observed_at": "2026-08-10T10:01:00Z",
+        "owner_turn_locator": "turn:owner-1",
+        "runtime_locator": "runtime:luna-max",
+        "tool_readback_locator": "tool:native-completion-wake",
+    }
+    live["events"] = [event for event in live["events"] if not (event["kind"] == "unit_state" and event["facts"].get("host_status") == "terminal")]
+    wake = {
+        "seq": 5, "turn": "owner-turn-1", "actor": "owner", "kind": "wake_verified",
+        "locator": "direct:wake", "unit_id": "child-1", "generation": "g1",
+        "tool": "native_completion_wake", "args": {},
+        "facts": {
+            "native_completion_wake": "verified", "wake_locator": "wake:child-1",
+            "host_id": "host:local", "observed_at": "2026-08-10T10:01:00Z",
+            "tool_result_locator": "tool-result:wake-child-1",
+        },
+    }
+    live["events"].insert(4, wake)
+    if evaluate(live):
+        failures.append("valid live native completion wake was rejected")
+    for field in ("wake_locator", "host_id", "observed_at", "tool_result_locator"):
+        candidate = copy.deepcopy(live)
+        next(event for event in candidate["events"] if event["kind"] == "wake_verified")["facts"][field] = "none"
+        if "direct_wake" not in evaluate(candidate):
+            failures.append(f"live wake {field} sentinel was not rejected")
+
+    source = next(case for case in cases if case["id"] == "heartbeat-pass")
+    for field in ("state_digest", "user_feedback_revision", "external_fact_revision"):
+        candidate = copy.deepcopy(source)
+        for event in candidate["events"]:
+            if event.get("kind") == "heartbeat":
+                event["facts"][field] = "missing"
+        if "heartbeat_backoff" not in evaluate(candidate):
+            failures.append(f"heartbeat sentinel {field} was not rejected")
+    candidate = copy.deepcopy(source)
+    next(event for event in candidate["events"] if event.get("kind") == "automation_readback")["facts"]["automation_locator"] = "missing"
+    if "heartbeat_backoff" not in evaluate(candidate):
+        failures.append("automation readback locator sentinel was not rejected")
+
+    source = next(case for case in cases if case["id"] == "writer-pass")
+    for mutation in ("unit_event", "review_writer"):
+        candidate = copy.deepcopy(source)
+        if mutation == "unit_event":
+            next(event for event in candidate["events"] if event["kind"] == "unit_state" and event["facts"].get("host_status") == "terminal")["locator"] = "none"
+        else:
+            review = next(event for event in candidate["events"] if event["kind"] == "fresh_review")
+            review["facts"]["writer_evidence_locator"] = "none"
+            review["facts"]["writer_evidence_locators"] = ["none"]
+        if "schema" not in evaluate(candidate) and "writer_quiescence" not in evaluate(candidate):
+            failures.append(f"publication sentinel {mutation} was not rejected")
+
+    source = next(case for case in cases if case["id"] == "writer-pass")
+    candidate = copy.deepcopy(source)
+    second_writer = copy.deepcopy(candidate["events"][0])
+    for event in candidate["events"][1:]:
+        event["seq"] += 1
+    second_writer.update(seq=2, locator="thread:writer-2", unit_id="writer-2")
+    second_writer["facts"].update(runtime_locator="runtime:writer-2")
+    candidate["events"].insert(1, second_writer)
+    if "writer_quiescence" not in evaluate(candidate):
+        failures.append("second writer cardinality mutation was not rejected")
+
+    source = next(case for case in cases if case["id"] == "cleanup-pass")
+    candidate = copy.deepcopy(source)
+    for event in candidate["events"]:
+        if event.get("unit_id") == "writer-1":
+            event["unit_id"] = "none"
+        if event.get("kind") == "handoff":
+            event["facts"]["active_locators"] = ["none"]
+    if "schema" not in evaluate(candidate):
+        failures.append("cleanup unit identity sentinel was not rejected")
+    for field in ("merge_commit", "target_head", "issue_state_locator"):
+        candidate = copy.deepcopy(source)
+        next(event for event in candidate["events"] if event["kind"] == "closeout")["facts"][field] = "none"
+        if "cleanup_terminal_consumed" not in evaluate(candidate):
+            failures.append(f"cleanup closeout {field} sentinel was not rejected")
+    for target in ("/repo/sub", "/repo/.codex", "/repo/../repo2"):
+        candidate = copy.deepcopy(source)
+        spawn = next(event for event in candidate["events"] if event["kind"] == "cleanup_spawn")
+        spawn["args"]["target_worktree"] = target
+        if "cleanup_terminal_consumed" not in evaluate(candidate):
+            failures.append(f"unsafe or identity-mismatched cleanup target {target} was not rejected")
+    for field in ("target_repository", "target_worktree", "target_ref", "target_oid", "identity_readback_locator"):
+        candidate = copy.deepcopy(source)
+        readback = next(event for event in candidate["events"] if event["kind"] == "cleanup_readback")
+        readback["facts"][field] = "missing"
+        if "cleanup_terminal_consumed" not in evaluate(candidate):
+            failures.append(f"cleanup identity {field} sentinel was not rejected")
+
     source = next(case for case in cases if case["id"] == "writer-pass")
     for label, mutate in (
         ("authority inversion", lambda facts: facts["verification_authority"].update(effective_source="skill_default", effective_locator="skill:tasks-owner")),
@@ -133,6 +268,45 @@ def self_test(path: Path) -> list[str]:
     candidate["events"][0]["facts"].update(verdict="ship", finding_locators=["f-p2"])
     if "review_disposition" not in evaluate(candidate):
         failures.append("unresolved ship finding mutation was not rejected")
+
+    source = next(case for case in cases if case["id"] == "review-multifinding-single-round-pass")
+    for field in ("acceptance_or_invariant_locator", "unsafe_evidence_locator"):
+        candidate = copy.deepcopy(source)
+        candidate["events"][1]["facts"][field] = "unknown"
+        if "review_disposition" not in evaluate(candidate):
+            failures.append(f"review {field} sentinel was not rejected")
+    candidate = copy.deepcopy(next(case for case in cases if case["id"] == "review-p2-defer-with-carrier-pass"))
+    candidate["events"][0]["facts"]["finding_locators"] = ["none"]
+    candidate["events"][1]["facts"]["finding_locator"] = "none"
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("review finding locator sentinel was not rejected")
+
+    # A negative disposition cannot hide a finding that makes the current
+    # acceptance-mapped outcome unsafe. Scope dispositions need a real transition.
+    source = next(case for case in cases if case["id"] == "review-p2-defer-with-carrier-pass")
+    for disposition in ("defer", "reject"):
+        candidate = copy.deepcopy(source)
+        facts = candidate["events"][1]["facts"]
+        facts.update(
+            severity="P1",
+            acceptance_or_invariant_locator="done:consumer",
+            current_outcome_unsafe_without_fix=True,
+            unsafe_evidence_locator="risk:unsafe-consumer",
+            disposition=disposition,
+            rejection_basis="not-applicable" if disposition == "reject" else "none",
+        )
+        if "review_disposition" not in evaluate(candidate):
+            failures.append(f"unsafe acceptance-mapped {disposition} mutation was not rejected")
+    candidate = copy.deepcopy(source)
+    candidate["events"][1]["facts"].update(
+        severity="P1",
+        acceptance_or_invariant_locator="done:consumer",
+        current_outcome_unsafe_without_fix=True,
+        unsafe_evidence_locator="risk:unsafe-consumer",
+        disposition="split",
+    )
+    if "review_disposition" not in evaluate(candidate):
+        failures.append("unsafe split without authoritative scope transition was not rejected")
 
     # user_decision needs a locator for the real product/permission/external decision.
     source = next(case for case in cases if case["id"] == "review-user-decision-with-locator-pass")

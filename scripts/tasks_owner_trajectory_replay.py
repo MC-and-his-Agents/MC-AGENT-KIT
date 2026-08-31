@@ -156,6 +156,7 @@ class Replay:
         self.handoff_seq = 0
         self.cleanup_spawn_seq = 0
         self.cleanup_unit: tuple[str, str] | None = None
+        self.cleanup_contract: dict[str, Any] | None = None
         self.direct_waits: dict[tuple[str, str], tuple[str, int]] = {}
         self.direct_completions: dict[tuple[str, str], tuple[str, int]] = {}
         self.direct_consumptions: dict[tuple[str, str], tuple[str, int]] = {}
@@ -238,6 +239,8 @@ class Replay:
             if (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _nonempty(facts.get("runtime_locator"))) != ("gpt-5.6-luna", "max", True):
                 self.violations.add("writer_quiescence")
         self.units[key] = {**facts, "seq": event["seq"], "evidence_locator": event["locator"]}
+        if sum(1 for unit in self.units.values() if unit.get("is_writer")) > 1:
+            self.violations.add("writer_quiescence")
         self.last_unit_change = event["seq"]
 
     def delivery(self, event: dict[str, Any]) -> None:
@@ -251,6 +254,16 @@ class Replay:
         if previous and (order <= previous[0] or canonical != previous[1]):
             self.violations.add("canonical_delivery")
         self.delivery_state[key] = order, canonical
+        if state == "local_recorded":
+            if (
+                event["actor"] not in {"task", "app_task"}
+                or event["tool"] != "final"
+                or facts.get("route_status") != f"{canonical}_LOCAL_RECORDED"
+                or not _valid_iso(facts.get("recorded_at"))
+                or _real_locator(facts.get("message_locator"))
+            ):
+                self.violations.add("canonical_delivery")
+            return
         if state == "pending":
             if event["actor"] not in {"task", "app_task"} or event["tool"] != "codex_app__send_message_to_thread":
                 self.violations.add("canonical_delivery")
@@ -266,8 +279,8 @@ class Replay:
             locator = facts.get("message_locator")
             if event["actor"] not in {"task", "app_task"} or event["tool"] != "codex_app__send_message_to_thread" or target != expected:
                 self.violations.add("canonical_delivery")
-            evidence_ok = _nonempty(facts.get("tool_result_locator")) and _nonempty(facts.get("target_readback_locator"))
-            if facts.get("route_status") != "armed" or not _nonempty(facts.get("received_at")) or not _nonempty(locator) or not evidence_ok or self._retains_failure(facts):
+            evidence_ok = _real_locator(facts.get("tool_result_locator")) and _real_locator(facts.get("target_readback_locator"))
+            if facts.get("route_status") != "armed" or not _valid_iso(facts.get("received_at")) or not _real_locator(locator) or not evidence_ok or self._retains_failure(facts):
                 self.violations.add("canonical_delivery")
             elif isinstance(locator, str):
                 self.delivery_locator[key] = locator
@@ -278,7 +291,7 @@ class Replay:
             self.violations.add("canonical_delivery")
         required_previous = "delivered" if state == "owner_verified" else "owner_verified"
         time_field = "verified_at" if state == "owner_verified" else "consumed_at"
-        if not _nonempty(facts.get(time_field)):
+        if not _valid_iso(facts.get(time_field)):
             self.violations.add("canonical_delivery")
         if not previous or previous[0] != DELIVERY_ORDER[required_previous]:
             self.violations.add("canonical_delivery")
@@ -318,7 +331,7 @@ class Replay:
                 and event["actor"] in {"native_subagent", "cleanup_subagent"}
                 and event["tool"] == "native_completion"
             )
-            if not source_ok or not _nonempty(locator):
+            if not source_ok or not _real_locator(locator):
                 self.violations.add("direct_wake" if self.case["mode"] == "direct" else "cleanup_terminal_consumed")
             else:
                 self.completion_locators[key] = locator
@@ -326,7 +339,7 @@ class Replay:
         elif kind == "completion_consumed":
             locator = facts.get("completion_locator")
             valid_actor = event["actor"] == "owner" and event["tool"] in {"native_completion", "native_status", "codex_app__read_thread"}
-            if not valid_actor or not _nonempty(locator) or key not in self.completion_locators or locator != self.completion_locators[key] or facts.get("owner_consumption") != "consumed":
+            if not valid_actor or not _real_locator(locator) or key not in self.completion_locators or locator != self.completion_locators[key] or facts.get("owner_consumption") != "consumed":
                 self.violations.add("direct_wake" if self.case["mode"] == "direct" else "cleanup_terminal_consumed")
             else:
                 self.direct_consumptions[key] = value
@@ -339,8 +352,15 @@ class Replay:
             if event["tool"] == "codex_app__send_message_to_thread" and (event["args"].get("model"), event["args"].get("thinking")) != ("gpt-5.6-luna", "max"):
                 self.violations.add("direct_wake")
             self.direct_successors[key] = value
-        elif kind == "wake_verified" and self.case["source_kind"] == "live_readback" and event["actor"] == "owner" and event["tool"] == "native_completion_wake" and facts.get("native_completion_wake") == "verified" and all(_nonempty(facts.get(field)) for field in ("wake_locator", "host_id", "observed_at", "tool_result_locator")):
-            self.verified_wakes.add(key)
+        elif kind == "wake_verified" and self.case["source_kind"] == "live_readback":
+            valid = event["actor"] == "owner" and event["tool"] == "native_completion_wake"
+            valid = valid and facts.get("native_completion_wake") == "verified"
+            valid = valid and all(_real_locator(facts.get(field)) for field in ("wake_locator", "host_id", "tool_result_locator"))
+            valid = valid and _valid_iso(facts.get("observed_at"))
+            if valid:
+                self.verified_wakes.add(key)
+            else:
+                self.violations.add("direct_wake")
 
     def publication_event(self, event: dict[str, Any]) -> None:
         kind, facts, seq = event["kind"], event["facts"], event["seq"]
@@ -352,14 +372,18 @@ class Replay:
             return
         if kind == "fresh_review":
             fields_ok = facts.get("verdict") == "ship" and facts.get("writer_quiescence") == "verified"
-            fields_ok = fields_ok and _nonempty(facts.get("reviewed_head")) and _nonempty(facts.get("writer_evidence_locator"))
+            fields_ok = fields_ok and _real_locator(facts.get("reviewed_head")) and _real_locator(facts.get("writer_evidence_locator"))
             fields_ok = fields_ok and event["actor"] == "reviewer" and event["tool"] == "reviewer_result"
             readback = self.head_readbacks[-1] if self.head_readbacks else None
             fields_ok = fields_ok and isinstance(facts.get("reviewed_files"), list) and bool(facts.get("reviewed_files"))
             fields_ok = fields_ok and facts.get("review_write_scope") == "empty" and facts.get("semantic_scope_status") == "aligned"
             fields_ok = fields_ok and bool(readback) and facts.get("diff_locator") == readback["diff"]
             writer_locators = sorted(unit.get("evidence_locator") for unit in self.units.values() if unit.get("is_writer"))
-            fields_ok = fields_ok and sorted(facts.get("writer_evidence_locators", [])) == writer_locators
+            supplied_writer_locators = facts.get("writer_evidence_locators", [])
+            fields_ok = fields_ok and isinstance(supplied_writer_locators, list)
+            fields_ok = fields_ok and all(_real_locator(locator) for locator in supplied_writer_locators)
+            fields_ok = fields_ok and sorted(supplied_writer_locators) == writer_locators
+            fields_ok = fields_ok and facts.get("writer_evidence_locator") in writer_locators
             if fields_ok:
                 self.reviews.append({"seq": seq, "head": facts["reviewed_head"]})
             else:
@@ -384,9 +408,9 @@ class Replay:
         if kind == "closeout":
             if event["actor"] != "owner" or event["tool"] != "gh_readback":
                 self.violations.add("cleanup_terminal_consumed")
-            merged = all(_nonempty(facts.get(field)) for field in ("merge_commit", "target_head", "issue_state_locator"))
-            no_pr = _nonempty(facts.get("no_pr_justification")) and _nonempty(facts.get("no_pr_evidence_locator"))
-            if facts.get("closeout_verified") is True and (merged or no_pr):
+            merged = all(_real_locator(facts.get(field)) for field in ("merge_commit", "target_head", "issue_state_locator"))
+            no_pr = _real_locator(facts.get("no_pr_justification")) and _real_locator(facts.get("no_pr_evidence_locator"))
+            if facts.get("closeout_verified") is True and (merged ^ no_pr):
                 self.closeout_seq = seq
             else:
                 self.violations.add("cleanup_terminal_consumed")
@@ -408,6 +432,13 @@ class Replay:
             valid = valid and facts.get("local_ref_state") in ref_states and facts.get("remote_ref_state") in ref_states
             valid = valid and _policy_matches(facts.get("local_branch_policy"), facts.get("local_ref_state"))
             valid = valid and _policy_matches(facts.get("remote_branch_policy"), facts.get("remote_ref_state"))
+            contract = self.cleanup_contract or {}
+            valid = valid and all(facts.get(field) == contract.get(field) for field in (
+                "target_repository", "target_worktree", "target_ref", "target_oid",
+                "cleanup_action", "worktree_policy", "local_branch_policy", "remote_branch_policy",
+            ))
+            valid = valid and facts.get("predelete_oid_verified") is True
+            valid = valid and _real_locator(facts.get("identity_readback_locator"))
             if not valid:
                 self.violations.add("cleanup_terminal_consumed")
             return
@@ -425,9 +456,19 @@ class Replay:
             self.violations.add("cleanup_terminal_consumed")
         cwd, target = args.get("cwd"), args.get("target_worktree")
         path_ok = _nonempty(cwd) and _nonempty(target) and Path(cwd).is_absolute() and Path(target).is_absolute()
-        path_ok = path_ok and Path(cwd) != Path(target) and Path(target) not in Path(cwd).parents
+        if path_ok:
+            cwd_path, target_path = Path(cwd).resolve(), Path(target).resolve()
+            path_ok = cwd_path != target_path and not target_path.is_relative_to(cwd_path) and not cwd_path.is_relative_to(target_path)
+        contract_fields = (
+            "target_repository", "target_worktree", "target_ref", "target_oid", "cleanup_action",
+            "worktree_policy", "local_branch_policy", "remote_branch_policy", "identity_locator",
+        )
+        contract = facts if all(_real_locator(facts.get(field)) for field in contract_fields) else None
+        path_ok = path_ok and bool(contract) and facts.get("target_worktree") == str(Path(target).resolve())
         if not path_ok:
             self.violations.add("cleanup_terminal_consumed")
+        else:
+            self.cleanup_contract = {field: facts[field] for field in contract_fields}
 
     def heartbeat_event(self, event: dict[str, Any]) -> None:
         kind, facts, args, seq = event["kind"], event["facts"], event["args"], event["seq"]
@@ -456,7 +497,7 @@ class Replay:
             return
         if kind == "automation_readback":
             valid = self.pending_update and seq > self.pending_update[2] and event["actor"] == "owner" and event["tool"] == "codex_app__automation_update"
-            valid = valid and facts.get("current_interval_seconds") == self.pending_update[1] and _nonempty(facts.get("automation_locator"))
+            valid = valid and facts.get("current_interval_seconds") == self.pending_update[1] and _real_locator(facts.get("automation_locator"))
             valid = valid and (facts.get("automation_id"), facts.get("owner_thread_id"), facts.get("cadence_revision")) == (self.initial.get("automation_id"), self.initial.get("owner_thread_id"), self.pending_update[3])
             if not valid:
                 self.violations.add("heartbeat_backoff")
@@ -494,9 +535,9 @@ class Replay:
             and facts.get("goal_status") == "incomplete"
             and facts.get("cadence_override") == "none"
             and facts.get("wait_kind") in {"waiting_user", "waiting_external"}
-            and _nonempty(facts.get("state_digest"))
-            and _nonempty(facts.get("user_feedback_revision"))
-            and _nonempty(facts.get("external_fact_revision"))
+            and _real_locator(facts.get("state_digest"))
+            and _real_locator(facts.get("user_feedback_revision"))
+            and _real_locator(facts.get("external_fact_revision"))
             and all(isinstance(facts.get(field), int) and not isinstance(facts.get(field), bool) and facts.get(field) == 0 for field in ("active_units", "active_writers"))
             and all(facts.get(field) is False for field in ("late_completion", "pending_delivery", "unconsumed_owner_event", "owner_action", "ready_successor", "admission_pending"))
         )
@@ -575,6 +616,7 @@ class ReviewReplay:
         self.current_review: dict[str, Any] | None = None
         self.dispositions: dict[str, dict[str, Any]] = {}
         self.pending_fix: set[str] = set()
+        self.pending_scope_change: set[str] = set()
         self.awaiting_fresh_review = False
         self.last_write_head: str | None = None
         self.last_review_head: str | None = None
@@ -592,7 +634,7 @@ class ReviewReplay:
             and event["tool"] == "reviewer_result"
             and facts.get("verdict") in {"fix-first", "ship", "rethink", "blocked"}
             and self._scope_matches(facts)
-            and self._required(facts, ("reviewer_locator", "reviewed_head", "diff_locator", "execution_generation"))
+            and all(_real_locator(facts.get(field)) for field in ("reviewer_locator", "reviewed_head", "diff_locator", "execution_generation"))
             and isinstance(facts.get("reviewed_files"), list)
             and bool(facts.get("reviewed_files"))
             and facts.get("review_write_scope") == "empty"
@@ -611,7 +653,7 @@ class ReviewReplay:
                 self.violations.add("review_disposition")
         verdict = facts["verdict"]
         findings = facts.get("finding_locators", [])
-        if not isinstance(findings, list) or any(not _nonempty(value) for value in findings) or len(set(findings)) != len(findings):
+        if not isinstance(findings, list) or any(not _real_locator(value) for value in findings) or len(set(findings)) != len(findings):
             self.violations.add("review_disposition")
             return
         if verdict == "fix-first" and not findings:
@@ -623,6 +665,8 @@ class ReviewReplay:
         if self.awaiting_fresh_review and facts["reviewed_head"] != self.last_write_head:
             self.violations.add("review_disposition")
         if verdict == "ship" and self.pending_fix:
+            self.violations.add("review_disposition")
+        if self.pending_scope_change:
             self.violations.add("review_disposition")
         self.first_review_seen = True
         self.current_review = {**facts, "finding_locators": findings, "seq": event["seq"]}
@@ -648,10 +692,30 @@ class ReviewReplay:
         valid = valid and facts.get("disposition") in self.DISPOSITIONS
         valid = valid and isinstance(facts.get("current_outcome_unsafe_without_fix"), bool)
         valid = valid and facts.get("boundary_expansion") in self.BOUNDARIES
+        valid = valid and all(_real_locator(facts.get(field)) for field in (
+            "finding_locator", "reviewed_head", "reviewer_locator", "execution_generation", "blocker_class",
+        ))
+        valid = valid and (
+            facts.get("acceptance_or_invariant_locator") == "none"
+            or _real_locator(facts.get("acceptance_or_invariant_locator"))
+        )
+        valid = valid and (
+            facts.get("unsafe_evidence_locator") == "none"
+            or _real_locator(facts.get("unsafe_evidence_locator"))
+        )
         if not valid or facts.get("finding_locator") in self.dispositions:
             self.violations.add("review_disposition")
             return
         disposition = facts["disposition"]
+        mapped = _real_locator(facts["acceptance_or_invariant_locator"])
+        high_risk = facts["severity"] in {"P0", "P1"}
+        must_resolve = facts["current_outcome_unsafe_without_fix"] and (mapped or high_risk)
+        if must_resolve and not _real_locator(facts.get("unsafe_evidence_locator")):
+            self.violations.add("review_disposition")
+        if must_resolve and disposition in {"defer", "reject"}:
+            self.violations.add("review_disposition")
+        if must_resolve and disposition in self.SCOPE_CHANGES:
+            self.pending_scope_change.add(facts["finding_locator"])
         if disposition in {"defer", "shrink", "split", "reassign"} and not _real_locator(facts.get("carrier_locator")):
             self.violations.add("review_disposition")
         if disposition == "reject" and (not _nonempty(facts.get("rejection_basis")) or facts.get("rejection_basis") == "none"):
@@ -662,13 +726,11 @@ class ReviewReplay:
         ):
             self.violations.add("review_disposition")
         if disposition == "fix_now":
-            mapped = facts["acceptance_or_invariant_locator"] != "none"
-            high_risk = facts["severity"] in {"P0", "P1"} and facts["current_outcome_unsafe_without_fix"]
             valid_fix = (
                 (mapped or high_risk)
                 and facts["current_outcome_unsafe_without_fix"]
                 and facts["boundary_expansion"] == "none"
-                and facts["unsafe_evidence_locator"] != "none"
+                and _real_locator(facts["unsafe_evidence_locator"])
             )
             if not valid_fix:
                 self.violations.add("review_disposition")
@@ -769,6 +831,7 @@ class ReviewReplay:
         self.current_review = None
         self.dispositions = {}
         self.pending_fix = set()
+        self.pending_scope_change = set()
         self.awaiting_fresh_review = False
         self.last_write_head = None
         self.last_review_head = None
@@ -787,7 +850,7 @@ class ReviewReplay:
             self.violations.add("review_disposition")
 
     def finish(self) -> set[str]:
-        if not self.first_review_seen or self.awaiting_fresh_review or self.pending_fix:
+        if not self.first_review_seen or self.awaiting_fresh_review or self.pending_fix or self.pending_scope_change:
             self.violations.add("review_disposition")
         return self.violations
 
