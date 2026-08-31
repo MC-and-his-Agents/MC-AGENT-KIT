@@ -29,6 +29,8 @@ reference 只使用下表中的语义名称，不复制模型名、工具名、�
 - 原生 Subagent 通过宿主 completion 和 `native_completion_wait` 返回；它不伪造 App task thread。
 - 平台没有可靠暂停并撤销写权限的证据时，writer 必须真正结束，才能提交、审查、发布或清理。
 
+任务创建或外部动作前，以实际 tool schema 与目标 readback 判断所选 surface 能否产生下一动作所需的精确 carrier、target identity 与 capability 值。普通本地任务只需当前 carrier/identity 与实际使用的 permission；monitoring、cancel、approval、外部 readback 或精确 runtime 只有在下一动作需要、或用户/有效 Skill policy 明确要求时才是 gate。schema 无法表达必需值时在创建前保持 hold；相同 schema、environment 与 authority evidence 已有失败时绑定旧 evidence 且不得创建 probe 候选。exact-task cancel 已存在时由 Owner 程序化恢复并回读 terminal/旧动作未执行，不升级为用户决策。
+
 ## 验证与 Git 能力
 
 | 能力 | 判定 |
