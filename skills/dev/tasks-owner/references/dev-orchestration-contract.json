@@ -159,6 +159,36 @@
     "material_delta_event": "owner_sparse_delta",
     "normal_path_human_messages": 0
   },
+  "verification_authority": {
+    "source_order": [
+      "user",
+      "issue",
+      "repository",
+      "skill_default"
+    ],
+    "readiness_layers": [
+      "product",
+      "merge",
+      "release"
+    ],
+    "hosted_required_when": [
+      "effective_authority",
+      "branch_protection",
+      "release_contract",
+      "security_contract"
+    ],
+    "evidence_reuse_key": [
+      "tree_digest",
+      "acceptance_digest",
+      "environment_class"
+    ],
+    "exact_head_freshness": [
+      "independent_review",
+      "required_checks",
+      "pr_metadata"
+    ],
+    "unrelated_failure_action": "backlog_without_product_rollback"
+  },
   "product_frontier": {
     "required_fields": [
       "product_exit_locators",

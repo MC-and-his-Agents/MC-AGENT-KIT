@@ -86,6 +86,46 @@ def self_test(path: Path) -> list[str]:
         if rule not in evaluate(candidate):
             failures.append(f"mutation for {rule} was not rejected")
 
+    source = next(case for case in cases if case["id"] == "writer-pass")
+    for label, mutate in (
+        ("authority inversion", lambda facts: facts["verification_authority"].update(effective_source="skill_default", effective_locator="skill:tasks-owner")),
+        ("missing acceptance", lambda facts: facts.update(acceptance_evidence_locator="none")),
+        ("required check wrong head", lambda facts: facts["check_results"][0].update(head="head-other")),
+        ("reuse tree mismatch", lambda facts: facts["verification_reuse"].update(evidence_tree_digest="tree:other")),
+        ("reuse acceptance mismatch", lambda facts: facts["verification_reuse"].update(evidence_acceptance_digest="acceptance:other")),
+        ("reuse environment mismatch", lambda facts: facts["verification_reuse"].update(evidence_environment_class="env:other")),
+        ("product not ready", lambda facts: facts.update(product_readiness="blocked")),
+        ("stale PR metadata", lambda facts: facts["pr_metadata"].update(head="head-old")),
+        ("unrelated failure blocks product", lambda facts: facts["unrelated_check_failures"][0].update(native_dependency_created=True)),
+        ("unproven security requirement", lambda facts: facts["verification_authority"]["security_contract"].update(locator="security:contract", required_checks=["security-scan"])),
+    ):
+        candidate = copy.deepcopy(source)
+        mutate(candidate["events"][-1]["facts"])
+        if "writer_quiescence" not in evaluate(candidate):
+            failures.append(f"verification {label} mutation was not rejected")
+
+    source = next(case for case in cases if case["id"] == "app-quiesce-verified-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][-1]["facts"]["check_results"][0]["status"] = "failed"
+    if "writer_quiescence" not in evaluate(candidate):
+        failures.append("authority-required Hosted failure was not rejected")
+    candidate = copy.deepcopy(source)
+    candidate["events"][-1]["facts"]["verification_authority"]["branch_protection"]["locator"] = "none"
+    if "writer_quiescence" not in evaluate(candidate):
+        failures.append("branch-protection check without source locator was not rejected")
+    source = next(case for case in cases if case["id"] == "writer-pass")
+    candidate = copy.deepcopy(source)
+    candidate["events"][4]["facts"]["tree_digest"] = "missing"
+    if "writer_quiescence" not in evaluate(candidate):
+        failures.append("head readback without real tree digest was not rejected")
+    candidate = copy.deepcopy(source)
+    candidate["events"][-1]["facts"]["verification_authority"]["branch_protection"] = {
+        "locator": "branch-protection:main",
+        "required_checks": ["repository-contracts"],
+    }
+    if evaluate(candidate):
+        failures.append("same required check across authorities was incorrectly blocked")
+
     # A ship verdict cannot hide a finding that never received a disposition.
     source = next(case for case in cases if case["id"] == "review-p2-defer-with-carrier-pass")
     candidate = copy.deepcopy(source)

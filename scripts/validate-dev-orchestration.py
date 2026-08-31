@@ -437,6 +437,18 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     unit_fields = set(contract.get("unit_identity", {}).get("required_fields", []))
     if set(contract.get("writer_admission", {}).get("required_unit_identity_fields", [])) != unit_fields:
         errors.append("writer 准入没有复用唯一 Unit 身份")
+    verification = contract.get("verification_authority", {})
+    if (
+        verification.get("source_order") != ["user", "issue", "repository", "skill_default"]
+        or verification.get("readiness_layers") != ["product", "merge", "release"]
+        or set(verification.get("hosted_required_when", [])) != {
+            "effective_authority", "branch_protection", "release_contract", "security_contract",
+        }
+        or verification.get("evidence_reuse_key") != ["tree_digest", "acceptance_digest", "environment_class"]
+        or set(verification.get("exact_head_freshness", [])) != {"independent_review", "required_checks", "pr_metadata"}
+        or verification.get("unrelated_failure_action") != "backlog_without_product_rollback"
+    ):
+        errors.append("验证权威与 readiness 分层合同不完整")
     closure = contract.get("systemic_invariant_closure", {})
     if not {"required_fields", "surface_required_fields", "surface_status", "closure_status"} <= set(closure):
         errors.append("系统性闭包机器 schema 不完整")
@@ -827,6 +839,9 @@ def self_test() -> list[str]:
         ("完成态闭包", lambda value: value["product_frontier"].update(completed_requires_complete_closure=False)),
         ("用户决策边界", lambda value: value["product_frontier"]["waiting_user_required_fields"].remove("decision_boundary_locator")),
         ("连续交付路径", lambda value: value["owner_sparse_delta"]["normal_path_visible_events"].insert(1, "started")),
+        ("验证权威顺序", lambda value: value["verification_authority"]["source_order"].reverse()),
+        ("Hosted 条件门禁", lambda value: value["verification_authority"]["hosted_required_when"].remove("effective_authority")),
+        ("验证证据复用键", lambda value: value["verification_authority"]["evidence_reuse_key"].remove("environment_class")),
         ("根因分类", lambda value: value["execution_retrospective"]["root_cause_targets"].remove("platform")),
         ("反馈 allowlist", lambda value: value["skill_feedback"]["allowed_actions"].append("create_pull_request")),
         ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),

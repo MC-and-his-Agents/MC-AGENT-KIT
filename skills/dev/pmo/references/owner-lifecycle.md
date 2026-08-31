@@ -56,6 +56,8 @@ Writer/Reviewer/Cleanup。
 
 blocker 必须用普通语言标明缺什么、阻塞 shaping/admission/implementation/verification/release/acceptance 哪一阶段、未阻塞什么、独立安全增量、next actor 与 wake/invalidation 条件。局部 blocker 仍由 Owner 在剩余可执行面内推进；只有没有剩余可执行面且等待 PMO、外部或用户时才路由为全局等待。finding 的 `exit_impact`、`treatment`、`authority`、`lifecycle` 正交记录；跨 Unit、超预算或出口裁决交 PMO，越过产品/成本/风险/权限边界交用户。
 
+PMO 分别消费 product、merge、release readiness，不用一个 Hosted 结果覆盖三层。验证权威按用户、Issue acceptance、最近仓库规则、Skill 默认解析；只有 effective authority、branch protection、release 或 security 合同要求的 Hosted check 才阻塞相应层。无关基线失败进入独立 backlog，不回滚已核验产品增量。
+
 Owner 标准标题为 `【Owner】<仓库简称>｜<能力域>｜<交付结果>`：仓库简称取 `repo_locator` 的仓库名或用户指定别名；能力域与交付结果使用简短、可辨识的业务表述，不写 runtime、临时状态或内部 task 名。
 
 若宿主支持且 Owner 创建授权涵盖对应可逆展示操作，在 `initializing -> active` 前设置并回读标准标题、置顶，并创建绑定真实 thread 的专属 Heartbeat。标题、置顶或 Heartbeat 与期望不一致时保持 `initializing` 并 `CORRECT_DRIFT`；能力不可用或未授权时记录 `unavailable|unauthorized`，不得虚报已完成，但纯展示能力不作为产品 hard blocker。内部 task/writer/reviewer/cleanup 不使用 Owner 标题且不得置顶。观察 Heartbeat 不替代 Owner Heartbeat。

@@ -66,7 +66,7 @@ global_tradeoff_authority: none | <用户明确授权 locator>
 - Access 不等于授权；Skill、Issue、Heartbeat、handoff 和历史动作不能生成新权限。
 - 没有可回读的 GitHub 或等价规划事实时不激活，不用聊天摘要补造事实。
 - 不直接在 `main` 实现；共享写入载体只有一个 writer。
-- 规划 readiness、运行准入、语义范围、独立审查、Hosted CI 和收口证据相互独立，不能互相替代。
+- 规划 readiness、运行准入、语义范围、独立审查、有效验证权威要求的 checks 和收口证据相互独立，不能互相替代；Hosted CI 只在上层权威、branch protection、release 或 security 合同要求时成为硬门。
 - 审查意见先映射当前验收或现实高影响风险；同一范围只有一轮因审查问题产生的写入。
 - 平台拒绝运行配置、缺少工具或证据时只隔离受影响任务，不静默降级、不自动改配置或重启。
 
