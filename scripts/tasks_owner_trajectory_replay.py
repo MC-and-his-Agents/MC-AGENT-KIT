@@ -1,868 +1,532 @@
-"""Replay Tasks Owner lifecycle facts and return violated rule ids."""
+"""重放可观察的授权、写入、审查与续接；不执行任务、不实现运行时锁。
+
+recorded_fixture 只证明给定事实的一致性。live_readback 必须另传工具记录并逐事件
+绑定；这仍不认证记录的宿主来源，真实证据须由收集者独立核对。
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+import hashlib
+import json
 from typing import Any
 
 from tasks_owner_trajectory_schema import (
-    nonempty as _nonempty,
-    policy_matches as _policy_matches,
-    real_locator as _real_locator,
-    repair_budget_errors as _repair_budget_errors,
-    schema_errors as _schema_errors,
-    user_decision_errors as _user_decision_errors,
-    valid_iso as _valid_iso,
-    writer_publishable as _writer_publishable,
+    EVIDENCE_KEY_FIELDS, EXECUTION_KINDS, real_locator, schema_errors, user_decision_errors, writer_publishable,
 )
 
-CANONICAL_EVENTS = {
-    "DELIVERY_ROUTE_ACK", "contract_ack", "execution_release_ack", "STARTED", "BOOTSTRAP_READBACK",
-    "FINAL_BATCH_READINESS", "PLANNING_READINESS", "CONVERGENCE_REQUEST", "SCOPE_DELTA", "BLOCKED",
-    "NEEDS_OWNER", "PR_READY", "COMPLETED",
-}
-DELIVERY_ORDER = {"local_recorded": 0, "pending": 1, "delivered": 2, "owner_verified": 3, "consumed": 4}
-UNIT_TRANSITIONS = {
-    None: {"created", "running", "terminal"},
-    "created": {"running", "terminal"},
-    "running": {"quiescing", "terminal"},
-    "quiescing": {"quiesced", "terminal"},
-    "quiesced": {"terminal"},
-    "terminal": set(),
-}
-PUBLISH_TOOLS = {"stage": "git_stage", "commit": "git_commit", "push": "git_push", "pr": "gh_pr_create", "merge": "gh_pr_merge"}
-VERIFICATION_AUTHORITY_ORDER = ("user", "issue", "repository", "skill_default")
+VERIFICATION_SOURCES = {"user", "issue", "repository", "skill_default", "branch_protection", "security_contract", "release_contract"}
+PROTECTED_SOURCES = {"branch_protection", "security_contract"}
 
 
-def _verification_errors(facts: dict[str, Any], exact_head: Any, tree_digest: Any) -> list[str]:
-    errors: list[str] = []
+def _locators(values: Any) -> bool:
+    return isinstance(values, list) and all(real_locator(x) for x in values) and len(set(values)) == len(values)
+
+
+def _overlap(left: list[str], right: list[str]) -> bool:
+    return any(a == b or a.startswith(b.rstrip("/") + "/") or b.startswith(a.rstrip("/") + "/") for a in left for b in right)
+
+
+def _within(carriers: list[str], allowed: list[str]) -> bool:
+    return all(any(c == a or c.startswith(a.rstrip("/") + "/") for a in allowed) and ".." not in c.split("/") for c in carriers)
+
+
+def readback_digest(readback: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(readback, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def evidence_errors(case: dict[str, Any], readback: dict[str, Any] | None) -> list[str]:
+    if case["source_kind"] == "recorded_fixture":
+        return []
+    if not isinstance(readback, dict) or set(readback) != {"host_id", "source_locator", "events"}:
+        return ["live_readback needs independently supplied tool records"]
+    evidence = case["evidence"]
+    if any(readback.get(k) != evidence.get(k) for k in ("host_id", "source_locator")) or readback_digest(readback) != evidence["readback_sha256"]:
+        return ["tool readback identity or content digest does not match"]
+    if readback["events"] != case["events"]:
+        return ["projected event identity, tool, arguments or facts do not match tool readback"]
+    return []
+
+
+def _verification_errors(facts: dict[str, Any], exact_head: Any, evidence_key: dict[str, str], *, require_pr: bool) -> list[str]:
     authority = facts.get("verification_authority")
-    if not isinstance(authority, dict):
-        return ["merge requires verification authority"]
-    inputs = authority.get("authority_inputs")
-    if not isinstance(inputs, dict) or set(inputs) != set(VERIFICATION_AUTHORITY_ORDER):
-        return ["verification authority inputs are incomplete"]
-    effective_source = next((source for source in VERIFICATION_AUTHORITY_ORDER if _real_locator(inputs.get(source))), None)
-    if effective_source is None or authority.get("effective_source") != effective_source or authority.get("effective_locator") != inputs.get(effective_source):
-        errors.append("verification authority priority is inverted")
-    effective_required = authority.get("effective_required_checks")
-    branch = authority.get("branch_protection")
-    security = authority.get("security_contract")
-    required: list[str] = []
-    if not isinstance(effective_required, list) or any(not _real_locator(name) for name in effective_required) or len(effective_required) != len(set(effective_required)):
-        errors.append("effective verification authority checks are invalid")
-    else:
-        required.extend(effective_required)
-    for label, source in (("branch protection", branch), ("security contract", security)):
-        if not isinstance(source, dict) or set(source) != {"locator", "required_checks"}:
-            errors.append(f"{label} check authority is incomplete")
+    if not isinstance(authority, dict) or set(authority) != {"sources", "overrides"}:
+        return ["verification needs applicable sources and explicit check overrides"]
+    sources, overrides = authority["sources"], authority["overrides"]
+    if not isinstance(sources, dict) or set(sources) != VERIFICATION_SOURCES or not isinstance(overrides, list):
+        return ["verification sources are incomplete"]
+    required: set[tuple[str, str]] = set()
+    errors: list[str] = []
+    for name, source in sources.items():
+        if not isinstance(source, dict) or set(source) != {"locator", "required_checks"} or not _locators(source.get("required_checks")):
+            errors.append(f"invalid verification source: {name}")
             continue
-        checks = source.get("required_checks")
-        locator = source.get("locator")
-        if not isinstance(checks, list) or any(not _real_locator(name) for name in checks) or len(checks) != len(set(checks)) or (checks and not _real_locator(locator)):
-            errors.append(f"{label} required checks are invalid")
+        if source["required_checks"] and not real_locator(source["locator"]):
+            errors.append(f"required checks have no source: {name}")
+        if name != "release_contract" or facts.get("action") == "release":
+            required.update((name, check) for check in source["required_checks"])
+    removed: set[tuple[str, str]] = set()
+    user = sources.get("user")
+    user_locator = user.get("locator") if isinstance(user, dict) else None
+    for override in overrides:
+        if not isinstance(override, dict) or set(override) != {"source", "check", "authority_locator"}:
+            errors.append("override must name one source, one check and its user authority")
             continue
-        required.extend(checks)
-    required = list(dict.fromkeys(required))
-    results = facts.get("check_results")
-    by_name: dict[str, dict[str, Any]] = {}
-    if not isinstance(results, list):
-        errors.append("merge check results are missing")
-    else:
-        for result in results:
-            if (
-                not isinstance(result, dict)
-                or set(result) != {"name", "status", "locator", "head"}
-                or not _real_locator(result.get("name"))
-                or result.get("status") not in {"success", "failed", "pending"}
-                or not _real_locator(result.get("locator"))
-                or not _real_locator(result.get("head"))
-                or result["name"] in by_name
-            ):
-                errors.append("merge check result is invalid")
-                continue
-            by_name[result["name"]] = result
-    for name in required:
-        result = by_name.get(name)
-        if not result or result.get("status") != "success" or result.get("head") != exact_head:
-            errors.append(f"required merge check is not successful on exact head: {name}")
-    for field in ("acceptance_evidence_locator", "product_evidence_locator"):
-        if not _real_locator(facts.get(field)):
-            errors.append(f"merge requires {field}")
-    pr_metadata = facts.get("pr_metadata")
-    if (
-        not isinstance(pr_metadata, dict)
-        or set(pr_metadata) != {"locator", "head"}
-        or not _real_locator(pr_metadata.get("locator"))
-        or pr_metadata.get("head") != exact_head
-    ):
-        errors.append("merge requires exact-head PR metadata")
-    if facts.get("product_readiness") != "ready":
-        errors.append("merge requires independently proven product readiness")
-    unrelated = facts.get("unrelated_check_failures", [])
-    failed_extras = {name for name, result in by_name.items() if name not in required and result.get("status") == "failed"}
-    if not isinstance(unrelated, list) or len(unrelated) != len(failed_extras):
-        errors.append("unrelated check failures need explicit non-blocking disposition")
-    else:
-        dispositions = set()
-        for item in unrelated:
-            if (
-                not isinstance(item, dict)
-                or set(item) != {"name", "locator", "carrier_locator", "disposition", "native_dependency_created"}
-                or item.get("name") not in failed_extras
-                or not _real_locator(item.get("locator"))
-                or not _real_locator(item.get("carrier_locator"))
-                or item.get("disposition") != "backlog"
-                or item.get("native_dependency_created") is not False
-            ):
-                errors.append("unrelated check failure incorrectly blocks current product readiness")
-                continue
-            dispositions.add(item["name"])
-        if dispositions != failed_extras:
-            errors.append("unrelated check failure disposition is incomplete")
-    reuse = facts.get("verification_reuse")
-    if reuse is not None:
-        fields = {
-            "current_tree_digest", "evidence_tree_digest", "current_acceptance_digest",
-            "evidence_acceptance_digest", "current_environment_class",
-            "evidence_environment_class", "evidence_locator",
-        }
+        pair = override["source"], override["check"]
         if (
-            not isinstance(reuse, dict)
-            or set(reuse) != fields
-            or any(not _real_locator(reuse.get(field)) for field in fields)
-            or reuse.get("current_tree_digest") != reuse.get("evidence_tree_digest")
-            or reuse.get("current_tree_digest") != tree_digest
-            or reuse.get("current_acceptance_digest") != reuse.get("evidence_acceptance_digest")
-            or reuse.get("current_environment_class") != reuse.get("evidence_environment_class")
+            pair not in required or pair in removed or override["source"] in PROTECTED_SOURCES | {"user"}
+            or not real_locator(user_locator) or override["authority_locator"] != user_locator
         ):
-            errors.append("verification evidence reuse key does not match")
+            errors.append("unproven, duplicate or protected check override")
+        else:
+            removed.add(pair)
+    results = facts.get("check_results")
+    if not isinstance(results, list):
+        return errors + ["verification results are missing"]
+    by_name: dict[str, dict[str, Any]] = {}
+    for result in results:
+        if not isinstance(result, dict) or set(result) != {"name", "status", "locator", "head", "evidence_key"} or not real_locator(result.get("name")) or result.get("name") in by_name:
+            errors.append("invalid or duplicate check result")
+            continue
+        if not real_locator(result.get("locator")) or result.get("status") not in {"success", "failed", "pending"}:
+            errors.append("check result has no observed status or evidence")
+        by_name[result["name"]] = result
+    for check in {check for _, check in required - removed}:
+        result = by_name.get(check, {})
+        if result.get("status") != "success" or result.get("head") != exact_head or result.get("evidence_key") != evidence_key:
+            errors.append(f"required check has not passed on current head: {check}")
+    for field in ("acceptance_evidence_locator", "product_evidence_locator"):
+        if not real_locator(facts.get(field)):
+            errors.append(f"publication needs {field}")
+    metadata = facts.get("pr_metadata")
+    if require_pr or metadata is not None:
+        if not isinstance(metadata, dict) or metadata.get("head") != exact_head or not real_locator(metadata.get("locator")):
+            errors.append("PR publication needs current PR metadata")
     return errors
 
 
 class Replay:
     def __init__(self, case: dict[str, Any]) -> None:
-        self.case = case
         self.initial = case["initial"]
+        self.authority = self.initial["authority"]
+        self.batches = {
+            b["locator"]: {**b, "preflight": None, "review": None, "findings": {},
+                           "pending_fixes": set(), "repaired_evidence": {},
+                           "rethink_pending": False, "closeout_verified": False}
+            for b in self.initial["batches"]
+        }
+        self.units: dict[str, dict[str, Any]] = {}
+        self.gaps = {gap["locator"]: dict(gap) for gap in self.initial["gaps"]}
+        self.completions: dict[str, dict[str, Any]] = {}
+        self.consumed: dict[str, int] = {}
+        self.source_revisions = dict(self.initial.get("source_revisions", {}))
+        self.cached = dict(self.initial.get("cached_evidence", {}))
+        self.readings: dict[str, dict[str, Any]] = {}
+        self.user_decisions: dict[str, dict[str, Any]] = {}
+        self.changed_sources: set[str] = set()
+        self.final_turn: str | None = None
         self.violations: set[str] = set()
-        self.units: dict[tuple[str, str], dict[str, Any]] = {}
-        self.last_unit_change = 0
-        self.completion_consumed: set[tuple[str, str]] = set()
-        self.delivery_state: dict[str, tuple[int, str]] = {}
-        self.delivery_locator: dict[str, str] = {}
-        self.head_readbacks: list[dict[str, Any]] = []
-        self.reviews: list[dict[str, Any]] = []
-        self.closeout_seq = 0
-        self.handoff_seq = 0
-        self.cleanup_spawn_seq = 0
-        self.cleanup_unit: tuple[str, str] | None = None
-        self.cleanup_contract: dict[str, Any] | None = None
-        self.direct_waits: dict[tuple[str, str], tuple[str, int]] = {}
-        self.direct_completions: dict[tuple[str, str], tuple[str, int]] = {}
-        self.direct_consumptions: dict[tuple[str, str], tuple[str, int]] = {}
-        self.direct_successors: dict[tuple[str, str], tuple[str, int]] = {}
-        self.completion_locators: dict[tuple[str, str], str] = {}
-        self.verified_wakes: set[tuple[str, str]] = set()
-        self.final_seq = 0
-        self.final_turn = ""
-        self.eligible_heartbeats: list[dict[str, Any]] = []
-        self.current_interval = self.initial.get("current_interval_seconds")
-        self.base_interval = self.initial.get("base_interval_seconds")
-        self.cadence_revision = self.initial.get("cadence_revision")
-        self.last_trigger_seq = 0
-        self.pending_update: tuple[str, int, int, int] | None = None
+
+    def batch(self, event: dict[str, Any]) -> dict[str, Any] | None:
+        locator = event["facts"].get("batch_locator")
+        if locator is None:
+            locator = self.units.get(event["unit_id"], {}).get("batch_locator")
+        batch = self.batches.get(locator) if real_locator(locator) else None
+        if batch is None:
+            self.violations.add("planning")
+        return batch
 
     @staticmethod
-    def unit_key(event: dict[str, Any]) -> tuple[str, str] | None:
-        if event["unit_id"] and event["generation"]:
-            return event["unit_id"], event["generation"]
-        return None
+    def evidence_key(batch: dict[str, Any]) -> dict[str, str]:
+        return {key: batch[key] for key in EVIDENCE_KEY_FIELDS}
+
+    @staticmethod
+    def invalidate(batch: dict[str, Any]) -> None:
+        batch["preflight"] = batch["review"] = None
+        batch["closeout_verified"] = False
+
+    def authorized(self, action: str, locator: Any, carriers: Any = None) -> bool:
+        return locator == self.authority["locator"] and action in self.authority["actions"] and (
+            carriers is None or _locators(carriers) and _within(carriers, self.authority["carriers"])
+        )
+
+    def active_writers(self, batch: dict[str, Any] | None = None) -> list[tuple[str, dict[str, Any]]]:
+        return [(key, unit) for key, unit in self.units.items()
+                if unit["role"] == "writer" and not writer_publishable(unit)
+                and (batch is None or unit["batch_locator"] == batch["locator"]
+                     or _overlap(unit["carriers"], batch["carriers"]))]
+
+    def review_ready(self, batch: dict[str, Any]) -> bool:
+        preflight, review = batch["preflight"], batch["review"]
+        key = self.evidence_key(batch)
+        return bool(preflight and preflight["head"] == batch["head"] and preflight["evidence_key"] == key
+                    and not batch["pending_fixes"] and not batch["rethink_pending"]
+                    and (not review and not self.initial["review_required"] or review and review["verdict"] == "ship"
+                         and review["head"] == batch["head"] and review["evidence_key"] == key))
+
+    def admission(self, event: dict[str, Any]) -> None:
+        facts, key = event["facts"], event["unit_id"]
+        carriers, kind, role = facts.get("carriers"), facts.get("execution_kind"), facts.get("role")
+        if event["actor"] != "owner" or not real_locator(key) or kind not in EXECUTION_KINDS or role not in {"writer", "reader", "reviewer"} or not _locators(carriers):
+            self.violations.add("planning")
+            return
+        if (facts.get("scope_locator") != self.initial["scope_locator"]
+            or facts.get("convergence_chain_locator") != self.initial["convergence_chain_locator"]
+            or not self.authorized("write" if role == "writer" else "read", facts.get("authority_locator"), carriers)
+            or kind != "local" and not self.authorized("delegate", facts.get("authority_locator"))
+            or kind == "local" and key != self.initial["owner_thread_id"]):
+            self.violations.add("authorization")
+            return
+        required, observed = facts.get("required_capabilities"), facts.get("observed_capabilities")
+        if not real_locator(facts.get("capability_locator")) or not isinstance(required, dict) or not isinstance(observed, dict) or any(not real_locator(value) or observed.get(name) != value for name, value in required.items()):
+            self.violations.add("planning")
+            return
+        if role == "writer" and (not carriers or any(key == other or _overlap(carriers, unit["carriers"]) for other, unit in self.active_writers())):
+            self.violations.add("writer_safety")
+            return
+        batch = self.batch(event)
+        if batch is None:
+            return
+        if not _within(carriers, batch["carriers"]):
+            self.violations.add("authorization")
+            return
+        # 同一可变 head 载体不能以不同文件路径伪装为独立 writer。
+        if role == "writer" and any(unit["batch_locator"] == batch["locator"] for _, unit in self.active_writers()):
+            self.violations.add("writer_safety")
+            return
+        if key in self.units and (event["generation"] < self.units[key]["generation"] or self.units[key]["batch_locator"] != batch["locator"]):
+            self.violations.add("event_recovery")
+            return
+        plan = facts.get("validation_plan")
+        if role == "writer" and (not _locators(plan) or not set(self.initial["required_surfaces"]) <= set(plan)):
+            self.violations.add("planning")
+            return
+        selection = facts.get("execution_mode_selection")
+        if selection is not None:
+            if not isinstance(selection, dict) or set(selection) != {"mode", "independently_admissible_subunits", "write_carrier_overlap", "acceptance_and_rollback_independence", "critical_path_benefit"}:
+                self.violations.add("planning")
+                return
+            if selection["mode"] not in {"direct", "flat", "hierarchical"} or selection["mode"] == "hierarchical" and (
+                not _locators(selection["independently_admissible_subunits"]) or len(selection["independently_admissible_subunits"]) < 2
+                or selection["write_carrier_overlap"] != "none" or not real_locator(selection["acceptance_and_rollback_independence"])
+                or not real_locator(selection["critical_path_benefit"])):
+                self.violations.add("planning")
+                return
+        gap_locator = facts.get("gap_locator")
+        if event["kind"] == "successor" or gap_locator is not None:
+            gap = self.gaps.get(gap_locator)
+            if not gap or gap["status"] != "ready" or any(dep not in self.consumed or self.consumed[dep] != self.completions.get(dep, {}).get("revision") for dep in gap["dependencies"]):
+                self.violations.add("event_recovery")
+                return
+            gap.update(status="active", unit_id=key, batch_locator=batch["locator"])
+        previous = self.completions.get(key)
+        if previous and (self.consumed.get(key) != previous["revision"] or event["generation"] <= self.units[key]["generation"]):
+            self.violations.add("event_recovery")
+            return
+        self.consumed.pop(key, None)
+        self.completions.pop(key, None)
+        self.units[key] = {**facts, "generation": event["generation"], "host_status": "running", "write_authority": "active" if role == "writer" else "none"}
 
     def unit_state(self, event: dict[str, Any]) -> None:
-        key, facts, args = self.unit_key(event), event["facts"], event["args"]
-        if key is None:
-            self.violations.add("writer_quiescence")
+        unit, facts = self.units.get(event["unit_id"]), event["facts"]
+        if not unit or event["generation"] != unit["generation"] or not real_locator(facts.get("readback_locator")):
+            self.violations.add("writer_safety")
             return
-        previous = self.units.get(key, {}).get("host_status")
         status = facts.get("host_status")
-        required = {"role", "is_writer", "execution_kind", "host_status", "write_authority", "observed_at"}
-        execution_kind = facts.get("execution_kind")
-        values_ok = (
-            facts.get("role") in {"writer", "reviewer", "task", "cleanup"}
-            and isinstance(facts.get("is_writer"), bool)
-            and execution_kind in {"app_task", "native_subagent", "cleanup_subagent"}
-            and status in {"created", "running", "quiescing", "quiesced", "terminal"}
-            and facts.get("write_authority") in {"active", "revoked", "none", "unknown"}
-            and _valid_iso(facts.get("observed_at"))
-        )
-        source_ok = (
-            execution_kind in {"native_subagent", "cleanup_subagent"}
-            and event["actor"] in {"owner", "native_subagent", "cleanup_subagent"}
-            and event["tool"] in {"spawn_agent", "native_status"}
-        ) or (
-            execution_kind == "app_task"
-            and event["actor"] in {"owner", "app_task"}
-            and event["tool"] in {"codex_app__create_thread", "codex_app__read_thread"}
-        )
-        if not source_ok or not values_ok:
-            self.violations.add("writer_quiescence")
-        if execution_kind == "cleanup_subagent" and (facts.get("role"), facts.get("is_writer")) != ("cleanup", False):
-            self.violations.add("writer_quiescence")
-        if previous is not None:
-            old = self.units[key]
-            if any(old.get(field) != facts.get(field) for field in ("role", "is_writer", "execution_kind")):
-                self.violations.add("writer_quiescence")
-        if status != previous and status not in UNIT_TRANSITIONS.get(previous, set()):
-            self.violations.add("writer_quiescence")
-        if any(field not in facts for field in required):
-            self.violations.add("writer_quiescence")
-        if (facts.get("role") == "writer") != (facts.get("is_writer") is True):
-            self.violations.add("writer_quiescence")
-        if facts.get("execution_kind") == "native_subagent" and status == "quiesced":
-            self.violations.add("writer_quiescence")
-        if facts.get("execution_kind") == "native_subagent" and previous is None and event["tool"] == "spawn_agent":
-            if event["actor"] != "owner":
-                self.violations.add("direct_wake")
-            runtime = (event["tool"], args.get("model"), args.get("reasoning_effort"), args.get("fork_turns"))
-            if runtime != ("spawn_agent", "gpt-5.6-luna", "max", "none"):
-                self.violations.add("direct_wake")
-        if facts.get("execution_kind") == "native_subagent" and previous is None and event["tool"] == "native_status":
-            runtime = (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _real_locator(facts.get("runtime_locator")))
-            if runtime != ("gpt-5.6-luna", "max", True):
-                self.violations.add("writer_quiescence")
-        if self.case["mode"] == "direct" and facts.get("execution_kind") == "native_subagent" and previous is None and event["tool"] != "spawn_agent":
-            self.violations.add("direct_wake")
-        if facts.get("execution_kind") == "app_task" and previous is None and event["tool"] == "codex_app__create_thread":
-            if (args.get("model"), args.get("thinking")) != ("gpt-5.6-luna", "max"):
-                self.violations.add("writer_quiescence")
-        if facts.get("execution_kind") == "app_task" and previous is None and event["tool"] == "codex_app__read_thread":
-            if (facts.get("runtime_model"), facts.get("runtime_reasoning_effort"), _real_locator(facts.get("runtime_locator"))) != ("gpt-5.6-luna", "max", True):
-                self.violations.add("writer_quiescence")
-        self.units[key] = {**facts, "seq": event["seq"], "evidence_locator": event["locator"]}
-        if sum(1 for unit in self.units.values() if unit.get("is_writer")) > 1:
-            self.violations.add("writer_quiescence")
-        self.last_unit_change = event["seq"]
-
-    def delivery(self, event: dict[str, Any]) -> None:
-        facts, args = event["facts"], event["args"]
-        canonical, key, state = facts.get("event"), facts.get("event_key"), facts.get("delivery_state")
-        if canonical not in CANONICAL_EVENTS or not _nonempty(key) or state not in DELIVERY_ORDER:
-            self.violations.add("canonical_delivery")
+        if status not in {"running", "terminal", "quiesced"} or facts.get("write_authority") not in {"active", "revoked", "none"}:
+            self.violations.add("writer_safety")
             return
-        previous = self.delivery_state.get(key)
-        order = DELIVERY_ORDER[state]
-        if previous and (order <= previous[0] or canonical != previous[1]):
-            self.violations.add("canonical_delivery")
-        self.delivery_state[key] = order, canonical
-        if state == "local_recorded":
-            if (
-                event["actor"] not in {"task", "app_task"}
-                or event["tool"] != "final"
-                or facts.get("route_status") != f"{canonical}_LOCAL_RECORDED"
-                or not _valid_iso(facts.get("recorded_at"))
-                or _real_locator(facts.get("message_locator"))
-            ):
-                self.violations.add("canonical_delivery")
+        if status != "running" and not writer_publishable(facts) or writer_publishable(unit) and status == "running":
+            self.violations.add("writer_safety")
             return
-        if state == "pending":
-            if event["actor"] not in {"task", "app_task"} or event["tool"] != "codex_app__send_message_to_thread":
-                self.violations.add("canonical_delivery")
-            if facts.get("route_status") != f"{canonical}_PENDING_DELIVERY" or not facts.get("failure_code"):
-                self.violations.add("canonical_delivery")
-            if facts.get("message_locator") not in {None, "missing"}:
-                self.violations.add("canonical_delivery")
+        unit.update(facts)
+
+    def write(self, event: dict[str, Any]) -> None:
+        facts, unit = event["facts"], self.units.get(event["unit_id"])
+        if not self.authorized("write", facts.get("authority_locator"), facts.get("carriers")) or facts.get("scope_locator") != self.initial["scope_locator"]:
+            self.violations.add("authorization")
             return
-        if state == "delivered":
-            runtime = self.initial.get("owner_runtime", {})
-            target = (args.get("threadId"), args.get("model"), args.get("thinking"))
-            expected = (self.initial.get("owner_thread_id"), runtime.get("model"), runtime.get("reasoning_effort"))
-            locator = facts.get("message_locator")
-            if event["actor"] not in {"task", "app_task"} or event["tool"] != "codex_app__send_message_to_thread" or target != expected:
-                self.violations.add("canonical_delivery")
-            evidence_ok = _real_locator(facts.get("tool_result_locator")) and _real_locator(facts.get("target_readback_locator"))
-            if facts.get("route_status") != "armed" or not _valid_iso(facts.get("received_at")) or not _real_locator(locator) or not evidence_ok or self._retains_failure(facts):
-                self.violations.add("canonical_delivery")
-            elif isinstance(locator, str):
-                self.delivery_locator[key] = locator
+        if not unit or unit["role"] != "writer" or unit["generation"] != event["generation"] or unit["write_authority"] != "active" or unit["host_status"] != "running" or not _within(facts["carriers"], unit["carriers"]):
+            self.violations.add("writer_safety")
             return
-        if event["actor"] != "owner" or event["tool"] != "codex_app__read_thread" or facts.get("message_locator") != self.delivery_locator.get(key):
-            self.violations.add("canonical_delivery")
-        if self._retains_failure(facts):
-            self.violations.add("canonical_delivery")
-        required_previous = "delivered" if state == "owner_verified" else "owner_verified"
-        time_field = "verified_at" if state == "owner_verified" else "consumed_at"
-        if not _valid_iso(facts.get(time_field)):
-            self.violations.add("canonical_delivery")
-        if not previous or previous[0] != DELIVERY_ORDER[required_previous]:
-            self.violations.add("canonical_delivery")
-
-    @staticmethod
-    def _retains_failure(facts: dict[str, Any]) -> bool:
-        stale = ("failure_code", "failure_event", "missing_locator", "error_locator", "pending_locator", "host_evidence_locator", "evidence_locator", "pending_delivery")
-        return any(field in facts for field in stale) or str(facts.get("route_status", "")).endswith("_PENDING_DELIVERY")
-
-    def direct_event(self, event: dict[str, Any]) -> None:
-        kind, key, facts = event["kind"], self.unit_key(event), event["facts"]
-        if kind == "owner_final":
-            if event["actor"] != "owner" or event["tool"] != "final":
-                self.violations.add("direct_wake")
-            self.final_seq = event["seq"]
-            self.final_turn = event["turn"]
-            for unit_key, unit in self.units.items():
-                if unit.get("execution_kind") == "native_subagent" and unit.get("host_status") != "terminal" and unit_key not in self.verified_wakes:
-                    self.violations.add("direct_wake")
+        batch = self.batches[unit["batch_locator"]]
+        if facts.get("base_head") != batch["head"] or not real_locator(facts.get("new_head")) or facts["new_head"] == batch["head"] or not real_locator(facts.get("tree_digest")):
+            self.violations.add("review_integrity")
             return
-        if key is None:
+        fixes = facts.get("finding_locators", [])
+        unresolved = batch["review"] and any(f not in batch["findings"] for f in batch["review"]["finding_locators"])
+        if not _locators(fixes) or set(fixes) != batch["pending_fixes"] or batch["rethink_pending"] or unresolved:
+            self.violations.add("review_integrity")
             return
-        value = event["turn"], event["seq"]
-        if kind == "owner_wait":
-            timeout = event["args"].get("timeout_ms")
-            if event["actor"] != "owner" or event["tool"] != "wait_agent" or not isinstance(timeout, int) or isinstance(timeout, bool) or not 10_000 <= timeout <= 60_000:
-                self.violations.add("direct_wake")
-            else:
-                self.direct_waits[key] = value
-        elif kind == "completion":
-            locator = facts.get("completion_locator")
-            unit_kind = self.units.get(key, {}).get("execution_kind")
-            source_ok = (
-                unit_kind == "app_task" and event["actor"] == "app_task" and event["tool"] == "codex_app__send_message_to_thread"
-            ) or (
-                unit_kind in {"native_subagent", "cleanup_subagent"}
-                and event["actor"] in {"native_subagent", "cleanup_subagent"}
-                and event["tool"] == "native_completion"
-            )
-            if not source_ok or not _real_locator(locator):
-                self.violations.add("direct_wake" if self.case["mode"] == "direct" else "cleanup_terminal_consumed")
-            else:
-                self.completion_locators[key] = locator
-            self.direct_completions[key] = value
-        elif kind == "completion_consumed":
-            locator = facts.get("completion_locator")
-            valid_actor = event["actor"] == "owner" and event["tool"] in {"native_completion", "native_status", "codex_app__read_thread"}
-            if not valid_actor or not _real_locator(locator) or key not in self.completion_locators or locator != self.completion_locators[key] or facts.get("owner_consumption") != "consumed":
-                self.violations.add("direct_wake" if self.case["mode"] == "direct" else "cleanup_terminal_consumed")
-            else:
-                self.direct_consumptions[key] = value
-                self.completion_consumed.add(key)
-        elif kind == "successor":
-            if event["actor"] != "owner" or event["tool"] not in {"spawn_agent", "codex_app__send_message_to_thread"} or facts.get("successor_dispatched") is not True:
-                self.violations.add("direct_wake")
-            if event["tool"] == "spawn_agent" and (event["args"].get("model"), event["args"].get("reasoning_effort"), event["args"].get("fork_turns")) != ("gpt-5.6-luna", "max", "none"):
-                self.violations.add("direct_wake")
-            if event["tool"] == "codex_app__send_message_to_thread" and (event["args"].get("model"), event["args"].get("thinking")) != ("gpt-5.6-luna", "max"):
-                self.violations.add("direct_wake")
-            self.direct_successors[key] = value
-        elif kind == "wake_verified" and self.case["source_kind"] == "live_readback":
-            valid = event["actor"] == "owner" and event["tool"] == "native_completion_wake"
-            valid = valid and facts.get("native_completion_wake") == "verified"
-            valid = valid and all(_real_locator(facts.get(field)) for field in ("wake_locator", "host_id", "tool_result_locator"))
-            valid = valid and _valid_iso(facts.get("observed_at"))
-            if valid:
-                self.verified_wakes.add(key)
-            else:
-                self.violations.add("direct_wake")
+        for finding in fixes:
+            disposition = batch["findings"][finding]
+            batch["repaired_evidence"].setdefault(disposition["root_cause_key"], set()).add(disposition["evidence_digest"])
+        batch["pending_fixes"].clear()
+        batch.update(head=facts["new_head"], tree_digest=facts["tree_digest"])
+        self.invalidate(batch)
 
-    def publication_event(self, event: dict[str, Any]) -> None:
-        kind, facts, seq = event["kind"], event["facts"], event["seq"]
-        if kind == "head_readback":
-            if event["actor"] == "owner" and event["tool"] == "git_readback" and all(_real_locator(facts.get(field)) for field in ("diff_locator", "file_hashes_locator", "tree_digest", "exact_head")):
-                self.head_readbacks.append({"seq": seq, "head": facts["exact_head"], "diff": facts["diff_locator"], "tree": facts["tree_digest"]})
-            else:
-                self.violations.add("writer_quiescence")
+    def preflight_event(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
             return
-        if kind == "fresh_review":
-            fields_ok = facts.get("verdict") == "ship" and facts.get("writer_quiescence") == "verified"
-            fields_ok = fields_ok and _real_locator(facts.get("reviewed_head")) and _real_locator(facts.get("writer_evidence_locator"))
-            fields_ok = fields_ok and event["actor"] == "reviewer" and event["tool"] == "reviewer_result"
-            readback = self.head_readbacks[-1] if self.head_readbacks else None
-            fields_ok = fields_ok and isinstance(facts.get("reviewed_files"), list) and bool(facts.get("reviewed_files"))
-            fields_ok = fields_ok and facts.get("review_write_scope") == "empty" and facts.get("semantic_scope_status") == "aligned"
-            fields_ok = fields_ok and bool(readback) and facts.get("diff_locator") == readback["diff"]
-            writer_locators = sorted(unit.get("evidence_locator") for unit in self.units.values() if unit.get("is_writer"))
-            supplied_writer_locators = facts.get("writer_evidence_locators", [])
-            fields_ok = fields_ok and isinstance(supplied_writer_locators, list)
-            fields_ok = fields_ok and all(_real_locator(locator) for locator in supplied_writer_locators)
-            fields_ok = fields_ok and sorted(supplied_writer_locators) == writer_locators
-            fields_ok = fields_ok and facts.get("writer_evidence_locator") in writer_locators
-            if fields_ok:
-                self.reviews.append({"seq": seq, "head": facts["reviewed_head"]})
-            else:
-                self.violations.add("writer_quiescence")
+        facts = event["facts"]
+        checks, surfaces, sibling = facts.get("check_results"), facts.get("covered_surfaces"), facts.get("sibling_scan")
+        if self.active_writers(batch) or facts.get("head") != batch["head"]:
+            self.violations.add("writer_safety")
             return
-        action, exact_head = facts.get("action"), facts.get("exact_head")
-        writers = [unit for unit in self.units.values() if unit.get("is_writer")]
-        if not writers or any(not _writer_publishable(unit) for unit in writers):
-            self.violations.add("writer_quiescence")
-        writer_keys = [key for key, unit in self.units.items() if unit.get("is_writer")]
-        if any(key not in self.completion_consumed for key in writer_keys):
-            self.violations.add("writer_quiescence")
-        readback = next((item for item in reversed(self.head_readbacks) if item["seq"] > self.last_unit_change and item["head"] == exact_head), None)
-        review = next((item for item in reversed(self.reviews) if readback and item["seq"] > readback["seq"] and item["head"] == exact_head), None)
-        if event["actor"] != "owner" or action not in PUBLISH_TOOLS or event["tool"] != PUBLISH_TOOLS.get(action) or not readback or not review:
-            self.violations.add("writer_quiescence")
-        if action == "merge" and _verification_errors(facts, exact_head, readback.get("tree") if readback else None):
-            self.violations.add("writer_quiescence")
-
-    def cleanup_event(self, event: dict[str, Any]) -> None:
-        kind, facts, args, seq = event["kind"], event["facts"], event["args"], event["seq"]
-        if kind == "closeout":
-            if event["actor"] != "owner" or event["tool"] != "gh_readback":
-                self.violations.add("cleanup_terminal_consumed")
-            merged = all(_real_locator(facts.get(field)) for field in ("merge_commit", "target_head", "issue_state_locator"))
-            no_pr = _real_locator(facts.get("no_pr_justification")) and _real_locator(facts.get("no_pr_evidence_locator"))
-            if facts.get("closeout_verified") is True and (merged ^ no_pr):
-                self.closeout_seq = seq
-            else:
-                self.violations.add("cleanup_terminal_consumed")
+        evidence_key = self.evidence_key(batch)
+        if facts.get("evidence_key") != evidence_key:
+            self.violations.add("review_integrity")
             return
-        if kind == "handoff":
-            if event["actor"] == "owner" and event["tool"] == "handoff_readback" and sorted(facts.get("active_locators", [])) == sorted(key[0] for key in self.units):
-                self.handoff_seq = seq
+        if not _locators(surfaces) or not set(self.initial["required_surfaces"]) <= set(surfaces) or not isinstance(checks, list) or not checks or any(
+            not isinstance(check, dict) or check.get("status") != "success" or check.get("head") != batch["head"] or check.get("evidence_key") != evidence_key or not real_locator(check.get("locator")) for check in checks
+        ) or not isinstance(sibling, dict) or sibling.get("status") not in {"ready", "not_applicable"} or not real_locator(sibling.get("locator")):
+            self.violations.add("planning")
             return
-        if kind == "cleanup_readback":
-            valid = self.cleanup_spawn_seq and seq > self.cleanup_spawn_seq and event["actor"] == "owner" and event["tool"] == "git_readback"
-            cleanup = self.units.get(self.cleanup_unit or ("", ""), {})
-            valid = valid and cleanup.get("host_status") == "terminal" and self.cleanup_unit in self.completion_consumed
-            valid = valid and cleanup.get("execution_kind") == "cleanup_subagent" and cleanup.get("role") == "cleanup" and cleanup.get("is_writer") is False
-            worktree_policy = facts.get("worktree_policy")
-            worktree_ok = facts.get("worktree_absent") is True if worktree_policy == "delete" else facts.get("worktree_state") == "preserved"
-            valid = valid and worktree_policy in {"delete", "preserve"} and worktree_ok
-            valid = valid and all(facts.get(field) is True for field in ("target_unchanged", "cleanup_verified"))
-            ref_states = {"removed", "preserved", "already_absent"}
-            valid = valid and facts.get("local_ref_state") in ref_states and facts.get("remote_ref_state") in ref_states
-            valid = valid and _policy_matches(facts.get("local_branch_policy"), facts.get("local_ref_state"))
-            valid = valid and _policy_matches(facts.get("remote_branch_policy"), facts.get("remote_ref_state"))
-            contract = self.cleanup_contract or {}
-            valid = valid and all(facts.get(field) == contract.get(field) for field in (
-                "target_repository", "target_worktree", "target_ref", "target_oid",
-                "cleanup_action", "worktree_policy", "local_branch_policy", "remote_branch_policy",
-            ))
-            valid = valid and facts.get("predelete_oid_verified") is True
-            valid = valid and _real_locator(facts.get("identity_readback_locator"))
-            if not valid:
-                self.violations.add("cleanup_terminal_consumed")
-            return
-        self.cleanup_spawn_seq = seq
-        self.cleanup_unit = self.unit_key(event)
-        units = list(self.units.items())
-        lifecycle_ok = bool(units) and all(unit.get("host_status") == "terminal" for _, unit in units)
-        lifecycle_ok = lifecycle_ok and all(not unit.get("is_writer") or unit.get("write_authority") in {"revoked", "none"} for _, unit in units)
-        lifecycle_ok = lifecycle_ok and all(key in self.completion_consumed for key, _ in units)
-        lifecycle_ok = lifecycle_ok and bool(self.closeout_seq and self.handoff_seq and self.closeout_seq < seq and self.handoff_seq < seq)
-        if not lifecycle_ok:
-            self.violations.add("cleanup_terminal_consumed")
-        runtime = (event["actor"], event["tool"], args.get("model"), args.get("reasoning_effort"), args.get("fork_turns"))
-        if runtime != ("owner", "spawn_agent", "gpt-5.6-luna", "max", "none"):
-            self.violations.add("cleanup_terminal_consumed")
-        cwd, target = args.get("cwd"), args.get("target_worktree")
-        path_ok = _nonempty(cwd) and _nonempty(target) and Path(cwd).is_absolute() and Path(target).is_absolute()
-        if path_ok:
-            cwd_path, target_path = Path(cwd).resolve(), Path(target).resolve()
-            path_ok = cwd_path != target_path and not target_path.is_relative_to(cwd_path) and not cwd_path.is_relative_to(target_path)
-        contract_fields = (
-            "target_repository", "target_worktree", "target_ref", "target_oid", "cleanup_action",
-            "worktree_policy", "local_branch_policy", "remote_branch_policy", "identity_locator",
-        )
-        contract = facts if all(_real_locator(facts.get(field)) for field in contract_fields) else None
-        path_ok = path_ok and bool(contract) and facts.get("target_worktree") == str(Path(target).resolve())
-        if not path_ok:
-            self.violations.add("cleanup_terminal_consumed")
-        else:
-            self.cleanup_contract = {field: facts[field] for field in contract_fields}
-
-    def heartbeat_event(self, event: dict[str, Any]) -> None:
-        kind, facts, args, seq = event["kind"], event["facts"], event["args"], event["seq"]
-        if kind == "heartbeat":
-            if event["actor"] != "owner" or event["tool"] != "automation_wake":
-                self.violations.add("heartbeat_backoff")
-            identity = (facts.get("automation_id"), facts.get("owner_thread_id"), facts.get("cadence_revision"))
-            expected_identity = (self.initial.get("automation_id"), self.initial.get("owner_thread_id"), self.cadence_revision)
-            if identity != expected_identity:
-                self.violations.add("heartbeat_backoff")
-            eligible = self._heartbeat_eligible(facts)
-            if eligible:
-                signature = (facts["state_digest"], facts.get("user_feedback_revision"), facts.get("external_fact_revision"))
-                previous = self.eligible_heartbeats[-1]["signature"] if self.eligible_heartbeats else None
-                self.eligible_heartbeats = self.eligible_heartbeats + [{"seq": seq, "signature": signature}] if signature == previous or previous is None else [{"seq": seq, "signature": signature}]
-            else:
-                self.eligible_heartbeats = []
-            return
-        if kind == "external_event":
-            if event["actor"] not in {"external", "user", "task", "app_task"} or event["tool"] not in {"github_event", "user_message", "codex_app__send_message_to_thread"}:
-                self.violations.add("heartbeat_backoff")
-            self.last_trigger_seq = seq
-            self.eligible_heartbeats = []
-            if self.pending_update:
-                self.violations.add("heartbeat_backoff")
-            return
-        if kind == "automation_readback":
-            valid = self.pending_update and seq > self.pending_update[2] and event["actor"] == "owner" and event["tool"] == "codex_app__automation_update"
-            valid = valid and facts.get("current_interval_seconds") == self.pending_update[1] and _real_locator(facts.get("automation_locator"))
-            valid = valid and (facts.get("automation_id"), facts.get("owner_thread_id"), facts.get("cadence_revision")) == (self.initial.get("automation_id"), self.initial.get("owner_thread_id"), self.pending_update[3])
-            if not valid:
-                self.violations.add("heartbeat_backoff")
-            else:
-                self.current_interval = self.pending_update[1]
-                self.cadence_revision = self.pending_update[3]
-                self.pending_update = None
-                self.eligible_heartbeats = []
-            return
-        if self.pending_update:
-            self.violations.add("heartbeat_backoff")
-        target, reason = args.get("interval_seconds"), facts.get("reason")
-        next_revision = self.cadence_revision + 1
-        identity_ok = (args.get("automation_id"), args.get("targetThreadId"), facts.get("cadence_revision")) == (self.initial.get("automation_id"), self.initial.get("owner_thread_id"), next_revision)
-        if not identity_ok:
-            self.violations.add("heartbeat_backoff")
-        if reason == "backoff":
-            expected = min(int(self.current_interval or 0) * 2, 24 * 60 * 60)
-            adjacent = bool(self.eligible_heartbeats and self.eligible_heartbeats[-1]["seq"] + 1 == seq)
-            if len(self.eligible_heartbeats) < 3 or not adjacent or target != expected or self.initial.get("cadence_override") != "none":
-                self.violations.add("heartbeat_backoff")
-        elif reason == "restore":
-            if not self.last_trigger_seq or self.last_trigger_seq >= seq or target != self.base_interval:
-                self.violations.add("heartbeat_backoff")
-        else:
-            self.violations.add("heartbeat_backoff")
-        if event["actor"] != "owner" or event["tool"] != "codex_app__automation_update" or not isinstance(target, int) or isinstance(target, bool):
-            self.violations.add("heartbeat_backoff")
-        self.pending_update = (reason, target, seq, next_revision) if isinstance(target, int) and not isinstance(target, bool) else None
-
-    def _heartbeat_eligible(self, facts: dict[str, Any]) -> bool:
-        return (
-            self.initial.get("goal_status") == "incomplete"
-            and self.initial.get("cadence_override") == "none"
-            and facts.get("goal_status") == "incomplete"
-            and facts.get("cadence_override") == "none"
-            and facts.get("wait_kind") in {"waiting_user", "waiting_external"}
-            and _real_locator(facts.get("state_digest"))
-            and _real_locator(facts.get("user_feedback_revision"))
-            and _real_locator(facts.get("external_fact_revision"))
-            and all(isinstance(facts.get(field), int) and not isinstance(facts.get(field), bool) and facts.get(field) == 0 for field in ("active_units", "active_writers"))
-            and all(facts.get(field) is False for field in ("late_completion", "pending_delivery", "unconsumed_owner_event", "owner_action", "ready_successor", "admission_pending"))
-        )
-
-    def handle(self, event: dict[str, Any]) -> None:
-        kind = event["kind"]
-        if self.cleanup_spawn_seq and kind != "cleanup_readback":
-            key = self.unit_key(event)
-            allowed = kind in {"unit_state", "completion", "completion_consumed"} and key == self.cleanup_unit
-            if not allowed:
-                self.violations.add("cleanup_terminal_consumed")
-        if kind == "unit_state":
-            self.unit_state(event)
-        elif kind == "delivery":
-            self.delivery(event)
-        elif kind in {"owner_wait", "completion", "completion_consumed", "successor", "wake_verified", "owner_final"}:
-            self.direct_event(event)
-        elif kind in {"head_readback", "fresh_review", "publish"}:
-            self.publication_event(event)
-        elif kind in {"closeout", "handoff", "cleanup_spawn", "cleanup_readback"}:
-            self.cleanup_event(event)
-        elif kind in {"heartbeat", "automation_update", "automation_readback", "external_event"}:
-            self.heartbeat_event(event)
-
-    def finish(self) -> set[str]:
-        if self.pending_update:
-            self.violations.add("heartbeat_backoff")
-        if self.case["mode"] == "direct":
-            native = [key for key, unit in self.units.items() if unit.get("execution_kind") == "native_subagent" and unit.get("is_writer")]
-            if not native:
-                self.violations.add("direct_wake")
-            for key in native:
-                wait, completion = self.direct_waits.get(key), self.direct_completions.get(key)
-                consumed, successor = self.direct_consumptions.get(key), self.direct_successors.get(key)
-                if not wait or not completion or not consumed:
-                    self.violations.add("direct_wake")
-                    continue
-                if not (wait[0] == completion[0] == consumed[0] and wait[1] < completion[1] < consumed[1]):
-                    self.violations.add("direct_wake")
-                if self.final_turn != wait[0]:
-                    self.violations.add("direct_wake")
-                if self.initial.get("goal_status") == "incomplete" and (not successor or successor[0] != consumed[0] or successor[1] <= consumed[1]):
-                    self.violations.add("direct_wake")
-                last_required = successor[1] if self.initial.get("goal_status") == "incomplete" and successor else consumed[1]
-                if not self.final_seq or self.final_seq <= last_required:
-                    self.violations.add("direct_wake")
-        if self.case["mode"] == "cleanup" and self.cleanup_spawn_seq and not any(event["kind"] == "cleanup_readback" for event in self.case["events"]):
-            self.violations.add("cleanup_terminal_consumed")
-        return self.violations
-
-
-class ReviewReplay:
-    """Replay review finding admission and the convergence-chain fix budget.
-
-    This is intentionally a small state machine: review evidence remains exact-head and
-    writer-quiescence evidence, while only a proven semantic chain change can reset the
-    budget. Owner, reviewer, task, branch, file, head, and generation are observations.
-    """
-
-    DISPOSITIONS = {"fix_now", "defer", "reject", "shrink", "split", "reassign", "user_decision"}
-    SEVERITIES = {"P0", "P1", "P2", "P3"}
-    BOUNDARIES = {"none", "production_subsystem", "permission_or_runtime"}
-    SCOPE_CHANGES = {"shrink", "split", "reassign"}
-
-    def __init__(self, case: dict[str, Any]) -> None:
-        initial = case["initial"]
-        self.case = case
-        self.violations: set[str] = set()
-        self.task_key = initial["task_key"]
-        self.scope_revision = initial["scope_revision"]
-        self.decision_boundary_locator = initial.get("decision_boundary_locator")
-        budget = initial["repair_budget"]
-        self.convergence_chain_locator = budget["convergence_chain_locator"]
-        self.round_count = budget["finding_write_consumed"]
-        self.first_review_seen = False
-        self.current_review: dict[str, Any] | None = None
-        self.dispositions: dict[str, dict[str, Any]] = {}
-        self.pending_fix: set[str] = set()
-        self.pending_scope_change: set[str] = set()
-        self.awaiting_fresh_review = False
-        self.last_write_head: str | None = None
-        self.last_review_head: str | None = None
-
-    @staticmethod
-    def _required(facts: dict[str, Any], fields: tuple[str, ...]) -> bool:
-        return all(_nonempty(facts.get(field)) for field in fields)
-
-    def _scope_matches(self, facts: dict[str, Any]) -> bool:
-        return facts.get("task_key") == self.task_key and facts.get("scope_revision") == self.scope_revision
-
-    def _review_common_valid(self, event: dict[str, Any], facts: dict[str, Any]) -> bool:
-        return (
-            event["actor"] == "reviewer"
-            and event["tool"] == "reviewer_result"
-            and facts.get("verdict") in {"fix-first", "ship", "rethink", "blocked"}
-            and self._scope_matches(facts)
-            and all(_real_locator(facts.get(field)) for field in ("reviewer_locator", "reviewed_head", "diff_locator", "execution_generation"))
-            and isinstance(facts.get("reviewed_files"), list)
-            and bool(facts.get("reviewed_files"))
-            and facts.get("review_write_scope") == "empty"
-            and facts.get("writer_quiescence") == "verified"
-            and facts.get("semantic_scope_status") == "aligned"
-        )
+        batch["preflight"] = facts
 
     def fresh_review(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
+            return
         facts = event["facts"]
-        if not self._review_common_valid(event, facts):
-            self.violations.add("review_disposition")
+        if self.active_writers(batch) or not batch["preflight"] or facts.get("head") != batch["head"] or facts.get("evidence_key") != self.evidence_key(batch) or event["actor"] != "reviewer" or event["unit_id"] in {key for key, unit in self.units.items() if unit["role"] == "writer" and unit["batch_locator"] == batch["locator"]}:
+            self.violations.add("review_integrity")
             return
-        if self.current_review is not None:
-            prior_findings = set(self.current_review.get("finding_locators", []))
-            if not prior_findings.issubset(self.dispositions):
-                self.violations.add("review_disposition")
-        verdict = facts["verdict"]
-        findings = facts.get("finding_locators", [])
-        if not isinstance(findings, list) or any(not _real_locator(value) for value in findings) or len(set(findings)) != len(findings):
-            self.violations.add("review_disposition")
+        findings = facts.get("finding_locators")
+        if facts.get("verdict") not in {"ship", "fix-first", "rethink", "blocked"} or not _locators(findings) or any(not real_locator(facts.get(key)) for key in ("reviewer_locator", "diff_locator")):
+            self.violations.add("review_integrity")
             return
-        if verdict == "fix-first" and not findings:
-            self.violations.add("review_disposition")
-        if verdict == "ship" and not set(findings).issubset(self.dispositions):
-            self.violations.add("review_disposition")
-        if self.last_review_head is not None and not self.awaiting_fresh_review and facts["reviewed_head"] != self.last_review_head:
-            self.violations.add("review_disposition")
-        if self.awaiting_fresh_review and facts["reviewed_head"] != self.last_write_head:
-            self.violations.add("review_disposition")
-        if verdict == "ship" and self.pending_fix:
-            self.violations.add("review_disposition")
-        if self.pending_scope_change:
-            self.violations.add("review_disposition")
-        self.first_review_seen = True
-        self.current_review = {**facts, "finding_locators": findings, "seq": event["seq"]}
-        self.dispositions = {}
-        self.pending_fix = set()
-        self.awaiting_fresh_review = False
-        self.last_review_head = facts["reviewed_head"]
+        if batch["review"] and any(key not in batch["findings"] for key in batch["review"]["finding_locators"]):
+            self.violations.add("review_integrity")
+        if facts["verdict"] == "ship" and (findings or batch["pending_fixes"] or batch["rethink_pending"]):
+            self.violations.add("review_integrity")
+        if facts["verdict"] == "fix-first" and not findings:
+            self.violations.add("review_integrity")
+        batch["review"], batch["findings"] = facts, {}
+        batch["closeout_verified"] = False
 
     def finding_disposition(self, event: dict[str, Any]) -> None:
-        facts = event["facts"]
-        required = (
-            "finding_locator", "severity", "acceptance_or_invariant_locator",
-            "unsafe_evidence_locator", "disposition", "carrier_locator",
-            "rejection_basis", "boundary_expansion", "task_key", "scope_revision",
-            "reviewed_head", "reviewer_locator", "execution_generation", "blocker_class",
-        )
-        valid = event["actor"] == "owner" and event["tool"] == "reviewer_result" and self._required(facts, required)
-        valid = valid and self.current_review is not None and self._scope_matches(facts)
-        valid = valid and facts.get("finding_locator") in self.current_review.get("finding_locators", [])
-        valid = valid and facts.get("reviewed_head") == self.current_review.get("reviewed_head")
-        valid = valid and facts.get("reviewer_locator") == self.current_review.get("reviewer_locator")
-        valid = valid and facts.get("severity") in self.SEVERITIES
-        valid = valid and facts.get("disposition") in self.DISPOSITIONS
-        valid = valid and isinstance(facts.get("current_outcome_unsafe_without_fix"), bool)
-        valid = valid and facts.get("boundary_expansion") in self.BOUNDARIES
-        valid = valid and all(_real_locator(facts.get(field)) for field in (
-            "finding_locator", "reviewed_head", "reviewer_locator", "execution_generation", "blocker_class",
-        ))
-        valid = valid and (
-            facts.get("acceptance_or_invariant_locator") == "none"
-            or _real_locator(facts.get("acceptance_or_invariant_locator"))
-        )
-        valid = valid and (
-            facts.get("unsafe_evidence_locator") == "none"
-            or _real_locator(facts.get("unsafe_evidence_locator"))
-        )
-        if not valid or facts.get("finding_locator") in self.dispositions:
-            self.violations.add("review_disposition")
+        batch = self.batch(event)
+        if batch is None:
             return
-        disposition = facts["disposition"]
-        mapped = _real_locator(facts["acceptance_or_invariant_locator"])
-        high_risk = facts["severity"] in {"P0", "P1"}
-        must_resolve = facts["current_outcome_unsafe_without_fix"] and (mapped or high_risk)
-        if must_resolve and not _real_locator(facts.get("unsafe_evidence_locator")):
-            self.violations.add("review_disposition")
-        if must_resolve and disposition in {"defer", "reject"}:
-            self.violations.add("review_disposition")
-        if must_resolve and disposition in self.SCOPE_CHANGES:
-            self.pending_scope_change.add(facts["finding_locator"])
-        if disposition in {"defer", "shrink", "split", "reassign"} and not _real_locator(facts.get("carrier_locator")):
-            self.violations.add("review_disposition")
-        if disposition == "reject" and (not _nonempty(facts.get("rejection_basis")) or facts.get("rejection_basis") == "none"):
-            self.violations.add("review_disposition")
-        if disposition == "user_decision" and (
-            not _real_locator(facts.get("user_decision_locator"))
-            or _user_decision_errors(facts, self.decision_boundary_locator)
-        ):
-            self.violations.add("review_disposition")
-        if disposition == "fix_now":
-            valid_fix = (
-                (mapped or high_risk)
-                and facts["current_outcome_unsafe_without_fix"]
-                and facts["boundary_expansion"] == "none"
-                and _real_locator(facts["unsafe_evidence_locator"])
-            )
-            if not valid_fix:
-                self.violations.add("review_disposition")
+        facts, key = event["facts"], event["facts"].get("finding_locator")
+        if not batch["review"] or key not in batch["review"]["finding_locators"] or key in batch["findings"]:
+            self.violations.add("review_integrity")
+            return
+        action = facts.get("disposition")
+        if action not in {"fix_now", "defer", "reject", "rethink", "user_decision"} or type(facts.get("blocks_current_exit")) is not bool:
+            self.violations.add("review_integrity")
+            return
+        if action in {"defer", "reject"} and facts["blocks_current_exit"]:
+            self.violations.add("review_integrity")
+        if action == "defer" and not real_locator(facts.get("carrier_locator")) or action == "reject" and not real_locator(facts.get("rejection_basis")):
+            self.violations.add("review_integrity")
+        if action == "fix_now":
+            cause, evidence = facts.get("root_cause_key"), facts.get("evidence_digest")
+            if not facts["blocks_current_exit"] or not real_locator(facts.get("acceptance_or_invariant_locator")) or facts.get("boundary_expansion") != "none" or not real_locator(cause) or not real_locator(facts.get("evidence_locator")) or not real_locator(evidence) or evidence in batch["repaired_evidence"].get(cause, set()):
+                self.violations.add("review_integrity")
             else:
-                self.pending_fix.add(facts["finding_locator"])
-        self.dispositions[facts["finding_locator"]] = facts
+                batch["pending_fixes"].add(key)
+        elif action in {"rethink", "user_decision"}:
+            batch["rethink_pending"] = True
+            if not real_locator(facts.get("evidence_locator")):
+                self.violations.add("review_integrity")
+            if action == "user_decision" and user_decision_errors(facts, self.initial.get("decision_boundary_locator")):
+                self.violations.add("authorization")
+        batch["findings"][key] = {**facts, "observed_seq": event["seq"]}
 
-    def review_write(self, event: dict[str, Any]) -> None:
-        facts = event["facts"]
-        required = (
-            "task_key", "scope_revision", "execution_generation", "base_reviewed_head",
-            "new_head", "writer_evidence_locator", "writer_quiescence", "boundary_expansion",
-        )
-        valid = (
-            event["actor"] in {"owner", "task"}
-            and event["tool"] == "git_commit"
-            and self.first_review_seen
-            and self.current_review is not None
-            and self.current_review.get("verdict") == "fix-first"
-            and self._required(facts, required)
-            and self._scope_matches(facts)
-            and facts.get("base_reviewed_head") == self.current_review.get("reviewed_head")
-            and facts.get("new_head") != facts.get("base_reviewed_head")
-            and facts.get("writer_quiescence") == "verified"
-            and facts.get("boundary_expansion") == "none"
-            and isinstance(facts.get("finding_locators"), list)
-            and bool(facts.get("finding_locators"))
-            and set(facts.get("finding_locators", [])) == self.pending_fix
-        )
-        if event["actor"] == "reviewer":
-            valid = False
-        if self.round_count >= 1:
-            valid = False
-        if not valid:
-            self.violations.add("review_disposition")
+    def publish(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
             return
-        self.round_count += 1
-        self.last_write_head = facts["new_head"]
-        self.pending_fix = set()
-        self.awaiting_fresh_review = True
+        facts = event["facts"]
+        if facts.get("action") not in {"merge", "release"} or not self.authorized(facts.get("action"), self.authority["locator"]):
+            self.violations.add("authorization")
+        if self.active_writers(batch) or facts.get("exact_head") != batch["head"]:
+            self.violations.add("writer_safety")
+        if not self.review_ready(batch) or facts.get("tree_digest") != batch["tree_digest"] or _verification_errors(facts, batch["head"], self.evidence_key(batch), require_pr=facts.get("action") == "merge"):
+            self.violations.add("review_integrity")
 
-    def scope_change(self, event: dict[str, Any]) -> None:
-        facts = event["facts"]
-        if self.current_review is not None:
-            prior_findings = set(self.current_review.get("finding_locators", []))
-            if not prior_findings.issubset(self.dispositions):
-                self.violations.add("review_disposition")
-        status = facts.get("status")
-        trigger = facts.get("trigger_finding_locator")
-        matching_disposition = (
-            _real_locator(trigger)
-            and self.dispositions.get(trigger, {}).get("disposition") == status
-        )
-        to_budget = facts.get("to_repair_budget")
-        valid = (
-            event["actor"] == "owner"
-            and event["tool"] in {"git_readback", "gh_readback"}
-            and status in self.SCOPE_CHANGES
-            and self.current_review is not None
-            and matching_disposition
-            and not self.awaiting_fresh_review
-            and isinstance(facts.get("narrower"), bool)
-            and self._required(facts, (
-                "from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision",
-                "from_convergence_chain_locator", "to_convergence_chain_locator",
-                "semantic_change", "evidence_locator", "trigger_finding_locator",
-            ))
-            and facts.get("from_task_key") == self.task_key
-            and facts.get("from_scope_revision") == self.scope_revision
-            and facts.get("from_convergence_chain_locator") == self.convergence_chain_locator
-            and facts.get("to_convergence_chain_locator") != self.convergence_chain_locator
-            and facts.get("semantic_change") in {"product_exit_change", "acceptance_change", "scope_change", "ownership_change"}
-            and facts.get("to_task_key") != self.task_key
-            and facts.get("to_scope_revision") != self.scope_revision
-            and all(_real_locator(facts.get(field)) for field in (
-                "from_task_key", "from_scope_revision", "to_task_key", "to_scope_revision",
-                "from_convergence_chain_locator", "to_convergence_chain_locator", "evidence_locator",
-            ))
-            and not _repair_budget_errors(to_budget, facts.get("to_convergence_chain_locator"))
-            and to_budget.get("finding_write_consumed") == 0
-        )
-        if facts.get("status") in {"shrink", "split"} and facts.get("narrower") is not True:
-            valid = False
-        if facts.get("status") == "reassign" and (
-            facts.get("semantic_change") != "ownership_change"
-            or facts.get("mismatch_kind") not in {"capability", "ownership"}
-            or not _real_locator(facts.get("mismatch_locator"))
-        ):
-            valid = False
-        if not valid:
-            self.violations.add("review_disposition")
+    def completion(self, event: dict[str, Any]) -> None:
+        facts, key = event["facts"], event["unit_id"]
+        unit = self.units.get(key)
+        revision = facts.get("revision")
+        if event["tool"] in {"final", "commentary", "assistant_summary"}:
+            self.violations.add("event_recovery")
             return
-        self.task_key = facts["to_task_key"]
-        self.scope_revision = facts["to_scope_revision"]
-        self.convergence_chain_locator = facts["to_convergence_chain_locator"]
-        self.round_count = to_budget["finding_write_consumed"]
-        self.first_review_seen = False
-        self.current_review = None
-        self.dispositions = {}
-        self.pending_fix = set()
-        self.pending_scope_change = set()
-        self.awaiting_fresh_review = False
-        self.last_write_head = None
-        self.last_review_head = None
+        if not unit or type(revision) is not int or revision < 1 or not real_locator(facts.get("event_key")) or not real_locator(facts.get("source_locator")) or facts.get("outcome") not in {"completed", "blocked", "cancelled"} or facts.get("host_status") != "terminal" or not real_locator(facts.get("head")):
+            self.violations.add("event_recovery")
+            return
+        previous = self.completions.get(key)
+        if event["generation"] < unit["generation"] or previous and revision < previous["revision"]:
+            return
+        if previous and revision == previous["revision"]:
+            if any(facts[name] != previous[name] for name in ("event_key", "outcome", "head")):
+                self.violations.add("event_recovery")
+            return
+        if event["generation"] != unit["generation"] or facts["head"] != self.batches[unit["batch_locator"]]["head"]:
+            self.violations.add("event_recovery")
+            return
+        self.completions[key] = dict(facts)
+        unit.update(host_status="terminal", write_authority="revoked")
+
+    def completion_consumed(self, event: dict[str, Any]) -> None:
+        key, facts = event["unit_id"], event["facts"]
+        current = self.completions.get(key)
+        if not current or event["generation"] != self.units[key]["generation"] or facts.get("revision") != current["revision"] or facts.get("event_key") != current["event_key"] or event["actor"] != "owner":
+            self.violations.add("event_recovery")
+            return
+        if self.consumed.get(key) == current["revision"]:
+            return
+        self.consumed[key] = current["revision"]
+        if current["outcome"] == "completed":
+            for gap in self.gaps.values():
+                if gap.get("unit_id") == key:
+                    gap["status"] = "complete"
+                if gap["status"] == "blocked" and gap["dependencies"] and all(dep in self.consumed and self.completions[dep]["outcome"] == "completed" for dep in gap["dependencies"]):
+                    gap["status"] = "ready"
+
+    def source_readback(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        if any(not real_locator(facts.get(k)) for k in ("source", "revision", "evidence_locator")):
+            self.violations.add("incremental_progress")
+            return
+        source, revision = facts["source"], facts["revision"]
+        if source in EVIDENCE_KEY_FIELDS | {"head"}:
+            batch = self.batch(event)
+            if batch is None:
+                return
+            if batch[source] != revision:
+                batch[source] = revision
+                self.invalidate(batch)
+                self.changed_sources.add(batch["locator"] + ":" + source)
+            return
+        if self.source_revisions.get(source) != revision:
+            self.changed_sources.add(source)
+            self.source_revisions[source] = revision
+
+    def read_evidence(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        if any(not real_locator(facts.get(k)) for k in ("subject", "revision", "source")) or self.source_revisions.get(facts["source"]) != facts["revision"]:
+            self.violations.add("incremental_progress")
+        elif self.cached.get(facts["subject"]) == facts["revision"]:
+            self.violations.add("incremental_progress")
+        else:
+            self.cached[facts["subject"]] = facts["revision"]
+            self.readings[facts["subject"]] = {"revision": facts["revision"], "locator": event["locator"], "observed_seq": event["seq"]}
+
+    def user_decision(self, event: dict[str, Any]) -> None:
+        facts = event["facts"]
+        if event["actor"] != "user" or event["tool"] != "user_message" or not real_locator(facts.get("decision_locator")) or facts.get("approved") is not True or facts.get("scope_locator") != self.initial["scope_locator"] or not self.authorized(facts.get("action"), facts.get("authority_locator")):
+            self.violations.add("authorization")
+        else:
+            self.user_decisions[facts["decision_locator"]] = {**facts, "observed_seq": event["seq"]}
+
+    def reassessment(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
+            return
+        facts = event["facts"]
+        pending = [f for f in batch["findings"].values() if f["disposition"] in {"rethink", "user_decision"}]
+        reading = self.readings.get(facts.get("evidence_subject"), {})
+        if not batch["rethink_pending"] or not pending or reading.get("revision") != facts.get("evidence_revision") or reading.get("locator") != facts.get("evidence_locator") or not real_locator(facts.get("evidence_revision")) or any(facts["evidence_revision"] == f.get("evidence_digest") or reading.get("observed_seq", 0) <= f["observed_seq"] for f in pending):
+            self.violations.add("review_integrity")
+            return
+        if facts.get("scope_locator") != self.initial["scope_locator"] or not self.authorized("write", facts.get("authority_locator")):
+            self.violations.add("authorization")
+            return
+        decision = self.user_decisions.get(facts.get("user_decision_locator"), {})
+        if any(f["disposition"] == "user_decision" and (decision.get("action") != "write" or decision.get("observed_seq", 0) <= f["observed_seq"]) for f in pending):
+            self.violations.add("authorization")
+            return
+        batch["rethink_pending"] = False
+        for finding in pending:
+            del batch["findings"][finding["finding_locator"]]
+
+    def recompute_frontier(self, event: dict[str, Any]) -> None:
+        sources = event["facts"].get("sources")
+        if not _locators(sources) or not sources or not set(sources) <= self.changed_sources:
+            self.violations.add("incremental_progress")
+        else:
+            self.changed_sources.difference_update(sources)
+
+    def closeout(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
+            return
+        facts = event["facts"]
+        merged, local = real_locator(facts.get("merge_locator")), real_locator(facts.get("no_pr_evidence_locator"))
+        action = facts.get("action")
+        if action not in {"local_delivery", "merge", "release"} or action == "local_delivery" and merged or action == "merge" and not merged or not self.authorized("write" if action == "local_delivery" else action, self.authority["locator"]):
+            self.violations.add("authorization")
+        # 无 publish 事件、本地无 PR 交付也必须满足同一来源并集。
+        if not self.review_ready(batch) or facts.get("tree_digest") != batch["tree_digest"] or _verification_errors(facts, batch["head"], self.evidence_key(batch), require_pr=merged):
+            self.violations.add("review_integrity")
+            return
+        if self.active_writers(batch) or facts.get("exact_head") != batch["head"] or not real_locator(facts.get("issue_state_locator")) or not (merged ^ local):
+            self.violations.add("cleanup_safety")
+        else:
+            batch["closeout_verified"] = True
+
+    def cleanup(self, event: dict[str, Any]) -> None:
+        batch = self.batch(event)
+        if batch is None:
+            return
+        facts = event["facts"]
+        target = {name: facts.get(name) for name in ("batch_locator", "target_worktree", "target_ref", "target_oid")}
+        if not self.authorized("cleanup", facts.get("authority_locator")):
+            self.violations.add("authorization")
+        if not batch["closeout_verified"] or self.active_writers(batch) or target not in self.initial.get("cleanup_targets", []) or any(not real_locator(value) for value in target.values()) or not real_locator(facts.get("identity_readback_locator")) or facts.get("outcome") not in {"removed", "preserved"}:
+            self.violations.add("cleanup_safety")
+
+    def owner_final(self, event: dict[str, Any]) -> None:
+        facts, status = event["facts"], event["facts"].get("status")
+        self.final_turn = event["turn"]
+        if any(self.consumed.get(key) != completion["revision"] for key, completion in self.completions.items()):
+            self.violations.add("event_recovery")
+        if any(gap["status"] == "ready" or gap["status"] == "blocked" and (not gap["dependencies"] or any(dep not in self.units or self.units[dep]["host_status"] != "running" or not real_locator(self.units[dep].get("monitor_locator")) for dep in gap["dependencies"])) for gap in self.gaps.values()) or self.changed_sources:
+            self.violations.add("incremental_progress")
+        if status == "completed":
+            affected = {unit["batch_locator"] for unit in self.units.values() if unit["role"] == "writer"}
+            if self.active_writers() or any(gap["status"] != "complete" for gap in self.gaps.values()) or not affected or any(not self.batches[b]["closeout_verified"] for b in affected) or not real_locator(facts.get("product_acceptance_locator")):
+                self.violations.add("incremental_progress")
+        elif status == "waiting_task":
+            if not self.units or not any(unit["host_status"] == "running" for unit in self.units.values()) or any(not real_locator(unit.get("monitor_locator")) for unit in self.units.values() if unit["host_status"] == "running"):
+                self.violations.add("event_recovery")
+        elif status in {"waiting_external", "waiting_user", "progressed"}:
+            if self.active_writers():
+                self.violations.add("event_recovery")
+            for gap in self.gaps.values():
+                if gap["status"] not in {"complete", "waiting_external", "waiting_user"} or gap["status"] != "complete" and any(not real_locator(gap.get(k)) for k in ("evidence_locator", "wake_condition")):
+                    self.violations.add("incremental_progress")
+                if gap["status"] == "waiting_user" and user_decision_errors(gap.get("decision"), self.initial.get("decision_boundary_locator")):
+                    self.violations.add("authorization")
+        elif status != "rethink" or not any(b["rethink_pending"] for b in self.batches.values()):
+            self.violations.add("incremental_progress")
 
     def handle(self, event: dict[str, Any]) -> None:
         kind = event["kind"]
-        if kind == "fresh_review":
-            self.fresh_review(event)
-        elif kind == "finding_disposition":
-            self.finding_disposition(event)
-        elif kind == "review_write":
-            self.review_write(event)
-        elif kind == "scope_change":
-            self.scope_change(event)
+        if kind in {"admission", "successor", "completion_consumed", "publish", "cleanup", "closeout", "owner_final", "finding_disposition", "reassessment"} and event["actor"] != "owner":
+            self.violations.add("authorization")
+            return
+        if self.final_turn == event["turn"]:
+            self.violations.add("incremental_progress")
         else:
-            self.violations.add("review_disposition")
+            self.final_turn = None
+        method = {"successor": self.admission, "preflight": self.preflight_event}.get(kind)
+        (method or getattr(self, kind))(event)
 
     def finish(self) -> set[str]:
-        if not self.first_review_seen or self.awaiting_fresh_review or self.pending_fix or self.pending_scope_change:
-            self.violations.add("review_disposition")
+        if any(batch["pending_fixes"] for batch in self.batches.values()) and self.final_turn is None:
+            self.violations.add("review_integrity")
         return self.violations
 
 
-def evaluate(case: dict[str, Any]) -> set[str]:
-    if _schema_errors(case):
+def evaluate(case: dict[str, Any], readback: dict[str, Any] | None = None) -> set[str]:
+    if schema_errors(case):
         return {"schema"}
-    if case["mode"] == "review":
-        replay = ReviewReplay(case)
-        for event in case["events"]:
-            replay.handle(event)
-        return replay.finish()
+    if evidence_errors(case, readback):
+        return {"evidence_binding"}
     replay = Replay(case)
     for event in case["events"]:
         replay.handle(event)

@@ -1,22 +1,12 @@
-# Merge 后清理
+# 现场清理
 
-cleanup 是 closeout 后的独立、串行、可恢复通道，不计实现进展。没有用户授权不删除本地或远程分支、worktree、
-stash、临时目录、缓存或宿主线程。
+Owner 可直接清理本次工作产生、已无用途且没有用户成果的临时文件和调试残留，不强制创建子任务。
+重要数据、共享目录、仍有用途的工作树和外部对象删除遵循已有授权；明确保留时记录位置即可。
 
-## 前置条件
+删除前检查准确路径/ref、实际仓库和未提交内容，相关 writer 必须结束。
+不能因名称相似或分支已合并覆盖用户修改。
+分支/worktree 需确认没有活动任务或其他使用者，成果已安全保留。
+保护分支、共享元数据、stash 和来源不明资产不属于普通临时清理。
 
-- 产品验收、merge commit、target head、Issue/PR 状态和 carrier 已由 Owner 独立回读；
-- 当前 generation 的所有 writer/任务已 terminal，completion 已消费；
-- cleanup 合同列出 exact path/ref/OID、目标仓库、动作和 `delete | preserve` 策略；
-- 保护分支、共享 worktree、他人引用、未提交修改和并发写入检查通过。
-
-cleanup 使用平台的 worker profile 和原生 completion 能力，但不得修改代码、GitHub 规划真相、PR、Issue、
-发布内容或 target branch。
-
-## 执行与回读
-
-按 worktree、remote ref、local ref、临时资产的安全顺序逐项处理；每项先核对 exact identity，范围漂移即跳过并
-记录原因。部分失败不回滚已安全完成的删除，也不扩大重试范围。
-
-Owner 最后独立回读目标 head 未变、工作树策略、local/remote ref 状态和残余资产。只有全部符合合同，或用户明确
-选择全部 preserve，才可标记 cleanup complete；partial/blocked 不能冒充目标完成。
+只重试本次范围内的失败动作，保留真实残余与恢复条件。
+不把清理失败说成完成，也不因无害临时文件否定已满足的产品验收。

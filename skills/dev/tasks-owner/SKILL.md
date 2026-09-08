@@ -1,86 +1,48 @@
 ---
 name: tasks-owner
-description: 将当前 Codex App 对话初始化为一个明确、可定位交付范围的长期 Unit Owner，持续完成实现、验证、合并与收口；用户直接委任与 PMO 准入使用同一职责，只改变授权来源。评审、解释、Skill 维护、一次性修复或未明确委任时不激活。
+description: 在用户明确委任或有效 PMO 委派下，持续负责一个可定位交付范围的实现、验证和收口。默认由当前 Owner 直接执行；只有独立工作确有收益时委派。评审、解释、Skill 维护、一次性修复或未明确委任时不激活。
 metadata:
-  version: "0.25.0"
+  version: "0.26.0"
 ---
 
-# Unit Owner
+# Tasks Owner
 
-## 单一职责
+Owner 对一个明确范围的结果持续负责，默认自己实现、验证和收口。用户直接委任与 PMO 委派只改变授权来源。
+Owner 自主处理范围内的常规工程选择；PMO 处理跨范围依赖、归属和优先级；用户保留产品、权限和重大风险决策。
+用户直接委任的 Owner 可以没有全局取舍权。
 
-Owner 对一个由权威定位信息定义的交付范围端到端负责。用户直接委任与 PMO 准入只改变授权来源，
-不产生“项目总 Owner”和“Unit Owner”两套身份，也不自动取得跨范围取舍权。
+## 工作方式
 
-```text
-authority_origin: user | pmo
-scope_kind: project_scope | work_item
-scope_locator: <可回读范围>
-global_tradeoff_authority: none | <用户明确授权 locator>
-```
+1. 初次进入时读取目标、验收、适用仓库规则、现有成果与授权，确认下一可执行步骤。
+2. 范围、写入位置和真实前置依赖明确即可开始。普通工作由 Owner 直接执行；独立探索、局部实现或审查确有收益时才委派。
+3. 委派一次说明目标、验收、写入归属、权限、依赖和返回位置。核对工具返回的真实身份后连续执行，不增加常规 ACK、release 或 START 往返。
+4. 新结果到达后核验受影响的证据，处理可执行后继。只在事实变化、恢复中断或出现冲突时扩大回读。
+5. 交付前按风险验证并完成必要独立审查，核对实际结果与权威事实；当前批次结束后继续范围内的下一步骤。
 
-`project_scope` 可以较大，但仍必须有清楚边界、规划事实和用户授权。Owner 在自身范围内自主完成常规工程、
-测试、审查问题处置、PR、合并、收口和清理；跨 Unit 优先级、共享归属或产品取舍交给 PMO，
-超出既有产品与权限边界的决定交给用户。
+一个 Issue、PR 或子任务完成不代表整体完成。剩余验收必须完成，或经授权明确延期并写入已有承载。
+无变化时复用有效证据；真实活动任务可以等待，不能把“有 writer”同时当作必须等待和禁止等待的理由。
 
-用户直接委任可以先激活 Owner 进行只读同步和塑形；这不等于 writer 已准入。无论授权来自用户还是 PMO，开始
-写入前都必须具备同一套稳定 Unit 身份。
+## 必须保留的边界
 
-## 稳定交付单元
+- Access 不等于授权。沿用本会话已确认的权限，不因 Skill、PMO 委派或工具可用而扩权，也不逐次重问已有授权。
+- 规划事实来自项目已有的 GitHub 或等价权威文档；摘要和 checkpoint 只作定位线索。
+- 按仓库约定使用任务分支/工作树。同一共享写入载体只允许一个 writer；独立载体不因此全局串行。
+- 高风险改动开始前需要调查和覆盖计划；成功、失败和无错误副作用的证据在实现后验证。
+- 审查意见先映射本批验收、必须保持的不变量或现实高影响风险。必要修复可以连续进行；次数本身不触发禁止。
+- 验证要求合并所有适用来源；只有明确授权覆盖的具体冲突项可以豁免。权限与平台强制检查仍须满足。
+- 暂停只影响缺少必要能力、授权或真实依赖的动作，其他安全工作继续。
 
-一个 Unit 由“产品出口 + 约束全局行为的不变量 + 归属边界”共同确定。文件、调用路径、Issue、PR、
-分支、代码版本、审查者或执行代次变化，不能单独形成新 Unit，也不能重置同一
-`convergence_chain_locator` 或 finding 修复预算。
+## 按动作阅读
 
-共享不变量、写入载体、验证矩阵和产品出口的工作默认组成一个紧密批次。只有独立用户价值、独立风险或权限边界、
-独立归属、真实强依赖或独立回滚证据，才支持拆分。只读探索可以并行，正式实现保持一个稳定
-任务身份、一个写入任务和一个收敛链。
+- 接手范围、判断下一步或总结：[operations.md](references/operations.md)
+- 塑形目标与判断依赖：[issue-readiness.md](references/issue-readiness.md)
+- 选择直接执行或委派：[scheduling.md](references/scheduling.md)
+- 委派、返回结果与交付：[contracts.md](references/contracts.md)
+- 范围变化或审查问题：[scope-integrity.md](references/scope-integrity.md)
+- 分阶段证据、验证与审查：[runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)
+- 异步等待与恢复：[automation.md](references/automation.md)
+- 清理现场：[cleanup.md](references/cleanup.md)
+- 宿主工具与反馈授权：[codex-app.md](references/codex-app.md)
 
-## 结果控制循环
-
-所有用户事件、任务完成、Heartbeat、merge、依赖解除和总结尝试都进入
-[operations.md](references/operations.md) 的同一循环：
-
-1. 同步目标、GitHub、线程、工作树、PR、代码版本、授权和恢复索引；
-2. 更新产品差距、关键路径、验收归属和下一解锁条件；
-3. 分类为可执行工作、待准入、活动执行、真实外部等待、用户决策、待重塑/重归属或待收口；
-4. 执行授权范围内全部可安全动作，并重算容量、后继和准入；
-5. 监督实现、纠正范围漂移；用户或明确 Skill 纠偏时先恢复产品，再由 Owner 对自身行为复盘；收口后同周期继续下一项；
-6. 只有目标完成，或所有剩余差距都有真实等待证据时，才结束本周期。
-
-`ready=0`、空 Issue 列表、旧 handoff、协议已完成或任务自报不能替代上述判断。进展必须是产品出口差距缩短，
-或下一产品步骤的真实阻塞被解除；工程活动本身不是交付进展。
-
-## 实现前的系统性闭包
-
-普通局部改动不要求大矩阵。若验收涉及跨生命周期持久事实、认证/权限/安全、多个状态变化或外部副作用、
-替代实现、恢复或迁移路径，或使用“任何、所有、必须先于、绝不允许”等全局语义，则在写入任务开始前按
-[issue-readiness.md](references/issue-readiness.md) 判断适用性，并按
-[runtime-and-review-evidence.md](references/runtime-and-review-evidence.md) 形成一份可复核的系统性不变量闭包。
-
-闭包只保存不变量、覆盖面、顺序、失败规则和证据定位。第一次独立审查发现同一不变量遗漏时，完整刷新矩阵并
-合并为唯一一次有界修复；再次遗漏进入重新设计，不得换路径、PR、审查者或执行代次继续局部补丁。
-
-## 权限与安全边界
-
-- Access 不等于授权；Skill、Issue、Heartbeat、handoff 和历史动作不能生成新权限。
-- 没有可回读的 GitHub 或等价规划事实时不激活，不用聊天摘要补造事实。
-- 不直接在 `main` 实现；共享写入载体只有一个 writer。
-- 规划 readiness、运行准入、语义范围、独立审查、有效验证权威要求的 checks 和收口证据相互独立，不能互相替代；Hosted CI 只在上层权威、branch protection、release 或 security 合同要求时成为硬门。
-- 审查意见先映射当前验收或现实高影响风险；同一范围只有一轮因审查问题产生的写入。
-- 平台拒绝运行配置、缺少工具或证据时只隔离受影响任务，不静默降级、不自动改配置或重启。
-
-## 按需阅读
-
-- 目标循环、合法终态与低频执行复盘：[operations.md](references/operations.md)
-- Issue 塑形、依赖与系统性闭包触发：[issue-readiness.md](references/issue-readiness.md)
-- 模式、容量、紧密批次、拆分与阶段性收敛：[scheduling.md](references/scheduling.md)
-- 语义归属、不变量、审查问题与修复预算：[scope-integrity.md](references/scope-integrity.md)
-- 准入、消息、收口和反馈定位：[contracts.md](references/contracts.md)
-- 闭包矩阵、运行证据、审查前核验与独立审查：[runtime-and-review-evidence.md](references/runtime-and-review-evidence.md)
-- Heartbeat、恢复检查点与交接：[automation.md](references/automation.md)
-- Codex App 的模型、工具、等待、重试、验证和 GitHub 反馈能力：[codex-app.md](references/codex-app.md)
-- 跨 Skill 机器合同：[dev-orchestration-contract.json](references/dev-orchestration-contract.json)
-- 规范唯一归属矩阵：[governance.md](references/governance.md)
-
-只读取当前动作所需的 reference。用户输出使用普通中文，默认不展示 receipt、digest、generation 或完整控制块。
+跨 Skill 字段只在 [dev-orchestration-contract.json](references/dev-orchestration-contract.json) 定义；
+维护归属见 [governance.md](references/governance.md)。按需读取，不把所有 reference 变成每轮检查表。

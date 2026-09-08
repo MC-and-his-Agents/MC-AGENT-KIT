@@ -7,8 +7,8 @@
 
 | Skill | 版本 | 描述 |
 |---|---:|---|
-| [pmo](./pmo/SKILL.md) | 0.11.0 | 在用户明确委任的单一 GitHub 仓库中，以产品结果为首要责任编排多个独立 Unit Owner；完整执行需要兼容的 tasks-owner，缺失时仍可只读分析。 |
-| [tasks-owner](./tasks-owner/SKILL.md) | 0.25.0 | 将当前 Codex App 对话初始化为一个明确、可定位交付范围的长期 Unit Owner，持续完成实现、验证、合并与收口；用户直接委任与 PMO 准入使用同一职责，只改变授权来源。 |
+| [pmo](./pmo/SKILL.md) | 0.12.0 | 在用户委任的单一 GitHub 仓库中，持续推进多个交付单元组成的总体产品目标，处理跨单元取舍、真实依赖、归属冲突和后继。 |
+| [tasks-owner](./tasks-owner/SKILL.md) | 0.26.0 | 在用户明确委任或有效 PMO 委派下，持续负责一个可定位交付范围的实现、验证和收口。 |
 
 从 Preview / latest source 安装本主题当前全部 skills：
 
