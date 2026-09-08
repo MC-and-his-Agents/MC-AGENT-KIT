@@ -16,7 +16,6 @@ from tasks_owner_trajectory_schema import (
     LOCATOR_SENTINELS,
     USER_DECISION_AUTHORITIES,
     USER_DECISION_FIELDS,
-    repair_budget_errors,
     user_decision_errors,
 )
 
@@ -31,7 +30,7 @@ OWNER_TRIGGERS = ROOT / "skills/dev/tasks-owner/evals/trigger_cases.json"
 PMO_TRIGGERS = ROOT / "skills/dev/pmo/evals/trigger_cases.json"
 CAPABILITIES = {
     "pmo_admission", "owner_sparse_delta", "single_scope_owner_execution",
-    "bounded_finding_fix", "delivery_closeout", "bounded_execution_retrospective",
+    "scoped_finding_fix", "delivery_closeout", "bounded_execution_retrospective",
     "skill_feedback_candidate", "product_frontier_closure", "native_skill_feedback",
 }
 CAPABILITY_COMPATIBILITY_FIELDS = {
@@ -50,7 +49,7 @@ PMO_ADMISSION_FIELDS = {
     "planning_truth_locator", "product_goal", "expected_contribution", "acceptance_locator",
     "product_exit_locator", "governing_invariant_locator", "convergence_chain_locator",
     "ownership_boundary_locator", "allowed_scope", "excluded_scope", "carrier_locator",
-    "target_head_locator", "decision_boundary_locator", "repair_budget",
+    "target_head_locator", "decision_boundary_locator",
 }
 ACTION_ORDER = [
     "closeout_unit", "correct_drift", "recompute_product_frontier", "route_delta", "shape_work_item",
@@ -110,7 +109,7 @@ FEEDBACK_FORBIDDEN_ACTIONS = {
 }
 FEEDBACK_PRECONDITIONS = {
     "skill_identity_match", "canonical_repository_match", "github_feedback_capability_available",
-    "dedupe_complete", "redaction_safe",
+    "dedupe_complete", "redaction_safe", "explicit_feedback_authority",
 }
 FEEDBACK_STATUSES = {"none", "candidate", "deduped", "submitted", "deferred_private"}
 FEEDBACK_TARGETS = {"pmo", "tasks-owner", "platform", "none"}
@@ -149,7 +148,7 @@ def semver(value: Any) -> tuple[int, int, int] | None:
 def version_is_compatible(actual: Any, compatibility: dict[str, Any]) -> bool:
     parsed = semver(actual)
     minimum = semver(compatibility.get("minimum_compatible_version"))
-    return parsed is not None and minimum is not None and parsed >= minimum and compatibility.get("required_contract_schema_major") == 1
+    return parsed is not None and minimum is not None and parsed >= minimum and compatibility.get("required_contract_schema_major") == 2
 
 
 def feedback_fingerprint(facts: dict[str, Any], contract: dict[str, Any]) -> str:
@@ -175,10 +174,29 @@ def feedback_api_body(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def feedback_authorized(facts: dict[str, Any]) -> bool:
+    """既有明确授权可复用；canonical 身份与工具访问都不生成授权。"""
+    authority = facts.get("feedback_authority")
+    action = facts.get("feedback_write_action") or (
+        "add_comment" if facts.get("existing_feedback_issue") else "create_issue"
+    )
+    return (
+        isinstance(authority, dict)
+        and real_locator(authority.get("authority_locator"))
+        and authority.get("repository") == "MC-and-his-Agents/MC-AGENT-KIT"
+        and isinstance(authority.get("actions"), list)
+        and all(real_locator(item) for item in authority["actions"])
+        and action in FEEDBACK_WRITE_ACTIONS
+        and action in authority["actions"]
+    )
+
+
 def feedback_side_effect_errors(facts: dict[str, Any]) -> list[str]:
     if not any(field in facts for field in FEEDBACK_SIDE_EFFECT_FIELDS):
         return []
     errors: list[str] = []
+    if not feedback_authorized(facts):
+        errors.append("反馈写入缺少覆盖目标与动作的明确授权")
     if facts.get("retrospective") not in RETROSPECTIVE_TRIGGERS:
         errors.append("反馈外部写入必须来自有效执行复盘")
     if facts.get("root_cause_target") not in {"skill", "platform"}:
@@ -237,7 +255,7 @@ def feedback_fact_errors(facts: dict[str, Any]) -> list[str]:
         fingerprint.get("affected_skill") != affected_skill
         or fingerprint.get("incident_root_cause_class") != root_cause
         or not real_locator(fingerprint.get("governing_behavior_category"))
-        or fingerprint.get("platform_contract_major") != 1
+        or fingerprint.get("platform_contract_major") != 2
     ):
         return side_effect_errors + ["Skill feedback candidate fingerprint 与复盘事实不一致"]
     if candidate.get("trigger") != facts.get("retrospective"):
@@ -354,7 +372,7 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
         actions.append("record_evidenced_wait")
     if facts.get("feedback_candidate"):
         actions.append("record_skill_feedback_candidate")
-    if facts.get("feedback_submission_ready") and all(
+    if facts.get("feedback_submission_ready") and feedback_authorized(facts) and all(
         facts.get(key) is True
         for key in (
             "product_actions_complete", "skill_identity_match", "canonical_repository_match",
@@ -379,10 +397,21 @@ def derive_cycle(facts: dict[str, Any]) -> tuple[str, list[str]]:
 
 def derive_integration(facts: dict[str, Any]) -> str | None:
     if facts.get("systemic_invariant"):
-        if unit_identity_errors(facts) or capability_compatibility_errors(facts, require_compatible=False):
+        if mandate_errors(facts) or unit_identity_errors(facts):
+            return None
+        action = facts.get("requested_action")
+        if action not in {"start_writer", "deliver"}:
+            return None
+        closure = facts.get("closure")
+        if isinstance(closure, dict) and closure.get("governing_invariant_locator") != unit_identity_value(facts)["governing_invariant_locator"]:
+            return None
+        if action == "deliver":
+            return "coverage_verified" if not closure_errors(closure, "deliver") else "hold_before_delivery"
+        if capability_compatibility_errors(facts, require_compatible=False):
             return None
         ready = facts["capability_compatibility"]["status"] == "compatible"
-        return "start_writer" if ready and facts.get("closure_status") == "complete" and not closure_errors(facts.get("closure")) else "hold_before_writer"
+        valid = ready and not closure_errors(closure)
+        return "start_writer" if valid else "hold_before_writer"
     if facts.get("writer_admission_requested"):
         if facts.get("mandate_complete") and not mandate_errors(facts) and not unit_identity_errors(facts) and not capability_compatibility_errors(facts, require_compatible=False):
             status = facts["capability_compatibility"]["status"]
@@ -413,6 +442,8 @@ def derive_integration(facts: dict[str, Any]) -> str | None:
             return "candidate"
         if facts.get("github_feedback_capability_available") is not True:
             return "candidate"
+        if not feedback_authorized(facts):
+            return "candidate"
         if facts.get("existing_feedback_issue"):
             if not facts.get("feedback_write_succeeded"):
                 return "comment_existing" if facts.get("github_feedback_capability_available") is True else "candidate"
@@ -440,7 +471,7 @@ def skill_version(path: Path) -> str | None:
 
 def validate_contract(contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "1.2.0":
+    if contract.get("contract_id") != "dev-orchestration" or contract.get("schema_version") != "2.0.0":
         errors.append("共享合同身份或版本错误")
     if contract.get("authority_source") != "tasks-owner":
         errors.append("共享合同权威来源错误")
@@ -493,11 +524,21 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         }
         or writer.get("admitted_status") != "compatible"
         or writer.get("unchanged_evidence_action") != "hold_without_probe"
+        or writer.get("default_execution_surface") != "local"
+        or writer.get("delegation") != "single_complete_assignment"
     ):
         errors.append("writer action-scoped capability 合同不完整")
     verification = contract.get("verification_authority", {})
     if (
-        verification.get("source_order") != ["user", "issue", "repository", "skill_default"]
+        set(verification.get("sources", [])) != {
+            "user", "issue", "repository", "skill_default",
+            "branch_protection", "security_contract", "release_contract",
+        }
+        or verification.get("resolution") != "union_of_applicable_requirements"
+        or verification.get("source_fields") != ["locator", "required_checks"]
+        or verification.get("override_fields") != ["source", "check", "authority_locator"]
+        or verification.get("override_authority") != "explicit_user_source"
+        or set(verification.get("non_waivable_sources", [])) != {"branch_protection", "security_contract"}
         or verification.get("readiness_layers") != ["product", "merge", "release"]
         or set(verification.get("hosted_required_when", [])) != {
             "effective_authority", "branch_protection", "release_contract", "security_contract",
@@ -511,6 +552,8 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     if (
         not {"required_fields", "surface_required_fields", "surface_status", "closure_status", "required_ordering"} <= set(closure)
         or closure.get("required_ordering") != "predicate_before_first_observable_side_effect"
+        or closure.get("admission_status") != ["planned", "verified"]
+        or closure.get("delivery_status") != "verified"
     ):
         errors.append("系统性闭包机器 schema 不完整")
     for skill, compatibility in contract.get("compatible_skills", {}).items():
@@ -521,7 +564,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         minimum = semver(compatibility["minimum_compatible_version"])
         if tested is None or minimum is None or not version_is_compatible(compatibility["tested_artifact_version"], compatibility):
             errors.append(f"{skill} 的最低兼容版本无效")
-        if compatibility["required_contract_schema_major"] != 1:
+        if compatibility["required_contract_schema_major"] != 2:
             errors.append(f"{skill} 的合同主版本不兼容")
     frontier = contract.get("product_frontier", {})
     if (
@@ -539,7 +582,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         or frontier.get("recompute_forbids_completed") is not True
         or set(frontier.get("recompute_triggers", [])) != {
             "user_correction", "unit_merge_or_closeout", "dependency_resolution", "owner_terminal",
-            "waiting_proof_invalidation", "long_lived_single_writer_with_unfinished_exit", "deep_audit",
+            "waiting_proof_invalidation", "stalled_progress_or_missing_exit", "deep_audit",
         }
     ):
         errors.append("产品前沿闭包合同不完整")
@@ -563,7 +606,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         "side_effect_requires_submission_preconditions",
         "submission_preconditions", "core_semantic_fields", "fingerprint_fields", "fingerprint_forbidden_fields",
         "fingerprint_occurrence_required_fields", "new_issue_occurrence",
-        "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "legacy_authority_input",
+        "occurrence_comment_fields", "checkpoint_fields", "submission_required_fields", "authority_policy", "authority_fields",
         "failure_status",
         "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
         "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
@@ -585,7 +628,7 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     elif set(feedback.get("forbidden_actions", [])) != FEEDBACK_FORBIDDEN_ACTIONS:
         errors.append("Skill 反馈 forbidden actions 不完整")
     elif set(feedback.get("submission_preconditions", [])) != FEEDBACK_PRECONDITIONS:
-        errors.append("Skill 反馈提交前置条件漂移或重新引入逐次授权")
+        errors.append("Skill 反馈提交前置条件不完整")
     elif set(feedback.get("core_semantic_fields", [])) != CORE_FEEDBACK_FIELDS:
         errors.append("Skill 反馈核心语义字段错误")
     elif set(feedback.get("fingerprint_fields", [])) != FINGERPRINT_FIELDS:
@@ -603,12 +646,15 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     elif set(feedback.get("submission_required_fields", [])) != SUBMISSION_FIELDS:
         errors.append("Skill 反馈 submitted readback 门不完整")
     elif feedback.get("failure_status") != {
-        "candidate": ["dedupe_incomplete", "tool_unavailable", "write_failed", "readback_unavailable"],
+        "candidate": ["dedupe_incomplete", "tool_unavailable", "write_failed", "readback_unavailable", "authority_missing"],
         "deferred_private": ["redaction_unsafe", "canonical_repository_mismatch", "skill_identity_mismatch", "action_not_allowed"],
     }:
         errors.append("Skill 反馈失败状态未 fail closed 或误把暂时失败归为隐私延期")
-    elif feedback.get("legacy_authority_input") != "ignored_for_canonical_repository; non-canonical writes use ordinary user authorization":
-        errors.append("旧反馈授权输入的兼容语义错误")
+    elif (
+        feedback.get("authority_policy") != "reuse_explicit_authority_within_scope; otherwise_candidate"
+        or feedback.get("authority_fields") != ["authority_locator", "repository", "actions"]
+    ):
+        errors.append("反馈授权必须绑定已有目标/动作范围，无授权时保留候选")
     elif not all(feedback.get(field) is True for field in (
         "api_body_must_be_explicit", "issue_is_only_long_term_retrospective_body",
         "does_not_change_product_semantic_revision", "does_not_change_current_skill_digest",
@@ -684,7 +730,7 @@ def validate_files(contract: dict[str, Any]) -> list[str]:
     return errors
 
 
-def closure_errors(closure: Any) -> list[str]:
+def closure_errors(closure: Any, stage: str = "start") -> list[str]:
     if not isinstance(closure, dict):
         return ["系统性闭包必须是对象"]
     schema = json.loads(CONTRACT.read_text(encoding="utf-8"))["systemic_invariant_closure"]
@@ -693,8 +739,9 @@ def closure_errors(closure: Any) -> list[str]:
         return ["系统性闭包缺少范围、顺序、失败规则、适用面或摘要"]
     if any(not real_locator(closure.get(key)) for key in required - {"surfaces"}):
         return ["系统性闭包的说明或摘要不能为空"]
-    if closure.get("status") != "ready":
-        return ["用于 writer 准入的系统性闭包必须 ready"]
+    statuses = [schema["delivery_status"]] if stage == "deliver" else schema["admission_status"]
+    if closure.get("status") not in statuses:
+        return ["开始需要覆盖计划，交付需要已验证结果"]
     if closure.get("ordering") != schema["required_ordering"]:
         return ["系统性闭包必须证明 predicate 早于首次可观察副作用"]
     surfaces = closure.get("surfaces")
@@ -706,6 +753,8 @@ def closure_errors(closure: Any) -> list[str]:
             return ["系统性闭包的适用面证据不完整"]
         if surface.get("status") not in schema["surface_status"]:
             return ["系统性闭包的适用面状态无效"]
+        if closure.get("status") == "verified" and surface.get("status") == "planned":
+            return ["未执行的验证计划不能证明交付"]
         for field in surface_fields:
             if not real_locator(surface.get(field)):
                 return ["系统性闭包的适用面证据不完整"]
@@ -720,7 +769,9 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
         errors.append("Owner 范围类型无效")
     if not real_locator(facts.get("scope_locator")):
         errors.append("Owner 缺少范围定位")
-    if facts.get("authority_origin") == "user" and not real_locator(facts.get("global_tradeoff_authority")):
+    if facts.get("authority_origin") == "user" and (
+        facts.get("global_tradeoff_authority") != "none" and not real_locator(facts.get("global_tradeoff_authority"))
+    ):
         errors.append("Owner 缺少全局取舍授权边界")
     if facts.get("authority_origin") == "pmo" and facts.get("global_tradeoff_authority") != "none":
         errors.append("PMO 不得继承用户全局取舍授权")
@@ -729,13 +780,11 @@ def mandate_errors(facts: dict[str, Any]) -> list[str]:
         if not isinstance(admission, dict) or not PMO_ADMISSION_FIELDS <= set(admission):
             errors.append("PMO 准入 envelope 不完整")
         else:
-            if admission.get("contract_id") != "dev-orchestration" or admission.get("schema_version") != "1.2.0":
+            if admission.get("contract_id") != "dev-orchestration" or admission.get("schema_version") != "2.0.0":
                 errors.append("PMO 准入 envelope 使用了不兼容的共享合同")
             for field in PMO_ADMISSION_FIELDS:
                 value = admission.get(field)
-                if field == "repair_budget":
-                    errors.extend(repair_budget_errors(value, admission.get("convergence_chain_locator")))
-                elif field in {"allowed_scope", "excluded_scope"}:
+                if field in {"allowed_scope", "excluded_scope"}:
                     if not isinstance(value, list) or not value or any(not real_locator(item) for item in value):
                         errors.append(f"PMO 准入 {field} 不能为空")
                 elif not real_locator(value):
@@ -781,12 +830,16 @@ def continuous_lane_errors(facts: dict[str, Any]) -> list[str]:
     return errors
 
 
+def unit_identity_value(facts: dict[str, Any]) -> Any:
+    if facts.get("authority_origin") == "pmo" and isinstance(facts.get("pmo_admission"), dict):
+        return facts["pmo_admission"]
+    return facts.get("unit_identity")
+
+
 def unit_identity_errors(facts: dict[str, Any]) -> list[str]:
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     fields = set(contract["writer_admission"]["required_unit_identity_fields"])
-    identity = facts.get("unit_identity")
-    if facts.get("authority_origin") == "pmo" and isinstance(facts.get("pmo_admission"), dict):
-        identity = facts["pmo_admission"]
+    identity = unit_identity_value(facts)
     if not isinstance(identity, dict):
         return ["writer 准入缺少 Unit 身份"]
     return [f"writer 准入缺少 {field}" for field in fields if not real_locator(identity.get(field))]
@@ -913,8 +966,9 @@ def validate_integration(rows: list[dict[str, Any]]) -> list[str]:
             errors.extend(f"integration line {line}: {error}" for error in mandate_errors(row["facts"]))
         if row["expected"] == "admit_unit_writer":
             errors.extend(f"integration line {line}: {error}" for error in writer_admission_errors(row["facts"]))
-        if row["facts"].get("systemic_invariant") and row["facts"].get("closure_status") == "complete":
-            errors.extend(f"integration line {line}: {error}" for error in closure_errors(row["facts"].get("closure")))
+        if row["facts"].get("systemic_invariant") and row["expected"] in {"start_writer", "coverage_verified"}:
+            stage = "deliver" if row["expected"] == "coverage_verified" else "start"
+            errors.extend(f"integration line {line}: {error}" for error in closure_errors(row["facts"].get("closure"), stage))
     required = {
         "activate_owner", "admit_unit_writer", "same_unit", "new_unit", "hold_before_writer",
         "start_writer", "deferred_private", "candidate", "comment_existing",
@@ -980,7 +1034,7 @@ def self_test() -> list[str]:
         ("完成态闭包", lambda value: value["product_frontier"].update(completed_requires_complete_closure=False)),
         ("用户决策边界", lambda value: value["product_frontier"]["waiting_user_required_fields"].remove("decision_boundary_locator")),
         ("连续交付路径", lambda value: value["owner_sparse_delta"]["normal_path_visible_events"].insert(1, "started")),
-        ("验证权威顺序", lambda value: value["verification_authority"]["source_order"].reverse()),
+        ("验证来源合并", lambda value: value["verification_authority"].update(resolution="first_source_wins")),
         ("Hosted 条件门禁", lambda value: value["verification_authority"]["hosted_required_when"].remove("effective_authority")),
         ("验证证据复用键", lambda value: value["verification_authority"]["evidence_reuse_key"].remove("environment_class")),
         ("action-scoped capability", lambda value: value["writer_admission"]["action_scoped_semantics"].remove("cancel")),
@@ -992,23 +1046,23 @@ def self_test() -> list[str]:
         ("反馈写入动作", lambda value: value["skill_feedback"]["write_actions"].append("read_issue")),
         ("反馈请求动作字段", lambda value: value["skill_feedback"].update(requested_action_field="feedback_write_action")),
         ("反馈副作用字段", lambda value: value["skill_feedback"]["side_effect_fact_fields"].remove("feedback_submission_locator")),
-        ("逐次反馈授权", lambda value: value["skill_feedback"]["submission_preconditions"].append("skill_feedback_authority")),
+        ("反馈授权", lambda value: value["skill_feedback"]["submission_preconditions"].remove("explicit_feedback_authority")),
         ("canonical Skill 映射", lambda value: value["skill_feedback"]["canonical_repositories"].pop("pmo")),
         ("反馈状态", lambda value: value["skill_feedback"]["feedback_status"].remove("candidate")),
         ("fingerprint 字段", lambda value: value["skill_feedback"]["fingerprint_fields"].append("head")),
         ("首次 occurrence", lambda value: value["skill_feedback"].update(new_issue_occurrence="unknown")),
         ("反馈失败状态", lambda value: value["skill_feedback"]["failure_status"]["candidate"].remove("write_failed")),
         ("权威来源", lambda value: value.update(authority_source="pmo")),
-        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.12.0")),
+        ("最低兼容版本", lambda value: value["compatible_skills"]["pmo"].update(minimum_compatible_version="0.13.0")),
     ):
         bad_contract = copy.deepcopy(contract)
         mutate(bad_contract)
         if not validate_contract(bad_contract):
             failures.append(f"破坏{label}的变异未被拒绝")
     pmo_compatibility = contract["compatible_skills"]["pmo"]
-    if not version_is_compatible("0.11.1", pmo_compatibility):
+    if not version_is_compatible("0.12.1", pmo_compatibility):
         failures.append("高于最低版本的兼容补丁版本被错误拒绝")
-    if version_is_compatible("0.10.9", pmo_compatibility):
+    if version_is_compatible("0.11.9", pmo_compatibility):
         failures.append("低于最低版本的 Skill 被错误接受")
     cycles = load_jsonl(CYCLES)
     bad_cycles = copy.deepcopy(cycles)
@@ -1071,6 +1125,31 @@ def self_test() -> list[str]:
     if status == "completed" or "recompute_product_frontier" not in actions or not validate_cycles(incomplete_completed):
         failures.append("产品出口完成与不完整前沿并存的变异未被拒绝")
     integration = load_jsonl(INTEGRATION)
+    direct_none = copy.deepcopy(next(row["facts"] for row in integration if row["id"] == "direct-user-mandate"))
+    direct_none["global_tradeoff_authority"] = "none"
+    if mandate_errors(direct_none) or derive_integration(direct_none) != "activate_owner":
+        failures.append("范围内 Owner 被错误要求全局取舍授权")
+    planned = copy.deepcopy(next(row["facts"] for row in integration if row["id"] == "systemic-closure-complete"))
+    if derive_integration(planned) != "start_writer":
+        failures.append("高风险覆盖计划被实现后的结果证据倒置阻塞")
+    planned["requested_action"] = "deliver"
+    if derive_integration(planned) != "hold_before_delivery":
+        failures.append("高风险计划被错误接受为交付结果")
+    ungranted = copy.deepcopy(next(row["facts"] for row in integration if row["id"] == "new-feedback-submitted"))
+    ungranted.pop("feedback_authority")
+    if derive_integration(ungranted) != "candidate" or not feedback_side_effect_errors(ungranted):
+        failures.append("canonical 访问错误地产生了外部写入授权")
+    wrong_authority = copy.deepcopy(ungranted)
+    wrong_authority["feedback_authority"] = {"authority_locator": "user:grant", "repository": "other/repo", "actions": ["create_issue"]}
+    if feedback_authorized(wrong_authority):
+        failures.append("反馈授权目标不匹配被错误接受")
+    wrong_authority["feedback_authority"]["repository"] = "MC-and-his-Agents/MC-AGENT-KIT"
+    wrong_authority["feedback_authority"]["actions"] = ["add_comment"]
+    if feedback_authorized(wrong_authority):
+        failures.append("反馈授权动作不匹配被错误接受")
+    wrong_authority["feedback_authority"]["actions"] = ["search_issue", "read_issue", "create_issue"]
+    if not feedback_authorized(wrong_authority):
+        failures.append("已有反馈读写授权被错误要求重新授权")
     bad_integration = copy.deepcopy(integration)
     next(row for row in bad_integration if row["id"] == "head-change-keeps-unit")["expected"] = "new_unit"
     if not validate_integration(bad_integration):
@@ -1195,7 +1274,7 @@ def self_test() -> list[str]:
         next(row for row in direct_sentinel if row["id"] == "direct-user-mandate")["facts"]["scope_locator"] = sentinel
         if not validate_integration(direct_sentinel):
             failures.append(f"direct mandate scope sentinel {sentinel} 未被拒绝")
-        for field in PMO_ADMISSION_FIELDS - {"repair_budget", "allowed_scope", "excluded_scope"}:
+        for field in PMO_ADMISSION_FIELDS - {"allowed_scope", "excluded_scope"}:
             admission_sentinel = copy.deepcopy(integration)
             admission = next(row for row in admission_sentinel if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]
             admission[field] = sentinel
@@ -1206,17 +1285,6 @@ def self_test() -> list[str]:
         next(row for row in admission_sentinel if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"][field] = ["missing"]
         if not validate_integration(admission_sentinel):
             failures.append(f"PMO admission {field} sentinel 未被拒绝")
-    for label, mutate in (
-        ("预算上限", lambda budget: budget.update(finding_write_limit=999)),
-        ("收敛链", lambda budget: budget.update(convergence_chain_locator="chain:other")),
-        ("预算证据", lambda budget: budget.update(finding_write_consumed=1)),
-        ("非法重置", lambda budget: budget["reset_only_on"].append("execution_generation")),
-    ):
-        bad_budget = copy.deepcopy(integration)
-        admission = next(row for row in bad_budget if row["id"] == "pmo-work-item-mandate")["facts"]["pmo_admission"]
-        mutate(admission["repair_budget"])
-        if not validate_integration(bad_budget):
-            failures.append(f"{label}变异未被拒绝")
     noisy_lane = copy.deepcopy(integration)
     lane = next(row for row in noisy_lane if row["id"] == "ordinary-unit-continuous-lane")
     lane["facts"]["pmo_visible_events"].insert(1, "started")
@@ -1326,7 +1394,7 @@ def self_test() -> list[str]:
         ("dedupe 结果", lambda facts: facts.pop("existing_feedback_issue")),
     ):
         bad_payload = copy.deepcopy(integration)
-        payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-no-per-run-authority")
+        payload_case = next(row for row in bad_payload if row["id"] == "explicit-pmo-correction-standing-authority")
         mutate(payload_case["facts"])
         if not validate_integration(bad_payload):
             failures.append(f"破坏{label}的反馈变异未被拒绝")
@@ -1360,9 +1428,9 @@ def self_test() -> list[str]:
         failures.append("逃逸到 body 外的 Form 控件绕过了结构校验")
     for case_id, wrong_action in (
         ("existing-feedback-occurrence", "create_issue"),
-        ("explicit-pmo-correction-no-per-run-authority", "add_comment"),
+        ("explicit-pmo-correction-standing-authority", "add_comment"),
         ("existing-feedback-occurrence", "search_issue"),
-        ("explicit-pmo-correction-no-per-run-authority", "read_issue"),
+        ("explicit-pmo-correction-standing-authority", "read_issue"),
     ):
         bad_action = copy.deepcopy(integration)
         next(row for row in bad_action if row["id"] == case_id)["facts"]["feedback_write_action"] = wrong_action
@@ -1370,7 +1438,7 @@ def self_test() -> list[str]:
             failures.append("与 dedupe 结果不一致的反馈动作未被拒绝")
     fingerprint_facts = {
         "affected_skill": "pmo", "incident_root_cause_class": "skill",
-        "governing_behavior_category": "frontier-closure", "platform_contract_major": 1,
+        "governing_behavior_category": "frontier-closure", "platform_contract_major": 2,
         "branch": "one", "head": "abc", "owner": "owner-a", "heartbeat": "first",
     }
     changed_identity = dict(fingerprint_facts, branch="two", head="def", owner="owner-b", heartbeat="second")

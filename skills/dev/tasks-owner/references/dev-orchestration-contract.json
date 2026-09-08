@@ -1,24 +1,24 @@
 {
   "contract_id": "dev-orchestration",
-  "schema_version": "1.2.0",
+  "schema_version": "2.0.0",
   "authority_source": "tasks-owner",
   "compatible_skills": {
     "pmo": {
-      "tested_artifact_version": "0.11.0",
-      "minimum_compatible_version": "0.11.0",
-      "required_contract_schema_major": 1
+      "tested_artifact_version": "0.12.0",
+      "minimum_compatible_version": "0.12.0",
+      "required_contract_schema_major": 2
     },
     "tasks-owner": {
-      "tested_artifact_version": "0.25.0",
-      "minimum_compatible_version": "0.25.0",
-      "required_contract_schema_major": 1
+      "tested_artifact_version": "0.26.0",
+      "minimum_compatible_version": "0.26.0",
+      "required_contract_schema_major": 2
     }
   },
   "capabilities": [
     "pmo_admission",
     "owner_sparse_delta",
     "single_scope_owner_execution",
-    "bounded_finding_fix",
+    "scoped_finding_fix",
     "delivery_closeout",
     "product_frontier_closure",
     "bounded_execution_retrospective",
@@ -32,8 +32,14 @@
       "scope_locator",
       "global_tradeoff_authority"
     ],
-    "authority_origin": ["user", "pmo"],
-    "scope_kind": ["project_scope", "work_item"]
+    "authority_origin": [
+      "user",
+      "pmo"
+    ],
+    "scope_kind": [
+      "project_scope",
+      "work_item"
+    ]
   },
   "unit_identity": {
     "required_fields": [
@@ -83,7 +89,12 @@
       "equivalent_failure_evidence",
       "probe_attempted"
     ],
-    "execution_surfaces": ["local", "native_subagent", "app_task", "external"],
+    "execution_surfaces": [
+      "local",
+      "native_subagent",
+      "app_task",
+      "external"
+    ],
     "surface_identity_prefix": {
       "local": "thread:",
       "native_subagent": "native-subagent:",
@@ -91,16 +102,34 @@
       "external": "external:"
     },
     "surface_capability_locator_prefix": {
-      "local": ["tool:"],
-      "native_subagent": ["host:native-"],
-      "app_task": ["host:app-", "host:exact-task-"],
-      "external": ["external:"]
+      "local": [
+        "tool:"
+      ],
+      "native_subagent": [
+        "host:native-"
+      ],
+      "app_task": [
+        "host:app-",
+        "host:exact-task-"
+      ],
+      "external": [
+        "external:"
+      ]
     },
     "surface_carrier_prefix": {
-      "local": ["git-common-dir:"],
-      "native_subagent": ["git-common-dir:"],
-      "app_task": ["git-common-dir:", "task:"],
-      "external": ["external:"]
+      "local": [
+        "git-common-dir:"
+      ],
+      "native_subagent": [
+        "git-common-dir:"
+      ],
+      "app_task": [
+        "git-common-dir:",
+        "task:"
+      ],
+      "external": [
+        "external:"
+      ]
     },
     "targeted_monitoring_prefix": "targeted:",
     "action_scoped_semantics": [
@@ -120,9 +149,15 @@
       "provided_by_current_batch",
       "not_applicable"
     ],
-    "negative_behavior": ["replan_or_reownership_pending", "waiting_external", "not_applicable"],
+    "negative_behavior": [
+      "replan_or_reownership_pending",
+      "waiting_external",
+      "not_applicable"
+    ],
     "admitted_status": "compatible",
-    "unchanged_evidence_action": "hold_without_probe"
+    "unchanged_evidence_action": "hold_without_probe",
+    "default_execution_surface": "local",
+    "delegation": "single_complete_assignment"
   },
   "systemic_invariant_closure": {
     "required_fields": [
@@ -146,9 +181,23 @@
       "status",
       "basis"
     ],
-    "surface_status": ["covered", "not_applicable"],
-    "closure_status": ["ready", "incomplete", "invalidated"],
-    "required_ordering": "predicate_before_first_observable_side_effect"
+    "surface_status": [
+      "planned",
+      "covered",
+      "not_applicable"
+    ],
+    "closure_status": [
+      "planned",
+      "verified",
+      "incomplete",
+      "invalidated"
+    ],
+    "required_ordering": "predicate_before_first_observable_side_effect",
+    "admission_status": [
+      "planned",
+      "verified"
+    ],
+    "delivery_status": "verified"
   },
   "pmo_admission": {
     "required_fields": [
@@ -169,8 +218,7 @@
       "excluded_scope",
       "carrier_locator",
       "target_head_locator",
-      "decision_boundary_locator",
-      "repair_budget"
+      "decision_boundary_locator"
     ]
   },
   "owner_sparse_delta": {
@@ -217,12 +265,6 @@
     "normal_path_human_messages": 0
   },
   "verification_authority": {
-    "source_order": [
-      "user",
-      "issue",
-      "repository",
-      "skill_default"
-    ],
     "readiness_layers": [
       "product",
       "merge",
@@ -244,7 +286,31 @@
       "required_checks",
       "pr_metadata"
     ],
-    "unrelated_failure_action": "backlog_without_product_rollback"
+    "unrelated_failure_action": "backlog_without_product_rollback",
+    "sources": [
+      "user",
+      "issue",
+      "repository",
+      "skill_default",
+      "branch_protection",
+      "security_contract",
+      "release_contract"
+    ],
+    "resolution": "union_of_applicable_requirements",
+    "source_fields": [
+      "locator",
+      "required_checks"
+    ],
+    "override_fields": [
+      "source",
+      "check",
+      "authority_locator"
+    ],
+    "override_authority": "explicit_user_source",
+    "non_waivable_sources": [
+      "branch_protection",
+      "security_contract"
+    ]
   },
   "product_frontier": {
     "required_fields": [
@@ -309,7 +375,10 @@
       "permission_privacy_data",
       "irreversible_external_result"
     ],
-    "closure_status": ["complete", "incomplete"],
+    "closure_status": [
+      "complete",
+      "incomplete"
+    ],
     "whole_cycle_wait_allowed_classifications": [
       "active_execution",
       "waiting_external",
@@ -323,7 +392,7 @@
       "dependency_resolution",
       "owner_terminal",
       "waiting_proof_invalidation",
-      "long_lived_single_writer_with_unfinished_exit",
+      "stalled_progress_or_missing_exit",
       "deep_audit"
     ]
   },
@@ -339,7 +408,12 @@
       "repeated_platform_assumption_failure",
       "high_impact_incident"
     ],
-    "root_cause_targets": ["project", "planning", "skill", "platform"],
+    "root_cause_targets": [
+      "project",
+      "planning",
+      "skill",
+      "platform"
+    ],
     "candidate_required_fields": [
       "affected_skill",
       "trigger",
@@ -409,7 +483,8 @@
       "canonical_repository_match",
       "github_feedback_capability_available",
       "dedupe_complete",
-      "redaction_safe"
+      "redaction_safe",
+      "explicit_feedback_authority"
     ],
     "core_semantic_fields": [
       "affected_skill",
@@ -464,13 +539,19 @@
       "submitted",
       "deferred_private"
     ],
-    "feedback_target": ["pmo", "tasks-owner", "platform", "none"],
+    "feedback_target": [
+      "pmo",
+      "tasks-owner",
+      "platform",
+      "none"
+    ],
     "failure_status": {
       "candidate": [
         "dedupe_incomplete",
         "tool_unavailable",
         "write_failed",
-        "readback_unavailable"
+        "readback_unavailable",
+        "authority_missing"
       ],
       "deferred_private": [
         "redaction_unsafe",
@@ -485,11 +566,16 @@
       "feedback_readback_verified",
       "skill_digest_unchanged"
     ],
-    "legacy_authority_input": "ignored_for_canonical_repository; non-canonical writes use ordinary user authorization",
     "api_body_must_be_explicit": true,
     "issue_is_only_long_term_retrospective_body": true,
     "does_not_change_product_semantic_revision": true,
-    "does_not_change_current_skill_digest": true
+    "does_not_change_current_skill_digest": true,
+    "authority_policy": "reuse_explicit_authority_within_scope; otherwise_candidate",
+    "authority_fields": [
+      "authority_locator",
+      "repository",
+      "actions"
+    ]
   },
   "invalidation": [
     "contract_locator_unreadable",

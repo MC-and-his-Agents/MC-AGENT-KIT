@@ -1,7 +1,7 @@
 interface:
   display_name: "Tasks Owner"
   short_description: "端到端负责一个明确交付范围，持续推进实现、验证与安全收口"
-  default_prompt: "使用 $tasks-owner 负责一个可定位交付范围：先回读真实目标与授权，持续推进实现、验证和收口；平台参数按 Codex App 引用执行。"
+  default_prompt: "使用 $tasks-owner 负责一个可定位交付范围：先回读真实目标与授权，持续推进实现、验证和收口；默认直接执行，有独立收益时再委派。"
   trajectory_validator: "python3 scripts/validate-dev-orchestration.py"
 compatibility:
   canonical_format: "agent-skills"
@@ -18,4 +18,4 @@ compatibility:
     remote_inline_execution: "forbid"
     remote_metadata_policy: "allow-metadata-only"
   degradation:
-    openai: "Codex App 原生任务线程、Automation 或 Subagent 能力缺失时保持只读并报告。"
+    openai: "仅隔离缺少必要能力的动作；本地可执行工作继续。"

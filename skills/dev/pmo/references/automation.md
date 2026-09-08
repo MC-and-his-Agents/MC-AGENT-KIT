@@ -1,142 +1,53 @@
-# 观察 Heartbeat 与增量审计
+# Heartbeat 与恢复
 
-Heartbeat 只负责唤醒和 reconciliation，不是事实源、消息总线、审批器或常规调度器。直接事件到达时应立即消费；只有平台只能周期唤醒时，才由 Heartbeat 读取持久 source cursor，恢复自上次可信 checkpoint 之后的变化。
+Heartbeat 负责在需要时重新唤醒 PMO；真实消息、任务和仓库状态才是事实来源。直接事件到达时立即处理，周期唤醒补足遗漏。
 
-## 权威与读取路径
+## 创建和更新
 
-- canonical event、sender delivery record、receiver receipt 及 GitHub、thread、worktree evidence 继续使用 event-contract 的定义；本 reference 不复制 machine/human projection。
-- source 必须能按 cursor、digest 或等价 revision 查询并重放。不能持久查询/重放的 source 标记 unavailable，只对其影响范围 fail-closed。
-- automation prompt、owner handoff 和摘要只能提供 locator，不能成为 canonical fact。
-- 每轮先形成 change vector：source cursor/revision、new event keys、generation/semantic revision、pending receipts、truth/skill/runtime invalidation、due sentinel 和 evidence expiry。没有可回读的 vector 不得假定没有变化。
+用户请求持续观察或已授权 Automation 时使用宿主工具。同用途优先更新现有 Heartbeat，绑定真实 PMO 任务；保留用户周期、时区与通知偏好。Prompt 只保存 Skill 定位、总体范围、恢复索引和通知条件，不复制完整 Skill 或动态进度。
 
-## 创建或更新
+默认无变化时安静，只通知有意义的变化、完成、失败或需要用户动作。用户明确要求周期通知或固定 cadence 时遵守，不擅自退避。Owner 内部执行由 Owner 负责，PMO Heartbeat 不重复遍历其临时执行者。
 
-- 先确认 cadence、scope、timezone/边界和通知策略；Automation 授权与观察/Owner 授权分开。
-- 同用途原地更新，不并存创建重复 Heartbeat；绑定真实 orchestrator threadId，不使用标题、Owner thread 或 task thread 代替。
-- Heartbeat prompt 只调用 pmo 并保存 skill_locator，不复制本 reference 或完整 Skill。
-- 保留用户明确的 fixed cadence/no-backoff；cadence 不是 freshness，也不能把固定周期当作事实变化。
+## 每次唤醒做什么
 
-## Skill 刷新
+1. 从恢复索引找到活动 Owner、尚未处理变化及当前等待来源。
+2. 获取与这些来源有关的实际增量：新消息、定向任务状态/完成结果、相关 Issue/PR/ref 或外部等待条件。支持 source cursor 的工具直接复用；不支持时读取紧凑当前状态并与已知状态比较。
+3. 没有相关变化且原等待条件仍成立时结束本次检查。不得仅读 checkpoint 或 prompt 就判无变化，也不因周期到期全量重读 DAG、全部 Owner、runtime 和历史日志。
+4. 有变化则按 [event-contract.md](event-contract.md) 核验其影响并执行后继。某个来源不可读时保留它待核实，只暂停依赖该来源的结果批准和写入动作。
 
-Skill 只在被激活、skill_locator 改变、skill_digest 变化或 Skill evidence 失效时完整读取。digest 未变且没有对应 invalidation 时，复用已核验的 Skill evidence；不要因普通 Heartbeat 重复全量读取。
+多目标 wait 首个返回后，尚未核实的其他来源不能被标成已处理；同周期定向查询或保留下一读取动作。查询超时不是没有变化，也不是执行失败。连续无变化允许反复做必要的轻量状态查询，但不重复读取未变的完整证据、派工或通知。
 
-- digest 改变时迁移 checkpoint 到新 locator；不追溯判错旧 generation，不重复派发 Owner、事件或 GitHub 动作。
-- Skill 不可读时，受影响控制周期 fail-closed：不创建、唤醒或 terminal Owner，不改 ownership/dependency，不消费受影响事件；记录 locator 和 wake condition。
+## 扩大读取的条件
 
-## 机械审计路径
+- 范围、验收、依赖或目标 ref 变化：回读相关单元及直接影响的后继/Parent。
+- 同一执行者出现矛盾状态、漏结果或重复归属：回读相关任务与仓库结果，确认唯一执行者并保留成果。
+- 重大用户纠偏、整体目标遗漏或无法定位剩余范围：盘点完整已委任目标。
+- Skill 定位或内容变化：读取变化版本及必要引用；未变化的规则复用。
 
-每次直接事件或周期唤醒必须先计算 change vector，再机械选择一条路径。路径选择不是主观描述，退出条件未满足就升级。
+标题、置顶、普通提交和无变化计时不是全量审计理由。只有确有时效要求的外部证据才按该要求重查，不给所有事实增加通用 TTL 或 sentinel。
 
-| path | entry gate | exit gate |
-|---|---|---|
-| Fast | change vector 为空；没有新 canonical event/source revision/generation/semantic delta/pending receipt/due sentinel；所需 evidence cache 未过期且未命中 invalidation；checkpoint identity 可回读 | 只确认 cursor、cache 和轻量 CAS；发现新变化立即转 Affected-slice 或 Deep |
-| Affected-slice | 有新事件、有限 truth delta 或 due sentinel；change entity 可解析；closure 可完整、有限计算 | 仅重算闭包内事实、必要 evidence 和 successor；closure complete 且 CAS 成功，否则 Deep |
-| Deep Audit | 漏事件/游标断裂、generation 冲突或回退、unknown/incomplete closure、checkpoint/CAS 冲突、truth/skill/runtime evidence 不可信、waiting proof 失效，或安全/权限/数据损失/错误外部结果不确定 | 完整回读受影响事实、纠偏、重建 closure/truth digest/cursor，给 pending receipt disposition，并以 CAS 写入新 checkpoint；下一次无变化才回 Fast |
+## 恢复索引
 
-Fast 命中空 change vector 时只做 cursor/cache/CAS 的轻量确认，立即返回 `KEEP_CURRENT`，不得进入完整同步、DAG、handoff 或全员 runtime/title/pin 循环；Deep 是异常路径，不能成为永久默认。重复唤醒不得重复创建 Owner、派工、写 GitHub 或发送人类通知。
+checkpoint 由 PMO 单一维护，放在项目已有载体或宿主提供的持久位置，只保存：
 
-空 change vector 不产生语义写入：不得递增 semantic revision、写入持久产品/控制状态、改变 generation、全量重算前沿或发送人类消息，也不得在 cursor 未变化时重复读取同一 locator。连续 50 个无 canonical delta 的回归周期必须保持这些计数均为零；轻量 cursor/cache/CAS 读取不等于持久语义写入。
+- 仓库/目标范围、授权和 Skill locator；
+- 每个活动 Owner 的范围与任务 locator、短状态；
+- 尚未处理变化的来源位置，以及宿主支持时的最后读取位置；
+- 未完成结果、当前阻塞或后继的 locator；
+- 下一责任方、动作和唤醒条件。
 
-due sentinel 本身是 Affected-slice 入口，不等待查询结果才选路；范围只包含该 waiting proof 的 subject 及其有限闭包。查询结果未变化且 evidence 可验证时，以 checkpoint CAS 刷新 observed_at、expires_at 和 sentinel_due_at，保持 semantic revision 与人类通知不变，下一次空 change vector 才走 Fast。查询发现 mismatch/new fact 时立即使旧 proof 失效并在该闭包内重算；查询不可用、结果 unknown 或闭包不完整时进入 Deep。
+没有变化无需重写索引。完整目标、Issue、验证报告与日志保留在各自权威来源，checkpoint 不复制第二份状态库。新事实不能被旧摘要覆盖，工具返回的新位置按来源分别保留。
 
-## Affected-slice 闭包
+单一负责人避免并发修改该索引。宿主没有原子写或可靠重放能力时，明确其限制；不要声称手写 CAS/receipt 字段已实现事务语义。恢复前先核验实际任务和相关仓库事实，后继创建前按范围查重，避免重复派工。结果已完成但消息丢失时，按相同验收核验后继续。
 
-从 change entity 沿 Delivery Unit、相关依赖边、Parent/sub-issue、产品出口及直接消费者/前驱求有限传递闭包。闭包结果只允许 complete、unknown、incomplete 三种状态：
+## 等待与退出
 
-- complete：只读取和重算闭包内 facts、evidence、successor 与必要的 convergences。
-- unknown/incomplete：立即进入 Deep，并只暂停可定位的 affected scope；无关且已核验 lane 继续。
-- 关系源不可用、闭包 digest 不稳定或 slice CAS 冲突，都按 unknown 处理，不用旧 handoff 猜测影响范围。
+等待要能回答：什么条件阻塞哪项动作、谁负责、证据在哪里、何时再次查看。没有安全可执行工作且剩余目标均有这些去向时，PMO 可以等待而继续承担总体责任。有活动异步任务时按宿主原生通知/wait 或已授权 Heartbeat 恢复；不能因为 Writer 仍在执行就要求清空它才能等待。
 
-闭包完成后以 source cursor、truth digest、closure digest 和 checkpoint revision 条件提交；提交期间出现新事件不得被旧结果覆盖。
+整体完成或用户取消后，清理本 PMO 的 Automation，避免恢复旧目标。停止旧执行者或 Automation 失败时记录真实残留，不伪造已停止；只隔离受影响写入范围，无冲突工作继续。
 
-## 证据缓存与失效
+## 反馈与评测
 
-每个昂贵 evidence cache 只保存 subject identity、evidence locator/digest、observed_at、expires_at 和 invalidation predicates。没有对应变化且未到期就复用；失效时只重跑对应检查。
+反馈只在有稳定问题、已完成当前产品恢复且用户授权外发时执行。复用共享合同的候选和 canonical repository，去重后发送；不把反馈、标题整理或状态字段变化算作产品进展。
 
-- runtime/title/pin/heartbeat：Owner 创建或恢复、locator 或 generation 改变、宿主异常、证据到期或 runtime policy 改变时复核。
-- DAG/relationship：Issue、依赖、Parent、acceptance、main/head 变化，或闭包未知时复核。
-- GitHub/target head：相关 ref、merge、PR、Issue 状态或 evidence locator 变化时复核。
-- full handoff/checkpoint：恢复、schema/digest 迁移、CAS 冲突或 Deep Audit 时读取；普通 Fast 不读取完整投影。
-
-任何 cache 失效都必须生成 change vector；不能把过期 cache 当作无变化证明。
-
-## 幂等与并发
-
-- 同一 event_key 的 retry 保持同一 canonical fact 和 semantic revision，只增加 sender-local attempt；不产生第二次人类通知。
-- 低于当前可信 generation 的 replay 只留机器审计证据，不覆盖 cursor、checkpoint 或 semantic revision。
-- 每个 source/Owner 独立推进 cursor、pending receipt 和 last observed event；不能用一个 last-event 覆盖并发来源。
-- checkpoint 条件更新至少绑定 checkpoint_revision、source cursor/digest、generation、semantic_revision 和 truth_digest，或使用等价 CAS；旧执行不得回退新状态。
-- receipt、heartbeat、attempt、cursor 和 checkpoint revision 是机器恢复位置；semantic revision 只在产品目标、效果、风险、责任、动作、wake 或 invalidation 实质改变时递增。
-- 同一 generation 的重复唤醒只复用已核验结果；出现新 event、revision、invalidation 或 CAS conflict 才重新选择路径。
-
-## Waiting proof（等待证明）
-
-waiting proof 必须绑定 subject identity、不可替代 external condition、fact/evidence digest、generation/head/revision、responsible party、next actor/action、wake、invalidation、observed_at、freshness/expires_at、sentinel source 和 sentinel_due_at。generation/head/revision、responsible party 与 next actor 还必须逐项等于本周期当前 canonical facts；只有 proof 自身声称新鲜不能构成有效等待。缺字段或绑定不一致即 proof 无效，必须在同周期重算为可执行、待准入或待重塑，不能 KEEP_CURRENT。
-
-- TTL 和 sentinel_due_at 在形成 proof 时按事实波动性与影响确定；不臆测全局固定 TTL/interval。
-- sentinel 只在 due 时查询，不随每次 Heartbeat 重跑；sentinel_due_at 到期先生成该 proof 范围的 Affected-slice change vector。
-- main、merge、Owner、Issue、证据、用户质疑、新 seam/new executable path 或 TTL 到期都会使旧 proof 失效，并进入 Affected-slice 或 Deep；sentinel 查询命中 mismatch/new fact 时同样失效，查询未变化时只按上条刷新 proof，不增加 semantic revision。
-- proof 只能证明指定 subject 在指定 generation/head 上的等待，不得扩大到整个仓库或其他 Owner lane。
-
-## 健康单路径与低频反馈聚合
-
-`width=1` 本身不是异常。只有连续周期没有产品/使能进展，或并行证明因新事实、TTL、sentinel 失效时才审计；证明仍新鲜就复用，不反复审计同一健康 lane。审计必须留下不可并行的具体原因、受影响闭包和下一步。
-
-Unit Owner 按其唯一执行复盘规则形成反馈候选；PMO 只在候选会影响全局出口、ownership、依赖或需要跨 Unit
-去重时消费。相同根因按稳定 fingerprint 合并，新 Unit、Owner、PR、generation 或 Heartbeat 不能产生重复候选。
-
-用户纠偏先恢复产品并重算前沿，再做轻量复盘；明确指出 Skill 行为错误的 `explicit_skill_correction` 单次即可触发。
-PMO 对自身的全局出口、ownership 与依赖行为负责，不接管 Unit 内实现复盘。根因只归为 project、planning、skill
-或 platform；普通单次项目 bug、CI 波动、review finding 或 Heartbeat 不触发反馈，Heartbeat 只恢复漏检。
-
-反馈动作只在当前产品恢复、纠偏、路由、successor、merge/closeout 都已完成后运行。PMO 每次最多完成一次
-去重搜索和一次 create/comment；canonical 仓库由共享机器合同固定，只核验 Skill identity、GitHub capability、仓库
-匹配、去重和脱敏，不要求逐次反馈授权。搜索/工具/write/readback 暂不可用时保持 candidate；只有隐私、目标身份或
-动作越权失败才是 deferred_private。两者都只保存 locator、short status 与 wake condition。
-完整 retrospective 只持久化到 canonical repository 的 Skill feedback Issue；不建 JSON、事故目录或第二数据库。
-fingerprint 只使用 affected skill、根因类别、受约束行为类别和平台合同主版本，不使用 branch、PR、head、Owner、
-Unit、generation 或 Heartbeat。先搜索 open 与近期 closed Issue；同 fingerprint 只追加 occurrence comment，新根因才
-创建 Issue。create/comment 只有回读真实 locator 后才算 submitted，失败时不自动重试或重复创建。
-反馈成功不改变产品 semantic revision，也不修改、安装、更新、重载或发布当前 Skill。
-
-## 最小 checkpoint 与 handoff
-
-checkpoint 是有限的恢复索引，不是状态数据库。至少保留：
-
-- schema/version、checkpoint_revision、repo/ref/head；
-- 每个 source/Owner 的 cursor、source digest、pending receipt locator；
-- semantic_revision、truth_digest、closure_digest；
-- active delivery unit/Owner locator 与短状态；
-- evidence-cache locator、waiting-proof locator；
-- product-frontier closure status 与受影响 gap locators；
-- feedback fingerprint、Issue/last occurrence locator、status 与 next action；
-- next_actor、next_action、wake_condition。
-
-不要保存完整事件、Issue 正文、GitHub 快照、prompt、env、token、完整 DAG、完整 runtime/presentation matrix 或完整日志。handoff 只是人类/发布投影 locator，不复制 checkpoint。
-
-只有 Work Item/依赖/Owner/事件 cursor/receipt/truth digest/ready wave/merge/delivery completion/用户决策/next actor-action-wake 的实质变化才递增 checkpoint revision；普通 push、CI、review 或重复判断不制造 revision 噪声。
-
-## Runtime 与 truth 门禁
-
-PMO 与独立 Owner 使用平台 `owner_runtime_profile`，禁止静默 fallback；只有带 locator 的用户明确指令能覆盖。
-实际 runtime 必须有公开 metadata 或 allowlisted、只读、本机结构化证据；自报、handoff 和事件不算证据。
-具体 profile、回读方式和失败边界见 `$tasks-owner/references/codex-app.md`。
-
-- 编排者 runtime 未核验或不匹配：记录 RUNTIME_LOCK_ANOMALY，停止事件消费和拓扑动作；只有已授权且宿主支持同线程原生恢复时才恢复，并核验下一目标 turn。
-- 单个 Owner runtime 未核验或不匹配：只隔离该 lane，不消费其事件、不转移 carrier、不 closeout/terminal；其他已核验 lane 继续。
-- GitHub、host threads、Automation 和 workspace 分别记录 verified、partial 或 unavailable。partial 只执行完全由已核验 slice 支持的动作；unavailable 只读报告并暂停受影响拓扑动作，不用旧 handoff 猜测。
-
-## Heartbeat 控制周期
-
-1. 直接事件立即触发；周期唤醒先读取 source cursor、pending receipt、invalidation 和 due sentinel，形成 change vector；sentinel_due_at 到期明确进入该 waiting proof 的 Affected-slice，再执行查询。
-2. 选择 Fast、Affected-slice 或 Deep；按路径只读取其允许的 evidence。
-3. 以 checkpoint CAS 写入 cursor、digest、receipt disposition 和 next actor/action/wake；新变化覆盖旧路径并重新选择。
-4. 只有没有安全可执行动作且所有剩余差距都有有效 waiting proof 时才静默；DONT_NOTIFY 不跳过 verdict 或事实核验。
-5. canonical 事件的处理时限仍以 event-contract 的 receipt 记录为准，具体目标只引用平台的
-   `event_action_latency_target`；超时记录真实原因，不绕过门禁。
-
-## Owner 生命周期联动
-
-- 新 Owner 只有标准标题、置顶和专属 Heartbeat 按能力与授权设置并回读后才进入 active；内部 task 不置顶。
-- Owner 完成、撤销或被 canonical Owner 取代后先进入 retiring；暂停/删除专属 Heartbeat、取消活动置顶并回读后才 terminal。
-- Heartbeat、checkpoint、handoff 与实时 GitHub/thread/worktree/runtime 冲突时，以实时事实为准；只纠偏受影响 lane，不冻结无关 lane。
+仓内 JSONL 与重放器证明的是给定事实下的策略与不变量，标记 `recorded_fixture`。真实工具验证须保留工具输入、实际返回及后续结果；不能仅填写 `live_readback` 声称可靠投递。比较版本时固定任务、验收、模型和权限，观察用户介入、阻塞往返、重复完整读取/验证，以及实际观察完成到启动后继的时间。没有真实记录时明确未验证效率收益。
